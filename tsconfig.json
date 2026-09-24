@@ -1,0 +1,7 @@
+{
+  // Editor default. The real checks are `npm run typecheck`, which runs both
+  // tsconfig.node.json and tsconfig.worker.json so the shared core is proven
+  // to compile against Node and Workers globals.
+  "extends": "./tsconfig.node.json",
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

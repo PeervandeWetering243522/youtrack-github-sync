@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "youtrack-gh-mirror",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-24",
+
+  // Scheduled-only Worker: no public URLs at all (docs/04, section 6).
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Non-secret config. Secrets GITHUB_TOKEN and YOUTRACK_TOKEN are set with
+  // `wrangler secret put <NAME>` and never live in this file.
+  "vars": {
+    "GITHUB_REPO": "BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI",
+    "YOUTRACK_BASE_URL": "https://youtrack.ai.buas.nl",
+    "YOUTRACK_PROJECT": "CUI",
+    "YOUTRACK_TITLE_PREFIX": "[team]",
+    "MAX_WRITES_PER_RUN": "30",
+    "DRY_RUN": "true"
+  }
+}
