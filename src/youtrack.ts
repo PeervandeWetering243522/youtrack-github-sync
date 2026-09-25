@@ -156,6 +156,27 @@ export function parseYouTrackIssue(row: JsonValue): YouTrackIssue {
   };
 }
 
+/** Lower-cases A-Z only, so no Unicode case mapping (e.g. U+0131 -> "I") can forge a match. */
+function asciiLowerCase(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+/**
+ * parseYouTrackIssue plus the row sanity check of decision R4: `idReadable` must be
+ * `<project>-<numberInProject>`. The project prefix is compared case-insensitively
+ * (ASCII only), as YouTrack matches shortNames in queries; the number must match exactly.
+ * A mismatch throws YouTrackSchemaError naming both ids, never any issue text.
+ */
+export function parseProjectIssue(row: JsonValue, project: string): YouTrackIssue {
+  const issue = parseYouTrackIssue(row);
+  const expected = `${project}-${String(issue.numberInProject)}`;
+  if (asciiLowerCase(issue.idReadable) === asciiLowerCase(expected)) return issue;
+  throw new YouTrackSchemaError(
+    `YouTrack issue ${JSON.stringify(issue.idReadable)}: idReadable must be ` +
+      `${JSON.stringify(expected)} (<project>-<numberInProject>)`,
+  );
+}
+
 /** `{baseUrl}/api/issues` with the query, fields and paging parameters of one page. */
 function issuesPageUrl(source: YouTrackSource, skip: number): string {
   const params = new URLSearchParams({
@@ -167,7 +188,7 @@ function issuesPageUrl(source: YouTrackSource, skip: number): string {
   return `${source.baseUrl}/api/issues?${params.toString()}`;
 }
 
-/** GETs and validates one page. The body must be a JSON array of issue rows. */
+/** GETs and validates one page. The body must be a JSON array of `source.project` issue rows. */
 async function fetchIssuePage(
   http: HttpClient,
   source: YouTrackSource,
@@ -184,7 +205,7 @@ async function fetchIssuePage(
     const page = `YouTrack /api/issues page at $skip=${String(skip)}`;
     throw new YouTrackSchemaError(`${page} must be a JSON array, got ${jsonKind(rows)}`);
   }
-  return rows.map((row) => parseYouTrackIssue(row));
+  return rows.map((row) => parseProjectIssue(row, source.project));
 }
 
 /** Keeps the first row per numberInProject (a result set that shifts mid-scan can repeat a row). */
@@ -200,7 +221,8 @@ function dedupeByNumberInProject(issues: readonly YouTrackIssue[]): readonly You
 /**
  * Full project scan: GET {baseUrl}/api/issues?query=...&fields=...&$top=100&$skip=n,
  * paging until a page shorter than $top. Headers: Authorization: Bearer <token>,
- * Accept: application/json. retry: "retry-once". Deduplicates by numberInProject.
+ * Accept: application/json. retry: "retry-once". Every row goes through
+ * parseProjectIssue (decision R4), then the result is deduplicated by numberInProject.
  * Any non-2xx propagates (a 400 is a query bug, never "no issues").
  */
 export async function fetchProjectIssues(

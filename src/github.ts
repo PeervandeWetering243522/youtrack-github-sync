@@ -44,7 +44,7 @@ export class GitHubSchemaError extends Error {
   }
 }
 
-/** Only Link targets under this prefix are followed, so the token never leaves GitHub's API host. */
+/** Followed Link targets must use this exact spelling (no case/port/dot/%-encoded variants), so the token stays on GitHub. */
 const TRUSTED_LINK_PREFIX = `${GITHUB_API_BASE}/`;
 
 /** Longest prefix (in code points) of an untrusted string quoted in an error message. */
@@ -89,8 +89,9 @@ export function parseGitHubIssue(value: JsonValue): GitHubIssue {
 }
 
 /**
- * Extracts the rel="next" URL from a Link header, or null. Must accept only
- * https://api.github.com URLs (never follow a Link to another host with our token).
+ * Extracts the rel="next" URL from a Link header, verbatim, or null. Accepts only URLs
+ * spelled "https://api.github.com/..." that also parse to that origin without userinfo
+ * (never follow a Link to another host with our token).
  */
 export function nextPageUrl(linkHeader: string | null): string | null {
   const next = findNextLink(linkHeader);
@@ -286,8 +287,10 @@ function findNextLink(linkHeader: string | null): string | null {
   return next?.url ?? null;
 }
 
+/** Needs the exact prefix, and fetch()'s WHATWG parse must then give exactly the API origin with no userinfo. */
 function isTrustedUrl(url: string): boolean {
-  return url.startsWith(TRUSTED_LINK_PREFIX);
+  const parsed = url.startsWith(TRUSTED_LINK_PREFIX) ? URL.parse(url) : null;
+  return parsed?.origin === GITHUB_API_BASE && parsed.username === "" && parsed.password === "";
 }
 
 /**

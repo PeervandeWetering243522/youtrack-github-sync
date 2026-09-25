@@ -52,19 +52,21 @@ export class ConfigError extends Error {
 
 /**
  * Rules:
- * - GITHUB_TOKEN, YOUTRACK_TOKEN: required, non-empty after trim; never echoed in errors.
+ * - GITHUB_TOKEN, YOUTRACK_TOKEN: required; after trim, printable ASCII only
+ *   (/^[\x21-\x7e]+$/: no whitespace, control or non-ASCII characters). Never echoed in errors.
  * - GITHUB_REPO: required, "owner/repo" (GitHub name charset).
  * - YOUTRACK_BASE_URL: required, absolute https URL; trailing slashes removed.
- * - YOUTRACK_PROJECT: required, /^[A-Za-z0-9_-]+$/ (it is interpolated into a search query).
+ * - YOUTRACK_PROJECT: required, /^[A-Za-z0-9][A-Za-z0-9_-]*$/. It is interpolated into a
+ *   search query, and a leading "-" is YouTrack's minus (exclusion) operator (docs/01).
  * - YOUTRACK_TITLE_PREFIX: optional, default DEFAULT_TITLE_PREFIX; must be non-empty if set.
  * - MAX_WRITES_PER_RUN: optional, default DEFAULT_MAX_WRITES_PER_RUN; integer 0..MAX_WRITES_LIMIT.
  * - DRY_RUN: optional; only the exact string "false" (case-insensitive, trimmed) disables it.
  */
 export function parseConfig(env: EnvSource): Config {
-  const githubToken = requireValue("GITHUB_TOKEN", env.GITHUB_TOKEN);
+  const githubToken = requireToken("GITHUB_TOKEN", env.GITHUB_TOKEN);
   const repository = andThen(requireValue("GITHUB_REPO", env.GITHUB_REPO), parseRepository);
   const baseUrl = andThen(requireValue("YOUTRACK_BASE_URL", env.YOUTRACK_BASE_URL), parseBaseUrl);
-  const youtrackToken = requireValue("YOUTRACK_TOKEN", env.YOUTRACK_TOKEN);
+  const youtrackToken = requireToken("YOUTRACK_TOKEN", env.YOUTRACK_TOKEN);
   const project = andThen(requireValue("YOUTRACK_PROJECT", env.YOUTRACK_PROJECT), parseProject);
   const titlePrefix = optionalValue(env.YOUTRACK_TITLE_PREFIX, DEFAULT_TITLE_PREFIX, parseTitlePrefix);
   const maxWrites = optionalValue(env.MAX_WRITES_PER_RUN, DEFAULT_MAX_WRITES_PER_RUN, parseMaxWrites);
@@ -101,10 +103,13 @@ type Valid<T> = { readonly ok: true; readonly value: T };
 type Invalid = { readonly ok: false; readonly problems: readonly string[] };
 
 type Repository = { readonly owner: string; readonly repo: string };
+type TokenKey = Extract<EnvKey, "GITHUB_TOKEN" | "YOUTRACK_TOKEN">;
 
 const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const GITHUB_REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
-const YOUTRACK_PROJECT_PATTERN = /^[A-Za-z0-9_-]+$/;
+const YOUTRACK_PROJECT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/** Printable ASCII, "!" (0x21) to "~" (0x7e): no space, control or non-ASCII characters. */
+const TOKEN_PATTERN = /^[\x21-\x7e]+$/;
 const DIGITS_PATTERN = /^\d+$/;
 
 function valid<T>(value: T): Valid<T> {
@@ -123,6 +128,19 @@ function andThen<T, U>(result: FieldResult<T>, next: (value: T) => FieldResult<U
 function requireValue(key: EnvKey, raw: string | undefined): FieldResult<string> {
   const value = raw?.trim() ?? "";
   return value === "" ? invalid(`${key} is missing`) : valid(value);
+}
+
+/**
+ * Required token, sent verbatim in an `Authorization` header. Whitespace, control or
+ * non-ASCII characters inside it are a paste error (and CR, LF or non-Latin-1 characters
+ * make fetch throw), so they fail here. The problem names the key, never the value.
+ */
+function requireToken(key: TokenKey, raw: string | undefined): FieldResult<string> {
+  return andThen(requireValue(key, raw), (value) =>
+    TOKEN_PATTERN.test(value)
+      ? valid(value)
+      : invalid(`${key} must contain only printable ASCII characters (no spaces or control characters)`),
+  );
 }
 
 /** Optional setting: `undefined` means the default; anything set is trimmed and validated. */
@@ -184,10 +202,11 @@ function stripTrailingSlashes(value: string): string {
   return value.slice(0, end);
 }
 
+/** A leading "-" would turn `project: -CUI` into an exclusion, so the first character is a letter or digit. */
 function parseProject(value: string): FieldResult<string> {
   return YOUTRACK_PROJECT_PATTERN.test(value)
     ? valid(value)
-    : invalid('YOUTRACK_PROJECT must contain only letters, digits, "_" or "-"');
+    : invalid('YOUTRACK_PROJECT must start with a letter or digit and contain only letters, digits, "_" or "-"');
 }
 
 function parseTitlePrefix(value: string): FieldResult<string> {

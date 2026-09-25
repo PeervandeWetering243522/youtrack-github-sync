@@ -1,32 +1,34 @@
 /**
  * One sync run. Runtime-agnostic: depends only on `fetch` (passed in) and the
  * pure modules. Used by src/worker.ts and src/node.ts.
+ * The write phase lives in src/sync/execute.ts, log redaction in src/sync/log.ts.
  */
 
 import type { Config } from "./config.ts";
-import { addLabel, closeIssue, createIssue, listAllIssues, MIRROR_LABEL } from "./github.ts";
-import type { CreateIssueBody, GitHubIssue, GitHubTarget } from "./github.ts";
+import { listAllIssues, MIRROR_LABEL } from "./github.ts";
+import type { GitHubTarget } from "./github.ts";
 import {
   createHttpClient,
   DEFAULT_MAX_FETCHES,
   DEFAULT_MAX_RETRY_AFTER_MS,
   DEFAULT_RETRY_DELAY_MS,
   DEFAULT_TIMEOUT_MS,
-  FetchBudgetExceededError,
   USER_AGENT,
 } from "./http.ts";
 import type { HttpClient } from "./http.ts";
 import { formatMirror } from "./mirror.ts";
-import { buildMirrorIndex, planActions, writeCost } from "./plan.ts";
+import { buildMirrorIndex, planActions } from "./plan.ts";
 import type { Action, MirrorIndex, Plan } from "./plan.ts";
+import { executeActions, githubWriter } from "./sync/execute.ts";
+import { redactingLogger, secretRedactor } from "./sync/log.ts";
+import type { Logger, Redact } from "./sync/log.ts";
+import { combine, mirrorName, NOTHING } from "./sync/tally.ts";
+import type { Tally } from "./sync/tally.ts";
 import { fetchProjectIssues } from "./youtrack.ts";
 import type { YouTrackIssue, YouTrackSource } from "./youtrack.ts";
 
-export type Logger = {
-  readonly info: (message: string) => void;
-  readonly warn: (message: string) => void;
-  readonly error: (message: string) => void;
-};
+export type { Logger } from "./sync/log.ts";
+export { WRITE_PAUSE_MS } from "./sync/execute.ts";
 
 export type SyncDeps = {
   readonly fetch: typeof fetch;
@@ -49,9 +51,6 @@ export type RunSummary = {
   readonly failed: number;
   readonly fetches: number;
 };
-
-/** Pause between GitHub writes (GitHub best practice: serial, >= 1 s apart). */
-export const WRITE_PAUSE_MS = 1_000;
 
 /** Thrown after the summary is logged when any write failed (decision A10). */
 export class SyncFailedError extends Error {
@@ -84,8 +83,11 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
  *    intended write ("[dry-run] would create ...", "[dry-run] would close ...") and send nothing.
  *    - create: POST; if the response lacks MIRROR_LABEL and writes remain, addLabel
  *      (counts as a write); if closeAfter, close. A failed create skips its close.
- *    - a failed write is recorded and execution continues;
- *    - FetchBudgetExceededError stops execution; remaining actions count as capped.
+ *    - a failed write (HttpError / NetworkError) is recorded and execution continues. That
+ *      includes a write that was sent and failed but whose retry the fetch budget could not
+ *      pay for: it really failed (decision A10);
+ *    - FetchBudgetExceededError (the budget refused a write before sending anything) stops
+ *      execution; that action and the remaining ones count as capped.
  * 5. Log formatSummary; throw SyncFailedError if any write failed.
  * Read failures: log a "failed" summary line, then rethrow the original error.
  * Tokens must never appear in logs.
@@ -135,11 +137,6 @@ const SUMMARY_FIELDS = [
   "fetches",
 ] as const satisfies readonly (keyof RunSummary)[];
 const DRY_RUN_TAG = "[dry-run]";
-/** Shorter "secrets" are not redacted, so a junk value cannot garble every log line; real tokens are far longer. */
-const MIN_SECRET_CHARS = 8;
-const REDACTED = "[redacted]";
-
-type Redact = (text: string) => string;
 
 /** Everything one run shares. */
 type RunContext = {
@@ -152,45 +149,11 @@ type RunContext = {
 
 type Inputs = { readonly mirrors: MirrorIndex; readonly youtrackIssues: readonly YouTrackIssue[] };
 
-/** What some actions did; merged into the run totals with `combine`. */
-type Tally = {
-  readonly created: number;
-  readonly closed: number;
-  readonly labelsReAdded: number;
-  /** Actions (or the close of a create+close pair) left undone by the write cap or the fetch guard. */
-  readonly capped: number;
-  readonly failures: readonly string[];
-  /** The fetch guard ran out: nothing after this may run. */
-  readonly stopped: boolean;
-};
+type PlanCounts = Pick<Plan, "scanned" | "filtered" | "unchanged" | "capped">;
 
-const NOTHING: Tally = { created: 0, closed: 0, labelsReAdded: 0, capped: 0, failures: [], stopped: false };
-/** A planned write the fetch guard refused: the action is capped and execution stops. */
-const OUT_OF_FETCHES: Tally = { ...NOTHING, capped: 1, stopped: true };
-const NO_PLAN: Pick<Plan, "scanned" | "filtered" | "unchanged" | "capped"> = {
-  scanned: 0,
-  filtered: 0,
-  unchanged: 0,
-  capped: 0,
-};
+const NO_PLAN: PlanCounts = { scanned: 0, filtered: 0, unchanged: 0, capped: 0 };
 
-function combine(a: Tally, b: Tally): Tally {
-  return {
-    created: a.created + b.created,
-    closed: a.closed + b.closed,
-    labelsReAdded: a.labelsReAdded + b.labelsReAdded,
-    capped: a.capped + b.capped,
-    failures: [...a.failures, ...b.failures],
-    stopped: a.stopped || b.stopped,
-  };
-}
-
-function toSummary(
-  dryRun: boolean,
-  counts: Pick<Plan, "scanned" | "filtered" | "unchanged" | "capped">,
-  tally: Tally,
-  fetches: number,
-): RunSummary {
+function toSummary(dryRun: boolean, counts: PlanCounts, tally: Tally, fetches: number): RunSummary {
   return {
     dryRun,
     scanned: counts.scanned,
@@ -202,32 +165,6 @@ function toSummary(
     capped: counts.capped + tally.capped,
     failed: tally.failures.length,
     fetches,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Secrets
-
-/** Replaces every occurrence of each secret, longest first (one may contain another). */
-function secretRedactor(secrets: readonly string[]): Redact {
-  const redactable = secrets
-    .filter((secret) => secret.length >= MIN_SECRET_CHARS)
-    .toSorted((a, b) => b.length - a.length);
-  return (text) => redactable.reduce((result, secret) => result.replaceAll(secret, REDACTED), text);
-}
-
-/** Every line passes through `redact`, whatever produced it (error bodies, issue titles). */
-function redactingLogger(log: Logger, redact: Redact): Logger {
-  return {
-    info: (message) => {
-      log.info(redact(message));
-    },
-    warn: (message) => {
-      log.warn(redact(message));
-    },
-    error: (message) => {
-      log.error(redact(message));
-    },
   };
 }
 
@@ -260,11 +197,6 @@ async function readInputs(run: RunContext): Promise<Inputs> {
 // ---------------------------------------------------------------------------
 // Actions
 
-/** How issues are named in log lines; numbers only, like the mirror title prefix. */
-function mirrorName(issue: YouTrackIssue): string {
-  return `YT-${String(issue.numberInProject)}`;
-}
-
 /**
  * The only way to a GitHub write: the writer is built here, and only when dry run is
  * off. The dry-run path gets neither the writer nor the HTTP client.
@@ -284,9 +216,7 @@ async function performActions(actions: readonly Action[], run: RunContext): Prom
 
 /** Dry run: logs each write that would be sent and counts it. */
 function previewActions(actions: readonly Action[], youtrackBaseUrl: string, log: Logger): Tally {
-  let tally = NOTHING;
-  for (const action of actions) tally = combine(tally, previewAction(action, youtrackBaseUrl, log));
-  return tally;
+  return actions.reduce((tally, action) => combine(tally, previewAction(action, youtrackBaseUrl, log)), NOTHING);
 }
 
 function previewAction(action: Action, youtrackBaseUrl: string, log: Logger): Tally {
@@ -301,148 +231,5 @@ function previewAction(action: Action, youtrackBaseUrl: string, log: Logger): Ta
     case "close":
       log.info(`${DRY_RUN_TAG} would close ${name} #${String(action.mirror.issueNumber)}`);
       return { ...NOTHING, closed: 1 };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Real writes
-
-/** GitHub writes, sent one at a time and WRITE_PAUSE_MS apart. */
-type GitHubWriter = {
-  readonly create: (body: CreateIssueBody) => Promise<GitHubIssue>;
-  readonly close: (issueNumber: number) => Promise<void>;
-  readonly addLabel: (issueNumber: number) => Promise<void>;
-  /** Writes attempted so far; each one counts against MAX_WRITES_PER_RUN. */
-  readonly count: () => number;
-};
-
-type WriteContext = {
-  readonly writer: GitHubWriter;
-  readonly log: Logger;
-  readonly redact: Redact;
-  readonly youtrackBaseUrl: string;
-  readonly maxWrites: number;
-};
-
-type WriteOutcome<T> =
-  | { readonly kind: "ok"; readonly value: T }
-  | { readonly kind: "failed"; readonly reason: string }
-  | { readonly kind: "out-of-fetches" };
-
-function githubWriter(http: HttpClient, target: GitHubTarget, sleep: (ms: number) => Promise<void>): GitHubWriter {
-  let writes = 0;
-  const send = async <T>(write: () => Promise<T>): Promise<T> => {
-    // No pause before the first write, nor before one the fetch guard is going to refuse.
-    if (writes > 0 && http.remainingFetches() > 0) await sleep(WRITE_PAUSE_MS);
-    writes += 1;
-    return write();
-  };
-  return {
-    create: (body) => send(() => createIssue(http, target, body)),
-    close: (issueNumber) => send(() => closeIssue(http, target, issueNumber)),
-    addLabel: (issueNumber) => send(() => addLabel(http, target, issueNumber, MIRROR_LABEL)),
-    count: () => writes,
-  };
-}
-
-/** Runs the actions in order until the write cap or the fetch guard stops it. */
-async function executeActions(actions: readonly Action[], context: WriteContext): Promise<Tally> {
-  let tally = NOTHING;
-  for (const [position, action] of actions.entries()) {
-    const notYetRun = actions.length - position;
-    // planActions capped by writeCost; label re-adds are extra writes it could not foresee.
-    if (context.writer.count() + writeCost(action) > context.maxWrites) {
-      return combine(tally, { ...NOTHING, capped: notYetRun });
-    }
-    tally = combine(tally, await executeAction(action, context));
-    if (tally.stopped) {
-      const rest = notYetRun - 1;
-      context.log.warn(`fetch guard of ${String(DEFAULT_MAX_FETCHES)} reached; ${String(rest)} more action(s) capped`);
-      return combine(tally, { ...NOTHING, capped: rest });
-    }
-  }
-  return tally;
-}
-
-function executeAction(action: Action, context: WriteContext): Promise<Tally> {
-  switch (action.kind) {
-    case "create":
-      return executeCreate(action.issue, action.closeAfter, context);
-    case "close":
-      return executeClose(action.issue, action.mirror.issueNumber, context);
-  }
-}
-
-/** A failed write becomes a value; the fetch guard's refusal is told apart from other errors. */
-async function attemptWrite<T>(write: () => Promise<T>): Promise<WriteOutcome<T>> {
-  try {
-    return { kind: "ok", value: await write() };
-  } catch (error) {
-    if (error instanceof FetchBudgetExceededError) return { kind: "out-of-fetches" };
-    return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-/** Logs and records one failed write; the run goes on and throws at the end (decision A10). */
-function failure(context: WriteContext, message: string): Tally {
-  const redacted = context.redact(message);
-  context.log.error(redacted);
-  return { ...NOTHING, failures: [redacted] };
-}
-
-async function executeCreate(issue: YouTrackIssue, closeAfter: boolean, context: WriteContext): Promise<Tally> {
-  const name = mirrorName(issue);
-  const mirror = formatMirror(issue, context.youtrackBaseUrl);
-  const body = { title: mirror.title, body: mirror.body, labels: [MIRROR_LABEL] } satisfies CreateIssueBody;
-  const outcome = await attemptWrite(() => context.writer.create(body));
-  if (outcome.kind === "out-of-fetches") return OUT_OF_FETCHES;
-  // A failed create skips its close: there is no issue to close.
-  if (outcome.kind === "failed") return failure(context, `create ${name} failed: ${outcome.reason}`);
-  const created = outcome.value;
-  context.log.info(`create ${name} -> #${String(created.number)}`);
-  const labelled = combine({ ...NOTHING, created: 1 }, await ensureLabel(created, name, closeAfter, context));
-  if (!closeAfter) return labelled;
-  // The fetch guard refused the label re-add, so it would refuse the close too.
-  if (labelled.stopped) return combine(labelled, { ...NOTHING, capped: 1 });
-  return combine(labelled, await executeClose(issue, created.number, context));
-}
-
-/**
- * Re-adds MIRROR_LABEL when the 201 response lacks it (decision A5), if a write is
- * left after the pending close. Without it the next run still matches the mirror by title.
- */
-async function ensureLabel(created: GitHubIssue, name: string, closeAfter: boolean, context: WriteContext): Promise<Tally> {
-  const wanted = MIRROR_LABEL.toLowerCase();
-  if (created.labelNames.some((label) => label.toLowerCase() === wanted)) return NOTHING;
-  const what = `${name} #${String(created.number)}`;
-  const notReAdded = `${what} was created without the "${MIRROR_LABEL}" label and it was not re-added`;
-  if (context.writer.count() + (closeAfter ? 1 : 0) >= context.maxWrites) {
-    context.log.warn(`${notReAdded} (write cap reached)`);
-    return NOTHING;
-  }
-  const outcome = await attemptWrite(() => context.writer.addLabel(created.number));
-  switch (outcome.kind) {
-    case "ok":
-      context.log.info(`label ${what}`);
-      return { ...NOTHING, labelsReAdded: 1 };
-    case "failed":
-      return failure(context, `label ${what} failed: ${outcome.reason}`);
-    case "out-of-fetches":
-      context.log.warn(`${notReAdded} (fetch guard reached)`);
-      return { ...NOTHING, stopped: true };
-  }
-}
-
-async function executeClose(issue: YouTrackIssue, issueNumber: number, context: WriteContext): Promise<Tally> {
-  const what = `${mirrorName(issue)} #${String(issueNumber)}`;
-  const outcome = await attemptWrite(() => context.writer.close(issueNumber));
-  switch (outcome.kind) {
-    case "ok":
-      context.log.info(`close ${what}`);
-      return { ...NOTHING, closed: 1 };
-    case "failed":
-      return failure(context, `close ${what} failed: ${outcome.reason}`);
-    case "out-of-fetches":
-      return OUT_OF_FETCHES;
   }
 }
