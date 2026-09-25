@@ -86,7 +86,7 @@ function assertCountsAddUp(result: Plan): void {
 // buildMirrorIndex
 // ---------------------------------------------------------------------------
 
-void describe("buildMirrorIndex: matching", () => {
+describe("buildMirrorIndex: matching", () => {
   void it("returns an empty index and no warnings for an empty list", () => {
     const result = buildMirrorIndex(Object.freeze([]), LABEL);
 
@@ -199,7 +199,7 @@ void describe("buildMirrorIndex: matching", () => {
   });
 });
 
-void describe("buildMirrorIndex: precedence and warnings", () => {
+describe("buildMirrorIndex: precedence and warnings", () => {
   void it("prefers a labelled candidate over an unlabelled one with a lower number", () => {
     const issues = Object.freeze([unlabelled(12, "[YT-5] Old"), ghIssue(15, "[YT-5] New")]);
 
@@ -338,7 +338,7 @@ void describe("buildMirrorIndex: precedence and warnings", () => {
 // writeCost
 // ---------------------------------------------------------------------------
 
-void describe("writeCost", () => {
+describe("writeCost", () => {
   void it("costs 1 for a create of an unresolved issue", () => {
     assert.equal(writeCost({ kind: "create", issue: ytIssue(1), closeAfter: false }), 1);
   });
@@ -356,7 +356,7 @@ void describe("writeCost", () => {
 // planActions
 // ---------------------------------------------------------------------------
 
-void describe("planActions: decisions", () => {
+describe("planActions: decisions", () => {
   void it("creates a mirror for an unresolved issue without one, not closed after", () => {
     const issue = ytIssue(3);
 
@@ -462,7 +462,7 @@ void describe("planActions: decisions", () => {
   });
 });
 
-void describe("planActions: title prefix filter", () => {
+describe("planActions: title prefix filter", () => {
   void it("skips issues whose summary lacks the prefix, even without a mirror", () => {
     const issues = [ytIssue(1, { summary: "Fix [team] later" }), resolvedIssue(2, { summary: "Unrelated" })];
 
@@ -515,7 +515,7 @@ void describe("planActions: title prefix filter", () => {
   });
 });
 
-void describe("planActions: order and counts", () => {
+describe("planActions: order and counts", () => {
   void it("orders actions by ascending numberInProject regardless of input order", () => {
     const issues = [ytIssue(9), resolvedIssue(2), ytIssue(27), resolvedIssue(5), ytIssue(1)];
     const mirrors = lockedMap([[5, mirror(40)]]);
@@ -555,7 +555,7 @@ void describe("planActions: order and counts", () => {
   });
 });
 
-void describe("planActions: write cap", () => {
+describe("planActions: write cap", () => {
   void it("takes every action when their costs exactly fill the cap", () => {
     const issues = [ytIssue(1), resolvedIssue(2), resolvedIssue(3)];
     const mirrors = lockedMap([[3, mirror(20)]]);
@@ -672,7 +672,7 @@ void describe("planActions: write cap", () => {
   });
 });
 
-void describe("planActions: immutability", () => {
+describe("planActions: immutability", () => {
   void it("leaves frozen issues, their order and a locked mirror map untouched", () => {
     const issues = Object.freeze([resolvedIssue(9), ytIssue(2), resolvedIssue(5)]);
     const mirrors = lockedMap([[5, mirror(40)]]);

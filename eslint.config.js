@@ -45,6 +45,15 @@ export default tseslint.config(
         { assertionStyle: "as", objectLiteralTypeAssertions: "never" },
       ],
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // node:test's describe/it return promises the runner tracks itself.
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        {
+          allowForKnownSafeCalls: [
+            { from: "package", package: "node:test", name: ["describe", "it", "test", "suite"] },
+          ],
+        },
+      ],
       eqeqeq: ["error", "always"],
       "no-console": "off",
     },
