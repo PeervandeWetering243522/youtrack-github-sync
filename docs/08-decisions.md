@@ -28,3 +28,7 @@
 | R2 | Prefix removed after mirroring | Keep as is: an issue without the prefix is ignored entirely, even if a mirror exists. | Decided |
 | R3 | Log content | Per-action log lines may include issue titles (never descriptions or tokens). | Decided |
 | R4 | Row sanity check | Every YouTrack row must have `idReadable` = `<project>-<numberInProject>`; otherwise the run fails. | Decided |
+| R5 | Summary fields | Line order `scanned created closed skipped capped failed`, where `skipped` = `filtered` + `unchanged`, then the breakdown (`filtered`, `unchanged`, `labelsReAdded`, `fetches`) and `dryRun`. | Decided |
+| R6 | Pair that does not fit the cap | When a create+close pair alone exceeds the remaining writes but a create fits, create now; the next run closes it. Oldest-first is kept (nothing jumps ahead). | Decided |
+| R7 | GitHub rate limit mid-run | On a rate-limited write (403/429 with `x-ratelimit-remaining: 0` or retry-after): record it as failed, stop writing, count the rest as capped. | Decided |
+| R8 | Run deadline | No new write starts later than 8 min after the scheduled time (Worker: `controller.scheduledTime`; Node: process start); the rest counts as capped with a warning. systemd `TimeoutStartSec=10min` as a hard backstop. | Decided |
