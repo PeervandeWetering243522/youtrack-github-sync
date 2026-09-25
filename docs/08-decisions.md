@@ -23,4 +23,8 @@
 | C | Project reference | `project: CUI` (shortName; full name "ComfyUI 26-27S1"). | Decided |
 | T1 | Types | YouTrack types generated with openapi-typescript; derive-and-narrow `FetchedIssue` (nullable `resolved`/`description`) + runtime guard. | Decided |
 | T2 | Toolchain | TypeScript 5.9 + ESLint/typescript-eslint `strictTypeChecked`; `any` banned; `unknown` only at the JSON boundary. | Decided |
-| G1 | GitHub label | `youtrack` label does not exist yet; to be created once by hand, not by the script. | Proposed |
+| G1 | GitHub label | `youtrack` label created once by hand (done); the script never creates it. Label checks are case-insensitive. | Decided |
+| R1 | `mirror.ts` size | Keep the full CommonMark-aware neutralisation, but split it into util modules under `src/utils/`. | Decided |
+| R2 | Prefix removed after mirroring | Keep as is: an issue without the prefix is ignored entirely, even if a mirror exists. | Decided |
+| R3 | Log content | Per-action log lines may include issue titles (never descriptions or tokens). | Decided |
+| R4 | Row sanity check | Every YouTrack row must have `idReadable` = `<project>-<numberInProject>`; otherwise the run fails. | Decided |
