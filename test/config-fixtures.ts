@@ -35,14 +35,22 @@ export const EXPECTED_CONFIG: Config = {
   dryRun: true,
 };
 
-const REQUIRED_KEYS = ["GITHUB_TOKEN", "GITHUB_REPO", "YOUTRACK_BASE_URL", "YOUTRACK_TOKEN", "YOUTRACK_PROJECT"] as const;
+const REQUIRED_KEYS = [
+  "GITHUB_TOKEN",
+  "GITHUB_REPO",
+  "YOUTRACK_BASE_URL",
+  "YOUTRACK_TOKEN",
+  "YOUTRACK_PROJECT",
+] as const;
 export const MISSING_PROBLEMS = REQUIRED_KEYS.map((key) => `${key} is missing`);
 
 const TOKEN_RULE = "must contain only printable ASCII characters (no spaces or control characters)";
 export const GITHUB_TOKEN_PROBLEM = `GITHUB_TOKEN ${TOKEN_RULE}`;
 export const YOUTRACK_TOKEN_PROBLEM = `YOUTRACK_TOKEN ${TOKEN_RULE}`;
-export const OWNER_PROBLEM = "GITHUB_REPO owner must be 1-39 letters, digits or hyphens, starting with a letter or digit";
-export const REPO_PROBLEM = 'GITHUB_REPO repository must be 1-100 letters, digits, ".", "_" or "-", and not "." or ".."';
+export const OWNER_PROBLEM =
+  "GITHUB_REPO owner must be 1-39 letters, digits or hyphens, starting with a letter or digit";
+export const REPO_PROBLEM =
+  'GITHUB_REPO repository must be 1-100 letters, digits, ".", "_" or "-", and not "." or ".."';
 export const REPO_SHAPE_PROBLEM = 'GITHUB_REPO must have the form "owner/repo"';
 export const URL_INVALID_PROBLEM = "YOUTRACK_BASE_URL is not a valid absolute URL";
 export const URL_HTTPS_PROBLEM = "YOUTRACK_BASE_URL must use https";

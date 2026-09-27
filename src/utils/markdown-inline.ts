@@ -91,7 +91,7 @@ function union(a: ReadonlySet<number>, b: ReadonlySet<number>): ReadonlySet<numb
 /** Every maximal backtick run, in order. */
 function backtickRuns(line: string): readonly Range[] {
   const runs: Range[] = [];
-  for (let start = line.indexOf("`"); start !== -1; ) {
+  for (let start = line.indexOf("`"); start !== -1;) {
     let end = start;
     while (line.charAt(end) === "`") end += 1;
     runs.push({ start, end });
@@ -106,7 +106,10 @@ function backtickRuns(line: string): readonly Range[] {
  * otherwise it opens, minus a first backtick escaped by an odd backslash run
  * (backslashes before a run are never inside a span, which ends with a backtick).
  */
-function lineCodeSpans(line: string, runs: readonly Range[]): { readonly spans: readonly Range[]; readonly literal: ReadonlySet<number> } {
+function lineCodeSpans(
+  line: string,
+  runs: readonly Range[],
+): { readonly spans: readonly Range[]; readonly literal: ReadonlySet<number> } {
   const starts = startsByLength(runs);
   const spans: Range[] = [];
   const literal = new Set<number>();
@@ -131,7 +134,10 @@ function lineCodeSpans(line: string, runs: readonly Range[]): { readonly spans: 
  * A run after an odd backslash can open a span one shorter; that length always
  * counts, paired or not, so wrapping inside a pair cannot add a new length.
  */
-function adjacentPairs(line: string, runs: readonly Range[]): { readonly pairs: readonly Pair[]; readonly unpaired: ReadonlySet<number> } {
+function adjacentPairs(
+  line: string,
+  runs: readonly Range[],
+): { readonly pairs: readonly Pair[]; readonly unpaired: ReadonlySet<number> } {
   const pairs: Pair[] = [];
   const unpaired = new Set(
     runs.filter((run) => runLength(run) > 1 && isEscaped(line, run.start)).map((run) => runLength(run) - 1),

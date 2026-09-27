@@ -42,8 +42,14 @@ describe("classifyLine", () => {
   it("opens containers for block quotes and list items", () => {
     const quote = stateAfter("> text");
     const item = stateAfter("- text");
-    assert.deepEqual(quote.containers.map((container) => container.kind), ["quote"]);
-    assert.deepEqual(item.containers.map((container) => container.kind), ["item"]);
+    assert.deepEqual(
+      quote.containers.map((container) => container.kind),
+      ["quote"],
+    );
+    assert.deepEqual(
+      item.containers.map((container) => container.kind),
+      ["item"],
+    );
     assert.equal(quote.leaf?.kind, "paragraph");
   });
 });
@@ -67,7 +73,16 @@ describe("blockCloser", () => {
   });
 
   it("returns nothing when no block is open, or a blank line or an unindented line ends it", () => {
-    for (const markdown of ["", "text", "```\nx\n```", "<!-- x -->", "<div>\nx", "    code", "- ```\n  x", "> ```\n> x"]) {
+    for (const markdown of [
+      "",
+      "text",
+      "```\nx\n```",
+      "<!-- x -->",
+      "<div>\nx",
+      "    code",
+      "- ```\n  x",
+      "> ```\n> x",
+    ]) {
       assert.equal(blockCloser(stateAfter(markdown)), "", markdown);
     }
     assert.equal(blockCloser(EMPTY_STATE), "");

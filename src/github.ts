@@ -12,9 +12,7 @@ type IssueSchema = components["schemas"]["issue"];
 type AddLabelsBody = NonNullable<operations["issues/add-labels"]["requestBody"]>["content"]["application/json"];
 
 export type CreateIssueBody = operations["issues/create"]["requestBody"]["content"]["application/json"];
-export type UpdateIssueBody = NonNullable<
-  operations["issues/update"]["requestBody"]
->["content"]["application/json"];
+export type UpdateIssueBody = NonNullable<operations["issues/update"]["requestBody"]>["content"]["application/json"];
 
 export type IssueState = "open" | "closed";
 
@@ -122,10 +120,7 @@ export function nextPageUrl(linkHeader: string | null): string | null {
  * retry: "retry-once". Throws GitHubSchemaError for a page that is not an array of
  * issues, a Link header nextPageUrl rejects, or a page fetched twice.
  */
-export async function listAllIssues(
-  http: HttpClient,
-  target: GitHubTarget,
-): Promise<readonly GitHubIssue[]> {
+export async function listAllIssues(http: HttpClient, target: GitHubTarget): Promise<readonly GitHubIssue[]> {
   const pages: (readonly GitHubIssue[])[] = [];
   const visited = new Set<string>();
   let url: string | null = `${issuesUrl(target)}?state=all&per_page=${String(GITHUB_PAGE_SIZE)}`;
@@ -146,11 +141,7 @@ export async function listAllIssues(
  * POST /repos/{owner}/{repo}/issues. retry: "no-retry" (not idempotent). Returns the created
  * issue; throws GitHubSchemaError unless GitHub answered 201 with a valid issue body.
  */
-export async function createIssue(
-  http: HttpClient,
-  target: GitHubTarget,
-  body: CreateIssueBody,
-): Promise<GitHubIssue> {
+export async function createIssue(http: HttpClient, target: GitHubTarget, body: CreateIssueBody): Promise<GitHubIssue> {
   // CreateIssueBody is a plain JSON-shaped type, so it is passed as the body unchanged.
   const response = await http.request(githubRequest(target, "POST", issuesUrl(target), "no-retry", body));
   if (response.status !== HTTP_CREATED) {
@@ -165,11 +156,7 @@ export async function createIssue(
  * PATCH /repos/{owner}/{repo}/issues/{n} with {state:"closed", state_reason:"completed"}. retry-once.
  * Like addLabel, throws RangeError before any request if n is not a positive safe integer.
  */
-export async function closeIssue(
-  http: HttpClient,
-  target: GitHubTarget,
-  issueNumber: number,
-): Promise<void> {
+export async function closeIssue(http: HttpClient, target: GitHubTarget, issueNumber: number): Promise<void> {
   const body = { state: "closed", state_reason: "completed" } as const satisfies UpdateIssueBody;
   await http.request(githubRequest(target, "PATCH", issueUrl(target, issueNumber), "retry-once", body));
 }
@@ -285,7 +272,9 @@ function describeJson(value: JsonValue | undefined): string {
 /** JSON-quoted start of an untrusted string, cut on a code point boundary (never half an emoji). */
 function quote(text: string): string {
   // MAX_ECHOED_CHARS code points span at most twice as many UTF-16 units; slicing first keeps this cheap.
-  const prefix = Array.from(text.slice(0, MAX_ECHOED_CHARS * 2)).slice(0, MAX_ECHOED_CHARS).join("");
+  const prefix = Array.from(text.slice(0, MAX_ECHOED_CHARS * 2))
+    .slice(0, MAX_ECHOED_CHARS)
+    .join("");
   return JSON.stringify(prefix);
 }
 
@@ -428,7 +417,10 @@ function parseRelTypes(params: readonly string[]): readonly string[] {
     const name = equals >= 0 ? param.slice(0, equals) : param;
     if (name.trim().toLowerCase() === "rel") {
       const relValue = equals >= 0 ? unquote(param.slice(equals + 1).trim()) : "";
-      return relValue.toLowerCase().split(/\s+/).filter((rel) => rel !== "");
+      return relValue
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((rel) => rel !== "");
     }
   }
   return [];

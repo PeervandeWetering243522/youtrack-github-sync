@@ -49,7 +49,11 @@ type WriteOutcome<T> =
 
 type Failed = Extract<WriteOutcome<never>, { readonly reason: string }>;
 
-export function githubWriter(http: HttpClient, target: GitHubTarget, sleep: (ms: number) => Promise<void>): GitHubWriter {
+export function githubWriter(
+  http: HttpClient,
+  target: GitHubTarget,
+  sleep: (ms: number) => Promise<void>,
+): GitHubWriter {
   let writes = 0;
   const send = async <T>(write: () => Promise<T>): Promise<T> => {
     // No pause before the first write, nor before one the fetch guard is going to refuse.

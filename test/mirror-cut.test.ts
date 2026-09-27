@@ -58,16 +58,27 @@ describe("formatMirror body truncation", () => {
     const part = mirror.body.slice(0, -LIMIT_TAIL.length);
     assert.ok(mirror.body.endsWith(`\n~~~~${LIMIT_TAIL}`));
     assert.ok(part.startsWith("Log:\n~~~~ text\nline @x #1\n"));
-    assert.ok(part.split("\n").slice(2, -1).every((line) => "line @x #1".startsWith(line)));
+    assert.ok(
+      part
+        .split("\n")
+        .slice(2, -1)
+        .every((line) => "line @x #1".startsWith(line)),
+    );
     assert.ok(mirror.body.length <= MAX_BODY_LENGTH && mirror.body.length > MAX_BODY_LENGTH - 12);
   });
 
   it("leaves closing a fence inside a list item or quote to the separator", () => {
-    for (const [prefix, content] of [["- ```\n", "  line @x\n"], ["> ```\n", "> line @x\n"]] as const) {
+    for (const [prefix, content] of [
+      ["- ```\n", "  line @x\n"],
+      ["> ```\n", "> line @x\n"],
+    ] as const) {
       const mirror = formatMirror(makeIssue({ description: prefix + content.repeat(8_000) }), BASE_URL);
       const lines = mirror.body.slice(0, -LIMIT_TAIL.length).split("\n");
       assert.ok(mirror.body.endsWith(LIMIT_TAIL));
-      assert.ok(lines.slice(1).every((line) => content.startsWith(line)), prefix);
+      assert.ok(
+        lines.slice(1).every((line) => content.startsWith(line)),
+        prefix,
+      );
     }
   });
 

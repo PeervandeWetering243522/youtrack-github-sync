@@ -6,22 +6,22 @@ The instance OpenAPI spec reports `info.version` = `2025.2` [15]. The search syn
 
 ## TL;DR
 
-| Question | Answer | Status | Source |
-|---|---|---|---|
-| Project filter | `project: CUI` (the shortName, which the docs call the "project ID") or `project: {ComfyUI 26-27S1}` (full name in braces). The alias `in:` and the single-value form `#CUI` also work. | [verified] [live] | [1][14] |
-| Case sensitivity | "Grammar is case-insensitive." Live, `project: cui` and `{comfyui 26-27s1}` also match. | [verified] [live] | [1] |
-| Name with spaces, no braces or in quotes | HTTP 400 `invalid_query` | [live] | - |
-| Sort keyword | `sort by: updated desc`. `order by` is a documented alias. Multiple keys are comma-separated. | [verified] [live] | [1] |
-| Must `sort by` come last? | No. The grammar allows it anywhere. Live, putting it first gave the same result. | [verified] [live] | [1] |
-| Default order (no sort) | REST: "the default issue sorting is sort by: updated desc". A query with a text term defaults to relevance instead. | [verified] [live] | [12][6] |
-| Tie-breaker for equal sort values | Not documented. Add an explicit second key, e.g. `, {issue id} desc` (accepted). | [undocumented] | [1] |
-| Date literal formats | `YYYY-MM-DD`, `YYYY-MM`, `MM-DD`, with optional time `HH:MM[:SS]`. Date and time are joined with `T`: `2010-01-01T12:00`. | [verified] [live] | [1] |
-| Range / open end | `a .. b`, inclusive at both ends. `*` is an open bound. | [verified] [live] | [1] |
-| Hour-granular relative syntax | Yes: `updated: {minus 2h} .. *`. Units shorter than one hour are "not supported". | [verified] [live] | [1] |
-| Time zone | Relative values use "the time zone of the current user". The time zone for absolute literals is not documented; live, they behaved as UTC for this token. | [verified] / [undocumented] / [live] | [1] |
-| #Resolved / #Unresolved | Keywords for the Resolved property, which is derived from the state-type field(s). `resolved date:` is the date attribute. | [verified] [live] | [1] |
-| REST `query` = UI syntax? | Yes: "same syntax with the adjustment for URL encoding". | [verified] [live] | [11] |
-| Recommended query | `project: CUI updated: {minus 24h} .. * sort by: updated desc, {issue id} desc` | [live] | [1] |
+| Question                                 | Answer                                                                                                                                                                                  | Status                               | Source  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------- |
+| Project filter                           | `project: CUI` (the shortName, which the docs call the "project ID") or `project: {ComfyUI 26-27S1}` (full name in braces). The alias `in:` and the single-value form `#CUI` also work. | [verified] [live]                    | [1][14] |
+| Case sensitivity                         | "Grammar is case-insensitive." Live, `project: cui` and `{comfyui 26-27s1}` also match.                                                                                                 | [verified] [live]                    | [1]     |
+| Name with spaces, no braces or in quotes | HTTP 400 `invalid_query`                                                                                                                                                                | [live]                               | -       |
+| Sort keyword                             | `sort by: updated desc`. `order by` is a documented alias. Multiple keys are comma-separated.                                                                                           | [verified] [live]                    | [1]     |
+| Must `sort by` come last?                | No. The grammar allows it anywhere. Live, putting it first gave the same result.                                                                                                        | [verified] [live]                    | [1]     |
+| Default order (no sort)                  | REST: "the default issue sorting is sort by: updated desc". A query with a text term defaults to relevance instead.                                                                     | [verified] [live]                    | [12][6] |
+| Tie-breaker for equal sort values        | Not documented. Add an explicit second key, e.g. `, {issue id} desc` (accepted).                                                                                                        | [undocumented]                       | [1]     |
+| Date literal formats                     | `YYYY-MM-DD`, `YYYY-MM`, `MM-DD`, with optional time `HH:MM[:SS]`. Date and time are joined with `T`: `2010-01-01T12:00`.                                                               | [verified] [live]                    | [1]     |
+| Range / open end                         | `a .. b`, inclusive at both ends. `*` is an open bound.                                                                                                                                 | [verified] [live]                    | [1]     |
+| Hour-granular relative syntax            | Yes: `updated: {minus 2h} .. *`. Units shorter than one hour are "not supported".                                                                                                       | [verified] [live]                    | [1]     |
+| Time zone                                | Relative values use "the time zone of the current user". The time zone for absolute literals is not documented; live, they behaved as UTC for this token.                               | [verified] / [undocumented] / [live] | [1]     |
+| #Resolved / #Unresolved                  | Keywords for the Resolved property, which is derived from the state-type field(s). `resolved date:` is the date attribute.                                                              | [verified] [live]                    | [1]     |
+| REST `query` = UI syntax?                | Yes: "same syntax with the adjustment for URL encoding".                                                                                                                                | [verified] [live]                    | [11]    |
+| Recommended query                        | `project: CUI updated: {minus 24h} .. * sort by: updated desc, {issue id} desc`                                                                                                         | [live]                               | [1]     |
 
 ## Details
 
@@ -33,7 +33,7 @@ The instance OpenAPI spec reports `info.version` = `2025.2` [15]. The search syn
 - The "project ID" is the shortName [14]: `shortName | String | The ID of the project. This short name is also a prefix for an issue ID.` [verified]. The Create a Project page gives the example `project: <project ID> #{Unassigned}` [7]. [verified]
 - Braces around values with spaces [1]: `{ } | Encloses attribute values that contain spaces.` The grammar: `<ComplexValue> ::= '{' <value (can have spaces)> '}'`. Doc example: `project: {IntelliJ IDEA}` [5]. [verified]
 - Double quotes mark text search (`<QuotedText>`), not a value [1]. Live, `project: "ComfyUI 26-27S1"` returned HTTP 400. [live]
-- Case: "Grammar is case-insensitive." [1] The docs do not say whether *values* are case-insensitive [undocumented]. Live, `project: cui`, `PROJECT: CUI` and `project: {comfyui 26-27s1}` all return the same 29 issues. [live]
+- Case: "Grammar is case-insensitive." [1] The docs do not say whether _values_ are case-insensitive [undocumented]. Live, `project: cui`, `PROJECT: CUI` and `project: {comfyui 26-27s1}` all return the same 29 issues. [live]
 - The docs format it as "Separate the attribute from the value with a colon and a space." [4] [verified]
 
 ### 2. Sorting
@@ -50,20 +50,25 @@ The instance OpenAPI spec reports `info.version` = `2025.2` [15]. The search syn
 
 - Attributes [1]: `updated: <date> | <period>` ("Returns issues where the most recent change occurred on a specific date or within a specified time frame."), `created: <date> | <period>`, and `resolved date: <date> | <period>` ("Returns issues that were resolved on a specific date or within a specified time frame."). [verified]
 - Literal formats [1]:
+
   > Specify dates in the format: YYYY-MM-DD or YYYY-MM or MM-DD. You also can specify a time in 24h format: HH:MM:SS or HH:MM.
 
   The page writes the combined format with a markup glitch, as `YYYY-MM-DD}}T{{HH:MM:SS`. Its example shows the real form, `created: 2010-01-01T12:00 .. 2010-01-01T15:00`, and the Advanced Search page uses the same form: `Actual start: 2025-03-25T09:00 .. 2025-03-25T18:00` [4]. [verified] Suffixes (`Z`, offsets), milliseconds and epoch numbers are not documented. Live, each returned HTTP 400. [live]
+
 - Range [1]: `..`: "The search results include the upper and lower bounds." `*`: "When used with the .. symbol, substitutes a value that determines the upper or lower bound in a range search." [verified] The grammar `<ValueRange> ::= <Value> '..' <Value>` does not show spaces, but every doc example puts spaces around `..`, and live parsing requires them (see Gotchas). [verified] [live]
 - Predefined relative values, verbatim from the table [1]: `Now`, `Today`, `Tomorrow`, `Yesterday`, `Sunday`, `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday`, `{Last working day}`, `{This week}`, `{Last week}`, `{Next week}`, `{Two weeks ago}`, `{Three weeks ago}`, `{This month}`, `{Last month}`, `{Next month}`, `Older`. [verified]
 - Custom relative values (hour-granular syntax exists) [1]:
+
   > Find issues that were updated in the last two hours: updated: {minus 2h} .. *
 
   Use `minus` for the past and `plus` for the future. The time frame is written as "a series of whole numbers followed by a letter that represents the unit of time", with the example `2y 3M 1w 2d 12h` [1]. [verified] The page gives no separate unit table; the letters y/M/w/d/h are known only from that example [partial].
+
   > Queries that specify hours will filter for events that took place during the specified hour.
   > This level of precision only applies to hours.
   > Search queries that specify units of time shorter than one hour (minutes, seconds) are not supported.
 
   A named "last N hours" keyword (such as `{Last 24 hours}`) is [undocumented]. Live, it returned HTTP 400.
+
 - Time zone: relative values "are calculated relative to the current date according to the time zone of the current user" [1] [verified]. That is the token owner's profile "Local time zone" [8]: "This set of controls determines which time zone is used to present date values in YouTrack." [verified] The time zone for **absolute** literals is [undocumented]. Live, a sweep of one-hour windows matched an issue updated at 17:29Z only in the window `2026-09-23T17:00 .. 2026-09-23T17:59`, not the 19:00 window. So literals behaved as UTC for this token, which may be because the profile is set to UTC. [live]
 
 ### 4. `#Resolved` / `#Unresolved` and `resolved date`
@@ -83,14 +88,14 @@ The instance OpenAPI spec reports `info.version` = `2025.2` [15]. The search syn
 
 ### 6. Combining project + date range + sort
 
-- Conjunction [1]: "Searches that specify values for multiple attributes are treated as conjunctive." Several values for the *same* attribute are ORed [1]: "Searches that include multiple values for a single attribute are treated as disjunctive." [verified]
+- Conjunction [1]: "Searches that specify values for multiple attributes are treated as conjunctive." Several values for the _same_ attribute are ORed [1]: "Searches that include multiple values for a single attribute are treated as disjunctive." [verified]
 - Order is free [4]: "You can enter these search parameters in any order." [verified]
 - If you use explicit `and`/`or`, "you should wrap all of your search arguments in parenthesis" [1]. [verified]
 - Working form [live]:
   ```
   project: CUI updated: {minus 24h} .. * sort by: updated desc, {issue id} desc
   ```
-- Paging [13]: "$skip=N lets you skip N found elements and returns elements starting from N+1." [verified] Default page size when `$top` is omitted: the Pagination page says "For most resources, the server returns a maximum of 42 elements by default." [13]. The Issues page says the count "is limited to the Max issues to export value" [12]. The two pages conflict [verified], so always send `$top`.
+- Paging [13]: "$skip=N lets you skip N found elements and returns elements starting from N+1." [verified] Default page size when `$top`is omitted: the Pagination page says "For most resources, the server returns a maximum of 42 elements by default." [13]. The Issues page says the count "is limited to the Max issues to export value" [12]. The two pages conflict [verified], so always send`$top`.
 
 ### 7. Live verification
 
@@ -103,37 +108,37 @@ Request shape (GET only; token never shown):
 
 Re-run by the verifier at 2026-09-24T17:39Z. Results are listed as numberInProject. "desc" means `updated` values were strictly descending.
 
-| Query `<Q>` | HTTP | Count | Result |
-|---|---|---|---|
-| `project: CUI sort by: updated desc` | 200 | 29 | 31,11,30,14,20,19,18,29,28,9,26,15,23,25,13,17,21,22,10,16,4,3,6,5,8,7,1,12,2 (desc) |
-| `project: {ComfyUI 26-27S1} sort by: updated desc` | 200 | 29 | identical |
-| `project: CUI` (no sort) | 200 | 29 | identical (default updated desc) |
-| `project: CUI order by: updated desc` | 200 | 29 | identical |
-| `sort by: updated desc project: CUI` | 200 | 29 | identical |
-| `project: cui sort by: updated desc` | 200 | 29 | identical |
-| `project: CUI sort by: updated desc, {issue id} desc` | 200 | 29 | identical |
-| `project: CUI sort by: updated asc` | 200 | 29 | exact reverse |
-| `project: CUI sort by: updated desc`, `$top=3&$skip=3` | 200 | 3 | 14,20,19 (rows 4-6) |
-| `project: CUI #Resolved` | 200 | 18 | all have `resolved` != null |
-| `project: CUI #Unresolved` | 200 | 11 | 31,30,19,29,28,9,15,25,21,7,1 |
-| `project: CUI updated: 2026-09-21 .. 2026-09-23 sort by: updated desc` | 200 | 10 | 29,28,9,26,15,23,25,13,17,21 |
-| `project: CUI updated: 2026-09-24 .. * sort by: updated desc` | 200 | 7 | 31,11,30,14,20,19,18 |
-| `project: CUI updated: 2026-09-23T17:00 .. 2026-09-23T17:59` | 200 | 1 | 29 (updated 17:29:40Z, so literals read as UTC) |
-| `project: CUI updated: 2026-09-23T19:00 .. 2026-09-23T19:59` | 200 | 0 | - |
-| `project: CUI updated: {minus 24h} .. * sort by: updated desc` | 200 | 8 | 31,11,30,14,20,19,18,29. Includes CUI-29 (17:29Z the previous day) although the exact bound would be 17:39Z, so the bound was rounded down to 17:00. |
-| `project: CUI updated: Today` / `{This week}` | 200 | 7 / 17 | - |
-| `project: CUI resolved date: {minus 24h} .. *` | 200 | 3 | 14,20,18 |
-| URLSearchParams-encoded `project: {ComfyUI 26-27S1} #Unresolved updated: {minus 24h} .. * sort by: updated desc`, `$top=5` (sent with `curl -G --data`) | 200 | 4 | 31,30,19,29 |
+| Query `<Q>`                                                                                                                                             | HTTP | Count  | Result                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project: CUI sort by: updated desc`                                                                                                                    | 200  | 29     | 31,11,30,14,20,19,18,29,28,9,26,15,23,25,13,17,21,22,10,16,4,3,6,5,8,7,1,12,2 (desc)                                                                 |
+| `project: {ComfyUI 26-27S1} sort by: updated desc`                                                                                                      | 200  | 29     | identical                                                                                                                                            |
+| `project: CUI` (no sort)                                                                                                                                | 200  | 29     | identical (default updated desc)                                                                                                                     |
+| `project: CUI order by: updated desc`                                                                                                                   | 200  | 29     | identical                                                                                                                                            |
+| `sort by: updated desc project: CUI`                                                                                                                    | 200  | 29     | identical                                                                                                                                            |
+| `project: cui sort by: updated desc`                                                                                                                    | 200  | 29     | identical                                                                                                                                            |
+| `project: CUI sort by: updated desc, {issue id} desc`                                                                                                   | 200  | 29     | identical                                                                                                                                            |
+| `project: CUI sort by: updated asc`                                                                                                                     | 200  | 29     | exact reverse                                                                                                                                        |
+| `project: CUI sort by: updated desc`, `$top=3&$skip=3`                                                                                                  | 200  | 3      | 14,20,19 (rows 4-6)                                                                                                                                  |
+| `project: CUI #Resolved`                                                                                                                                | 200  | 18     | all have `resolved` != null                                                                                                                          |
+| `project: CUI #Unresolved`                                                                                                                              | 200  | 11     | 31,30,19,29,28,9,15,25,21,7,1                                                                                                                        |
+| `project: CUI updated: 2026-09-21 .. 2026-09-23 sort by: updated desc`                                                                                  | 200  | 10     | 29,28,9,26,15,23,25,13,17,21                                                                                                                         |
+| `project: CUI updated: 2026-09-24 .. * sort by: updated desc`                                                                                           | 200  | 7      | 31,11,30,14,20,19,18                                                                                                                                 |
+| `project: CUI updated: 2026-09-23T17:00 .. 2026-09-23T17:59`                                                                                            | 200  | 1      | 29 (updated 17:29:40Z, so literals read as UTC)                                                                                                      |
+| `project: CUI updated: 2026-09-23T19:00 .. 2026-09-23T19:59`                                                                                            | 200  | 0      | -                                                                                                                                                    |
+| `project: CUI updated: {minus 24h} .. * sort by: updated desc`                                                                                          | 200  | 8      | 31,11,30,14,20,19,18,29. Includes CUI-29 (17:29Z the previous day) although the exact bound would be 17:39Z, so the bound was rounded down to 17:00. |
+| `project: CUI updated: Today` / `{This week}`                                                                                                           | 200  | 7 / 17 | -                                                                                                                                                    |
+| `project: CUI resolved date: {minus 24h} .. *`                                                                                                          | 200  | 3      | 14,20,18                                                                                                                                             |
+| URLSearchParams-encoded `project: {ComfyUI 26-27S1} #Unresolved updated: {minus 24h} .. * sort by: updated desc`, `$top=5` (sent with `curl -G --data`) | 200  | 4      | 31,30,19,29                                                                                                                                          |
 
 Undocumented forms, tested to confirm they fail:
 
-| Query | HTTP | Result |
-|---|---|---|
-| `project: ComfyUI 26-27S1` (no braces) | 400 | `invalid_query` |
-| `project: CUI updated: 2026-09-24..*` (no spaces) | 400 | `invalid_query` |
-| `project: CUI updated: {minus 24h}..*` (no spaces) | **200** | **0 rows, no error** |
+| Query                                              | HTTP    | Result                                |
+| -------------------------------------------------- | ------- | ------------------------------------- |
+| `project: ComfyUI 26-27S1` (no braces)             | 400     | `invalid_query`                       |
+| `project: CUI updated: 2026-09-24..*` (no spaces)  | 400     | `invalid_query`                       |
+| `project: CUI updated: {minus 24h}..*` (no spaces) | **200** | **0 rows, no error**                  |
 | `project: CUI updated: {minus 30m} .. *` (minutes) | **200** | **all 29 rows** (behaves like months) |
-| `project: CUI updated: 2026-09-23T17:29:40Z .. *` | 400 | `invalid_query` |
+| `project: CUI updated: 2026-09-23T17:29:40Z .. *`  | 400     | `invalid_query`                       |
 
 The researcher reported additional checks that the verifier did not re-run; they are consistent with the results above. HTTP 400 for: quoted project name, unknown project `CUIX`, `sort by: bogusattr`, `{Last 24 hours}`, millisecond literals, and epoch-ms literals. `'{minus 24h} ..*'` returned 200 with 0 rows, while `'{minus 24h}.. *'` worked. Bounds with seconds or minutes cover the whole second or minute. `{minus Nd} .. *` is rounded down to 00:00 of that day. A single `{minus 24h}` value with no range matches only the one-hour bucket 24 hours ago.
 
@@ -151,7 +156,7 @@ The researcher reported additional checks that the verifier did not re-run; they
 
 ## Gotchas and implications for this project
 
-1. **Spacing around `..` fails silently for relative values.** `{minus 24h}..*` returns HTTP 200 with 0 rows. The mirror would then think nothing changed and never close mirrors. Always emit ` .. ` and cover the query builder with a unit test.
+1. **Spacing around `..` fails silently for relative values.** `{minus 24h}..*` returns HTTP 200 with 0 rows. The mirror would then think nothing changed and never close mirrors. Always emit `..` and cover the query builder with a unit test.
 2. **Never use minutes.** `{minus 30m}` matches everything (a full scan every run). Build the lookback as integer hours: `{minus ${LOOKBACK_HOURS}h}`.
 3. **Relative bounds are rounded down.** `{minus Nh} .. *` starts at the top of the hour, and `{minus Nd} .. *` at 00:00 in the user's time zone. The window is only ever wider, never narrower, so it is safe for a lookback. Prefer `h` over `d`. Keep the ` .. *`: without it, `{minus 24h}` is a one-hour bucket.
 4. **Time zone of literals.** If you format an ISO cutoff into the query, an unknown profile time zone could shift it. Two TZ-independent options: `{minus Nh} .. *`, or a client-side stop on the epoch-ms `updated` field while paging `sort by: updated desc`.

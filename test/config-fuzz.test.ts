@@ -110,9 +110,16 @@ function assertRejectedConfig(error: ConfigError, context: string): void {
   const keyOrder = error.problems.map((problem) => ENV_KEYS.findIndex((key) => problem.startsWith(`${key} `)));
 
   assert.ok(error.problems.length > 0, context);
-  assert.ok(error.problems.every((problem) => KNOWN_PROBLEMS.has(problem)), context);
+  assert.ok(
+    error.problems.every((problem) => KNOWN_PROBLEMS.has(problem)),
+    context,
+  );
   assert.equal(new Set(error.problems).size, error.problems.length, context);
-  assert.deepEqual(keyOrder, keyOrder.toSorted((a, b) => a - b), context);
+  assert.deepEqual(
+    keyOrder,
+    keyOrder.toSorted((a, b) => a - b),
+    context,
+  );
   assert.equal(error.message, `Invalid configuration: ${error.problems.join("; ")}`, context);
 }
 

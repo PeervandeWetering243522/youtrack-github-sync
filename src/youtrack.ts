@@ -124,9 +124,7 @@ function readField<T extends JsonValue>(
 ): T {
   const value = row[field];
   if (guard(value)) return value;
-  throw new YouTrackSchemaError(
-    `${rowLabel(row)}: field "${field}" must be ${expected}, got ${describe(value)}`,
-  );
+  throw new YouTrackSchemaError(`${rowLabel(row)}: field "${field}" must be ${expected}, got ${describe(value)}`);
 }
 
 /**
@@ -225,10 +223,7 @@ function dedupeByNumberInProject(issues: readonly YouTrackIssue[]): readonly You
  * parseProjectIssue (decision R4), then the result is deduplicated by numberInProject.
  * Any non-2xx propagates (a 400 is a query bug, never "no issues").
  */
-export async function fetchProjectIssues(
-  http: HttpClient,
-  source: YouTrackSource,
-): Promise<readonly YouTrackIssue[]> {
+export async function fetchProjectIssues(http: HttpClient, source: YouTrackSource): Promise<readonly YouTrackIssue[]> {
   const pages: (readonly YouTrackIssue[])[] = [];
   // $skip starts at 0 and advances by each raw page length (repeats included), not by
   // the de-duplicated count, which would re-request the rows a repeat displaced.

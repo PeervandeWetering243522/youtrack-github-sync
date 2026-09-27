@@ -177,22 +177,42 @@ describe("parseConfig: YOUTRACK_BASE_URL", () => {
   });
 
   it("rejects every protocol other than https, including an upper-case http and look-alikes", () => {
-    const values = ["http://youtrack.ai.buas.nl", "HTTP://example.com", "ftp://youtrack.ai.buas.nl", "file:///etc/passwd"];
+    const values = [
+      "http://youtrack.ai.buas.nl",
+      "HTTP://example.com",
+      "ftp://youtrack.ai.buas.nl",
+      "file:///etc/passwd",
+    ];
     for (const value of [...values, "wss://example.com", "blob:https://example.com/x"]) {
       assert.deepEqual(problemsFor(envWith({ YOUTRACK_BASE_URL: value })), [URL_HTTPS_PROBLEM], value);
     }
   });
 
   it("rejects query strings and fragments, including empty ones, wherever the parser finds them", () => {
-    const values = ["https://example.com/?a=1", "https://example.com/#top", "https://example.com?", "https://example.com#"];
-    for (const value of [...values, "https://example.com\\?x", "https://example.com/yt?#", "https://example.com/yt/#?a"]) {
+    const values = [
+      "https://example.com/?a=1",
+      "https://example.com/#top",
+      "https://example.com?",
+      "https://example.com#",
+    ];
+    for (const value of [
+      ...values,
+      "https://example.com\\?x",
+      "https://example.com/yt?#",
+      "https://example.com/yt/#?a",
+    ]) {
       assert.deepEqual(problemsFor(envWith({ YOUTRACK_BASE_URL: value })), [URL_QUERY_PROBLEM], value);
     }
   });
 
   it("rejects credentials, even with one half empty or percent-encoded, without echoing them", () => {
     const secrets = ["https://user:hunter2secret@example.com", "https://:hunter2secret@example.com"];
-    const values = ["https://user@example.com", "https://user:@example.com", "https://%40@example.com", "https://:p@example.com/yt/"];
+    const values = [
+      "https://user@example.com",
+      "https://user:@example.com",
+      "https://%40@example.com",
+      "https://:p@example.com/yt/",
+    ];
     for (const value of [...secrets, ...values]) {
       const error = captureConfigError(envWith({ YOUTRACK_BASE_URL: value }));
 
@@ -263,7 +283,12 @@ describe("parseConfig: YOUTRACK_TITLE_PREFIX", () => {
   });
 
   it("keeps the prefix's case, inner whitespace and non-ASCII characters (surrogate pairs intact)", () => {
-    for (const prefix of ["[My Team]", "[team]  x", `${char(0x1f680)} [team]`, `[${char(0x00e9)}quipe]${char(0x1f600)}`]) {
+    for (const prefix of [
+      "[My Team]",
+      "[team]  x",
+      `${char(0x1f680)} [team]`,
+      `[${char(0x00e9)}quipe]${char(0x1f600)}`,
+    ]) {
       const config = parseConfig(envWith({ YOUTRACK_TITLE_PREFIX: `${NBSP}${prefix}\t` }));
 
       assert.equal(config.titlePrefix, prefix, visible(prefix));

@@ -9,7 +9,7 @@
   "preview_urls": false,
 
   "triggers": {
-    "crons": ["*/10 * * * *"]
+    "crons": ["*/10 * * * *"],
   },
 
   "observability": {
@@ -20,13 +20,13 @@
       "enabled": true,
       "head_sampling_rate": 1,
       "invocation_logs": true,
-      "persist": true
+      "persist": true,
     },
     "traces": {
       "enabled": true,
       "head_sampling_rate": 1,
-      "persist": true
-    }
+      "persist": true,
+    },
   },
 
   // Non-secret config. Secrets GITHUB_TOKEN and YOUTRACK_TOKEN are set with
@@ -37,6 +37,6 @@
     "YOUTRACK_PROJECT": "CUI",
     "YOUTRACK_TITLE_PREFIX": "[team]",
     "MAX_WRITES_PER_RUN": "30",
-    "DRY_RUN": "true"
-  }
+    "DRY_RUN": "true",
+  },
 }

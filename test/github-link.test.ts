@@ -31,7 +31,7 @@ describe("nextPageUrl", () => {
     assert.equal(nextPageUrl(link), null);
   });
 
-  it("returns null for a single rel=\"prev\" entry", () => {
+  it('returns null for a single rel="prev" entry', () => {
     assert.equal(nextPageUrl('<https://api.github.com/repositories/1/issues?page=1>; rel="prev"'), null);
   });
 
@@ -83,7 +83,7 @@ describe("nextPageUrl", () => {
     assert.equal(nextPageUrl('<https://api.github.com/p2>; rel="next"; rel="prev"'), "https://api.github.com/p2");
   });
 
-  for (const params of ['; rel; rel="next"', '; REL ; rel="next"', '; rel\t;rel=next']) {
+  for (const params of ['; rel; rel="next"', '; REL ; rel="next"', "; rel\t;rel=next"]) {
     it(`treats a value-less first rel as the only rel, ignoring a later rel="next" (${JSON.stringify(params)})`, () => {
       // Before the fix a value-less `rel` was skipped and the second rel param was used.
       assert.equal(nextPageUrl(`<https://api.github.com/p2>${params}`), null);
@@ -233,8 +233,14 @@ const DOES_NOT_PARSE = schemaError(/Link header does not parse/);
 
 describe("nextPageUrl malformed headers", () => {
   for (const [what, link] of [
-    ["an unclosed quote in an earlier entry hides the next entry", '<https://api.github.com/p1>; rel="prev, <https://api.github.com/p3>; rel="next"'],
-    ["a stray quote in a later param hides the next entry", `${PREV}; title="x, <https://api.github.com/p3>; rel="next"`],
+    [
+      "an unclosed quote in an earlier entry hides the next entry",
+      '<https://api.github.com/p1>; rel="prev, <https://api.github.com/p3>; rel="next"',
+    ],
+    [
+      "a stray quote in a later param hides the next entry",
+      `${PREV}; title="x, <https://api.github.com/p3>; rel="next"`,
+    ],
     ["the header ends inside a quoted string", '<https://api.github.com/p1>; rel="prev'],
     ["the header ends inside a <URL>", `${PREV}, <https://api.github.com/p3; rel="next"`],
     ["an entry does not start with <URL>", `${PREV}, garbage; rel="next"`],

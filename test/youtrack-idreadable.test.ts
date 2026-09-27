@@ -7,7 +7,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { JsonObject } from "../src/json.ts";
-import { ISSUE_FIELDS, YouTrackSchemaError, fetchProjectIssues, parseProjectIssue, parseYouTrackIssue } from "../src/youtrack.ts";
+import {
+  ISSUE_FIELDS,
+  YouTrackSchemaError,
+  fetchProjectIssues,
+  parseProjectIssue,
+  parseYouTrackIssue,
+} from "../src/youtrack.ts";
 import {
   NULL_DESCRIPTION_ROW,
   RESOLVED_ROW,
@@ -127,10 +133,7 @@ describe("parseProjectIssue: mismatching rows", () => {
   ];
   for (const { label, idReadable } of mismatches) {
     it(`rejects ${label}, naming both ids`, () => {
-      assert.throws(
-        () => parseProjectIssue(issueRow(7, { idReadable }), "CUI"),
-        mismatchError(idReadable, "CUI-7"),
-      );
+      assert.throws(() => parseProjectIssue(issueRow(7, { idReadable }), "CUI"), mismatchError(idReadable, "CUI-7"));
     });
   }
 
@@ -147,11 +150,14 @@ describe("parseProjectIssue: mismatching rows", () => {
   });
 
   it("throws an instance of YouTrackSchemaError", () => {
-    assert.throws(() => parseProjectIssue(issueRow(2), "OTHER"), (error) => {
-      assert.ok(error instanceof YouTrackSchemaError);
-      assert.equal(error.name, "YouTrackSchemaError");
-      return true;
-    });
+    assert.throws(
+      () => parseProjectIssue(issueRow(2), "OTHER"),
+      (error) => {
+        assert.ok(error instanceof YouTrackSchemaError);
+        assert.equal(error.name, "YouTrackSchemaError");
+        return true;
+      },
+    );
   });
 
   it("JSON-escapes idReadable so the message stays on one line", () => {
@@ -159,12 +165,15 @@ describe("parseProjectIssue: mismatching rows", () => {
     const idReadable = 'CUI-6\n[fake] "quoted"';
 
     // Act + Assert
-    assert.throws(() => parseProjectIssue(issueRow(6, { idReadable }), "CUI"), (error) => {
-      assert.ok(error instanceof YouTrackSchemaError);
-      assert.doesNotMatch(error.message, /\n/);
-      assert.ok(error.message.startsWith('YouTrack issue "CUI-6\\n[fake] \\"quoted\\"": idReadable must be "CUI-6"'));
-      return true;
-    });
+    assert.throws(
+      () => parseProjectIssue(issueRow(6, { idReadable }), "CUI"),
+      (error) => {
+        assert.ok(error instanceof YouTrackSchemaError);
+        assert.doesNotMatch(error.message, /\n/);
+        assert.ok(error.message.startsWith('YouTrack issue "CUI-6\\n[fake] \\"quoted\\"": idReadable must be "CUI-6"'));
+        return true;
+      },
+    );
   });
 
   it("never puts summary or description text into the message", () => {
@@ -173,11 +182,14 @@ describe("parseProjectIssue: mismatching rows", () => {
     const row: JsonObject = issueRow(9, { idReadable: "OTHER-9", summary: secret, description: secret });
 
     // Act + Assert
-    assert.throws(() => parseProjectIssue(row, "CUI"), (error) => {
-      assert.ok(error instanceof YouTrackSchemaError);
-      assert.doesNotMatch(error.message, new RegExp(secret));
-      return true;
-    });
+    assert.throws(
+      () => parseProjectIssue(row, "CUI"),
+      (error) => {
+        assert.ok(error instanceof YouTrackSchemaError);
+        assert.doesNotMatch(error.message, new RegExp(secret));
+        return true;
+      },
+    );
   });
 
   it("reports a schema problem in the row before the id check", () => {
@@ -231,7 +243,10 @@ describe("fetchProjectIssues: idReadable check (R4)", () => {
 
     // Assert
     assert.deepEqual(numbersOf(issues), range(1, 3));
-    assert.equal(new URL(fake.requests[0]?.url ?? "").searchParams.get("query"), "project: cui sort by: {issue id} asc");
+    assert.equal(
+      new URL(fake.requests[0]?.url ?? "").searchParams.get("query"),
+      "project: cui sort by: {issue id} asc",
+    );
   });
 
   it("uses the source's project, not a fixed one", async () => {
@@ -239,6 +254,9 @@ describe("fetchProjectIssues: idReadable check (R4)", () => {
     const fake = serveBodies([issueRows(1, 1)]);
 
     // Act + Assert
-    await assert.rejects(fetchProjectIssues(fake.http, { ...SOURCE, project: "OTHER" }), mismatchError("CUI-1", "OTHER-1"));
+    await assert.rejects(
+      fetchProjectIssues(fake.http, { ...SOURCE, project: "OTHER" }),
+      mismatchError("CUI-1", "OTHER-1"),
+    );
   });
 });

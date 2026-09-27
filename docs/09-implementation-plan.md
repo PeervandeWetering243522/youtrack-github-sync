@@ -8,7 +8,7 @@
 ## As built
 
 - **Summary line (R5).** `yt-gh-sync <ok|failed> scanned= created= closed= skipped= capped=
-  failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` = `filtered`
+failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` = `filtered`
   (no title prefix) + `unchanged` (mirror already in the right state, or resolved with no
   mirror, R9). A failed read logs the
   same line with outcome `failed` before the error is rethrown; a failed write logs it at the
@@ -50,7 +50,7 @@ Each run:
    following `link: rel="next"`. Drop PRs (items with a `pull_request` key). Build
    `numberInProject -> {number, state}` from titles matching `^\[YT-(\d+)\]`:
    - an issue that has the `youtrack` label wins;
-   - an issue *without* the label but with a matching title is also treated as the mirror
+   - an issue _without_ the label but with a matching title is also treated as the mirror
      (decision A5: "re-add label, otherwise match by title"). This case is logged as a warning;
    - when there are several candidates for one number, the lowest issue number wins and a
      warning is logged (A6: duplicates are accepted).
@@ -65,8 +65,8 @@ Each run:
    - no mirror and YouTrack resolved -> nothing (R9: never mirrored);
    - mirror open and YouTrack resolved -> `close` (1 write);
    - otherwise nothing.
-   Actions are sorted by ascending `numberInProject` (A2). The write cap takes the longest
-   prefix that fits. Anything left over counts as `capped`.
+     Actions are sorted by ascending `numberInProject` (A2). The write cap takes the longest
+     prefix that fits. Anything left over counts as `capped`.
 5. **Execute** serially with a 1 s pause between writes. In `DRY_RUN` mode, log each intended
    write instead of sending it.
    - After a create, if the 201 response lacks the `youtrack` label: one
@@ -96,6 +96,7 @@ prevents duplicates.
 
   A `null` description gives only the link line (A4). At most 65,536 characters. If truncated, the
   body ends with: `Character limit hit, see the full YouTrack issue: <link>` (A9).
+
 - **Neutralising (A4):** wrap `@login` / `@org/team`, `#123`, `GH-123` and `owner/repo#123` in
   backticks. Leave fenced code blocks, inline code spans and email addresses (`a@b.c`) untouched.
   Unit-tested with edge cases.
@@ -112,11 +113,11 @@ prevents duplicates.
 
 ## 4. Retry and failure (A10)
 
-| Request | Retry once on network error / timeout / 5xx / 429 / 403 with `retry-after`? |
-|---|---|
-| YouTrack GET, GitHub GET | Yes, after `retry-after` when it is ≤ 10 s, else 2 s if it is missing or unreadable; no retry when it is > 10 s or on a primary rate limit without a usable `retry-after` |
-| GitHub PATCH close, POST labels | Yes (idempotent) |
-| GitHub POST create issue | **No.** A timed-out create may have succeeded, so the next run acts as the retry |
+| Request                         | Retry once on network error / timeout / 5xx / 429 / 403 with `retry-after`?                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| YouTrack GET, GitHub GET        | Yes, after `retry-after` when it is ≤ 10 s, else 2 s if it is missing or unreadable; no retry when it is > 10 s or on a primary rate limit without a usable `retry-after` |
+| GitHub PATCH close, POST labels | Yes (idempotent)                                                                                                                                                          |
+| GitHub POST create issue        | **No.** A timed-out create may have succeeded, so the next run acts as the retry                                                                                          |
 
 - A YouTrack non-2xx is fatal for the run (a 400 means a bad query, never "no issues").
 - A 401/403/404 from GitHub on list is fatal. On a write it is recorded as a failure and the
@@ -184,6 +185,7 @@ test/                     # node:test; sync tested with a fake fetch
   The `fields=` string is built from `ISSUE_FIELDS`, so the request and the type can't drift apart. A
   runtime guard validates every row. If a row fails, the run fails rather than guessing (this
   covers the silent-drop gotcha).
+
 - **GitHub types (as built):** derived from `@octokit/openapi-types` (GitHub's official spec,
   types only), narrowed to the fields we read, each with a runtime guard.
 - **Tests:** `node --test` with type stripping (Node ≥ 22.18; local is 22.22.2), so there's no test framework
@@ -197,16 +199,16 @@ test/                     # node:test; sync tested with a fake fetch
 
 ## 7. Config
 
-| Name | Kind | Default |
-|---|---|---|
-| `GITHUB_TOKEN` | secret | (classic PAT with `repo` scope for now, B12) |
-| `YOUTRACK_TOKEN` | secret | |
-| `GITHUB_REPO` | var | required (`wrangler.jsonc` and `.env.example` set `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`) |
-| `YOUTRACK_BASE_URL` | var | required (`wrangler.jsonc` and `.env.example` set `https://youtrack.ai.buas.nl`) |
-| `YOUTRACK_PROJECT` | var | required (`wrangler.jsonc` and `.env.example` set `CUI`) |
-| `YOUTRACK_TITLE_PREFIX` | var | `[team]` |
-| `MAX_WRITES_PER_RUN` | var | `30` (0-40) |
-| `DRY_RUN` | var | `true` (only `false`, any case and trimmed, disables it; anything else keeps dry-run on) |
+| Name                    | Kind   | Default                                                                                                |
+| ----------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN`          | secret | (classic PAT with `repo` scope for now, B12)                                                           |
+| `YOUTRACK_TOKEN`        | secret |                                                                                                        |
+| `GITHUB_REPO`           | var    | required (`wrangler.jsonc` and `.env.example` set `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`) |
+| `YOUTRACK_BASE_URL`     | var    | required (`wrangler.jsonc` and `.env.example` set `https://youtrack.ai.buas.nl`)                       |
+| `YOUTRACK_PROJECT`      | var    | required (`wrangler.jsonc` and `.env.example` set `CUI`)                                               |
+| `YOUTRACK_TITLE_PREFIX` | var    | `[team]`                                                                                               |
+| `MAX_WRITES_PER_RUN`    | var    | `30` (0-40)                                                                                            |
+| `DRY_RUN`               | var    | `true` (only `false`, any case and trimmed, disables it; anything else keeps dry-run on)               |
 
 The Worker gets `vars` in `wrangler.jsonc` and `wrangler secret put` for secrets. Local runs use the
 project `.env` (Node `--env-file-if-exists`, and wrangler reads it too); `npm run sync` does not

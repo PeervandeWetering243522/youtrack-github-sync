@@ -6,31 +6,31 @@ All Cloudflare pages were re-fetched on 2026-09-24 through their `index.md` mark
 
 ## TL;DR
 
-| Question | Answer | Status | Source |
-| --- | --- | --- | --- |
-| Subrequests per invocation (Free) | 50 external (plus 1,000 to Cloudflare services). No split by trigger type, so Cron Triggers get the same 50. Every redirect hop counts. | [verified] | [1] [24] |
-| CPU per Cron Trigger (Free) | 10 ms. `limits.cpu_ms` cannot raise it on Free. | [verified] | [1] [2] [3] |
-| Waiting on fetch counts as CPU? | No. It does count toward wall time. | [verified] | [1] |
-| Wall-clock limit for a scheduled run | 15 minutes per invocation | [verified] | [1] [5] |
-| Memory | 128 MB per isolate (Free and Paid) | [verified] | [1] |
-| Cron Triggers per account (Free) | 5 (Paid 250) | [verified] | [1] |
-| Daily requests (Free) | 100,000/day, reset at midnight UTC. Whether cron runs count is not stated explicitly; the pricing example bills an hourly cron as 720 requests/month. | [verified] / [partial] | [1] [2] |
-| Worker size / startup | 64 MiB uncompressed on all plans (compressed limit removed 2026-09-04). Global scope must finish within 1 s. | [verified] | [1] [27] [28] |
-| Cron config | `"triggers": { "crons": ["*/10 * * * *"] }` / `[triggers] crons = ["*/10 * * * *"]`. Runs on UTC. | [verified] | [3] [4] |
-| Cron propagation after deploy | Up to 15 min. Past Cron Events can take up to 30 min to appear for a new Worker. | [verified] | [4] |
-| Retry on throw | Not documented. `controller.noRetry()` exists in the runtime and types, so retries are possible. | [undocumented] / [partial] | [5] [36] [37] |
-| Overlapping runs | Not documented | [undocumented] | - |
-| Handler signature | `scheduled(controller, env, ctx)`; controller has `cron`, `scheduledTime`, `noRetry()` | [verified] | [5] [36] [37] |
-| Types | Generate with `wrangler types` (recommended). `@cloudflare/workers-types` is still published (5.20260924.1). | [verified] [live] | [11] [32] [50] |
-| Secrets | `wrangler secret put KEY` (creates and deploys a new version). Non-secret config goes in `vars`. | [verified] | [6] [7] [8] |
-| Local secrets | `.dev.vars` or `.env`, not both. If `.dev.vars` exists, `.env` is ignored for `env`. | [verified] | [7] [9] |
-| TypeScript build | Wrangler bundles `./src/index.ts` with esbuild; no type-checking. Explicit `.ts` import extensions bundle fine. | [verified] [live] | [3] [12] [45] |
-| No public URL | Set both `workers_dev: false` and `preview_urls: false` | [verified] | [3] [14] [15] |
-| Local cron test URL | `http://localhost:8787/cdn-cgi/local/scheduled?cron=*/10+*+*+*+*&format=json` (`wrangler dev --test-scheduled`) | [verified] | [4] [6] |
-| Logs (Free) | Workers Logs: 200,000 events/day, 3-day retention, 256 KB per log. `wrangler tail` for live logs. | [verified] | [18] [1] [6] |
-| Default User-Agent on fetch | Not documented by Cloudflare. Community reports say none is sent. GitHub rejects requests without one, so always set it. | [undocumented] / [partial] | [38] [39] [40] |
-| Outbound fetch timeout | No set time limit per subrequest. Use `AbortSignal.timeout()`. | [verified] | [1] [22] |
-| Wrangler version / Node | 4.138.0; `engines.node >=22.0.0` | [live] | [50] [23] |
+| Question                             | Answer                                                                                                                                                | Status                     | Source         |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | -------------- |
+| Subrequests per invocation (Free)    | 50 external (plus 1,000 to Cloudflare services). No split by trigger type, so Cron Triggers get the same 50. Every redirect hop counts.               | [verified]                 | [1] [24]       |
+| CPU per Cron Trigger (Free)          | 10 ms. `limits.cpu_ms` cannot raise it on Free.                                                                                                       | [verified]                 | [1] [2] [3]    |
+| Waiting on fetch counts as CPU?      | No. It does count toward wall time.                                                                                                                   | [verified]                 | [1]            |
+| Wall-clock limit for a scheduled run | 15 minutes per invocation                                                                                                                             | [verified]                 | [1] [5]        |
+| Memory                               | 128 MB per isolate (Free and Paid)                                                                                                                    | [verified]                 | [1]            |
+| Cron Triggers per account (Free)     | 5 (Paid 250)                                                                                                                                          | [verified]                 | [1]            |
+| Daily requests (Free)                | 100,000/day, reset at midnight UTC. Whether cron runs count is not stated explicitly; the pricing example bills an hourly cron as 720 requests/month. | [verified] / [partial]     | [1] [2]        |
+| Worker size / startup                | 64 MiB uncompressed on all plans (compressed limit removed 2026-09-04). Global scope must finish within 1 s.                                          | [verified]                 | [1] [27] [28]  |
+| Cron config                          | `"triggers": { "crons": ["*/10 * * * *"] }` / `[triggers] crons = ["*/10 * * * *"]`. Runs on UTC.                                                     | [verified]                 | [3] [4]        |
+| Cron propagation after deploy        | Up to 15 min. Past Cron Events can take up to 30 min to appear for a new Worker.                                                                      | [verified]                 | [4]            |
+| Retry on throw                       | Not documented. `controller.noRetry()` exists in the runtime and types, so retries are possible.                                                      | [undocumented] / [partial] | [5] [36] [37]  |
+| Overlapping runs                     | Not documented                                                                                                                                        | [undocumented]             | -              |
+| Handler signature                    | `scheduled(controller, env, ctx)`; controller has `cron`, `scheduledTime`, `noRetry()`                                                                | [verified]                 | [5] [36] [37]  |
+| Types                                | Generate with `wrangler types` (recommended). `@cloudflare/workers-types` is still published (5.20260924.1).                                          | [verified] [live]          | [11] [32] [50] |
+| Secrets                              | `wrangler secret put KEY` (creates and deploys a new version). Non-secret config goes in `vars`.                                                      | [verified]                 | [6] [7] [8]    |
+| Local secrets                        | `.dev.vars` or `.env`, not both. If `.dev.vars` exists, `.env` is ignored for `env`.                                                                  | [verified]                 | [7] [9]        |
+| TypeScript build                     | Wrangler bundles `./src/index.ts` with esbuild; no type-checking. Explicit `.ts` import extensions bundle fine.                                       | [verified] [live]          | [3] [12] [45]  |
+| No public URL                        | Set both `workers_dev: false` and `preview_urls: false`                                                                                               | [verified]                 | [3] [14] [15]  |
+| Local cron test URL                  | `http://localhost:8787/cdn-cgi/local/scheduled?cron=*/10+*+*+*+*&format=json` (`wrangler dev --test-scheduled`)                                       | [verified]                 | [4] [6]        |
+| Logs (Free)                          | Workers Logs: 200,000 events/day, 3-day retention, 256 KB per log. `wrangler tail` for live logs.                                                     | [verified]                 | [18] [1] [6]   |
+| Default User-Agent on fetch          | Not documented by Cloudflare. Community reports say none is sent. GitHub rejects requests without one, so always set it.                              | [undocumented] / [partial] | [38] [39] [40] |
+| Outbound fetch timeout               | No set time limit per subrequest. Use `AbortSignal.timeout()`.                                                                                        | [verified]                 | [1] [22]       |
+| Wrangler version / Node              | 4.138.0; `engines.node >=22.0.0`                                                                                                                      | [live]                     | [50] [23]      |
 
 ## Details
 
@@ -39,15 +39,20 @@ All Cloudflare pages were re-fetched on 2026-09-24 through their `index.md` mark
 The Limits page shows "Last updated Sep 5, 2026" [1].
 
 - **Subrequests.** The limit is 50 per invocation on Free and 10,000 on Paid, which can be raised to 10M [1]. The table has no per-trigger-type split, so Cron Triggers share the same limit.
+
   > "Subrequests per invocation | 50 | 10,000 (up to 10M)" [1]
   > "Each subrequest in a redirect chain counts against this limit." [1]
 
   The `limits.subrequests` key defaults to 50 on Free and is capped at 50 there [3]:
+
   > "This value defaults to 50 for free accounts and 10,000 for paid accounts. The free account maximum is 50" [3]
+
 - **CPU per Cron Trigger.** Free gets 10 ms. Paid gets 30 s for intervals under 1 hour, or 15 min for intervals of 1 hour or more [1].
+
   > "CPU time per Cron Trigger | 10 ms | 30 seconds (< 1 hour interval)" [1]
 
   Pricing states the same Free figure: "10 milliseconds of CPU time per invocation" [2]. `limits` config: "Limits are only supported for the Standard Usage Model." [3]. There is a small grace margin: "Each isolate has some built-in flexibility to allow for cases where your Worker infrequently runs over the configured limit." [1]. For Paid only, the limits page (30 s / 15 min) and the pricing page ("Max of 15 minutes of CPU time per Cron Trigger") are worded differently [2]. This does not affect Free.
+
 - **Wall clock.** > "Scheduled Workers have a maximum wall time of 15 minutes per invocation." [1]. The Duration table lists "Cron Trigger | 15 min" with no Free/Paid split [1].
 - **Memory.** > "Each isolate can consume up to 128 MB of memory, including the JavaScript heap and WebAssembly allocations." [1]. This limit applies per isolate, not per invocation [1].
 - **Cron Triggers.** > "Number of Cron Triggers per account | 5 | 250" [1] (Free | Paid). The Cron Triggers page instead says "maximum number of Cron Triggers per Worker" [4]. That wording conflicts with the table. We need only one trigger.
@@ -90,7 +95,9 @@ The Limits page shows "Last updated Sep 5, 2026" [1].
 - **Signature** (ES modules) [5]:
   ```ts
   export default {
-    async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) { /* ... */ },
+    async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+      /* ... */
+    },
   } satisfies ExportedHandler<Env>;
   ```
 - **Controller properties.** The docs list three: `controller.cron`, `controller.type` ("This will always return \"scheduled\"") and `controller.scheduledTime` ("milliseconds since January 1, 1970, UTC") [5]. > "The value of `controller.cron` is the exact cron expression string from your configuration. It must match character-for-character, including spacing." [5]

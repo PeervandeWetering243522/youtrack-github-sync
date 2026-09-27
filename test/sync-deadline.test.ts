@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { RUN_DEADLINE_MS, runSync, WRITE_PAUSE_MS } from "../src/sync.ts";
-import { config, harness, ISSUES_PATH, lastLine, messages, MIXED_WORLD, summary, writeCalls, ytRow } from "./sync-harness.ts";
+import {
+  config,
+  harness,
+  ISSUES_PATH,
+  lastLine,
+  messages,
+  MIXED_WORLD,
+  summary,
+  writeCalls,
+  ytRow,
+} from "./sync-harness.ts";
 import type { World } from "./sync-harness.ts";
 
 // The harness clock starts at 0 and moves only by what the run sleeps. In DEADLINE_WORLD the

@@ -75,7 +75,11 @@ export function harness(
   return { client, calls: fake.calls, waits };
 }
 
-export function jsonResponse(status: number, body: JsonValue, headers: Readonly<Record<string, string>> = {}): Response {
+export function jsonResponse(
+  status: number,
+  body: JsonValue,
+  headers: Readonly<Record<string, string>> = {},
+): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }
 

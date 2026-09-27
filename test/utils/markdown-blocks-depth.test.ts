@@ -64,9 +64,45 @@ const CORPUS_SHA256 = "adbc08d8eccb67594554d61578c3fcecfedb247f73ce62ca54ca1552c
 const MARKERS = [">", "> ", "- ", "* ", "1. ", "2) ", "-   ", "10. "];
 const PREFIXES = [">", "> ", " > ", "- ", "* ", "+ ", "1. ", "2) ", "10. ", "-", "1.", " ", "  ", "   ", "    ", "\t"];
 const BODIES = [
-  "", "", "   ", "@a", "#1", "x", "a `b", "c` d", "```", "``` js", "```a``` @b", "~~~", "````", "# h", "## @x",
-  "<div>", "</div>", "<!--", "-->", "<pre>", "</pre>", "<custom-tag>", "<?php", "?>", "***", "---", "===", "* * *",
-  "- - -", "_ _ _", "text @c", "GH-2", "o/r#3", "-- -", "* * * x", "\t- - -", "- -", "__ _ _ ", "*\t*\t*",
+  "",
+  "",
+  "   ",
+  "@a",
+  "#1",
+  "x",
+  "a `b",
+  "c` d",
+  "```",
+  "``` js",
+  "```a``` @b",
+  "~~~",
+  "````",
+  "# h",
+  "## @x",
+  "<div>",
+  "</div>",
+  "<!--",
+  "-->",
+  "<pre>",
+  "</pre>",
+  "<custom-tag>",
+  "<?php",
+  "?>",
+  "***",
+  "---",
+  "===",
+  "* * *",
+  "- - -",
+  "_ _ _",
+  "text @c",
+  "GH-2",
+  "o/r#3",
+  "-- -",
+  "* * * x",
+  "\t- - -",
+  "- -",
+  "__ _ _ ",
+  "*\t*\t*",
 ];
 
 /** Deterministic PRNG (mulberry32), so the corpus never changes. */
@@ -107,7 +143,9 @@ function corpus(seed: number, count: number): readonly (readonly string[])[] {
 /** Everything the rendering reads from a classification, as text. */
 function describeLine(line: ClassifiedLine): string {
   const { kind, joins, state } = line;
-  const containers = state.containers.map((c) => (c.kind === "quote" ? ">" : `${String(c.padding)}${c.hasContent ? "+" : "."}`));
+  const containers = state.containers.map((c) =>
+    c.kind === "quote" ? ">" : `${String(c.padding)}${c.hasContent ? "+" : "."}`,
+  );
   const leaf = state.leaf;
   const leafText = leaf === null ? "-" : leaf.kind === "fence" ? `f${leaf.char}${String(leaf.length)}` : leaf.kind;
   const html = leaf?.kind === "html" ? `${leaf.closer}${leaf.end === null ? "" : leaf.end.source}` : "";

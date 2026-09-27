@@ -58,11 +58,14 @@ describe("listAllIssues", () => {
     assert.deepEqual(await listAllIssues(fake.http, TARGET), []);
   });
 
-  it("follows Link rel=\"next\" verbatim across two pages and keeps order, PRs flagged", async () => {
+  it('follows Link rel="next" verbatim across two pages and keeps order, PRs flagged', async () => {
     // Arrange
     const fake = createFakeHttp([
       {
-        body: [issueJson({ number: 30, title: "[YT-3] c", labels: ["youtrack"] }), issueJson({ number: 29, pull_request: {} })],
+        body: [
+          issueJson({ number: 30, title: "[YT-3] c", labels: ["youtrack"] }),
+          issueJson({ number: 29, pull_request: {} }),
+        ],
         link: `<${SECOND_PAGE_URL}>; rel="next", <${SECOND_PAGE_URL}>; rel="last"`,
       },
       {
@@ -106,7 +109,8 @@ describe("listAllIssues", () => {
 
   it("follows three pages, including an empty middle page, in order", async () => {
     // Arrange
-    const thirdPageUrl = "https://api.github.com/repositories/123456/issues?state=all&per_page=100&after=Y3Vy%3D&page=3";
+    const thirdPageUrl =
+      "https://api.github.com/repositories/123456/issues?state=all&per_page=100&after=Y3Vy%3D&page=3";
     const fake = createFakeHttp([
       { body: [issueJson({ number: 3 })], link: `<${SECOND_PAGE_URL}>; rel="next"` },
       { body: [], link: `<${thirdPageUrl}>; rel="next", <${FIRST_PAGE_URL}>; rel="prev"` },
@@ -265,7 +269,8 @@ describe("listAllIssues failures", () => {
     // Act + Assert
     await assert.rejects(
       listAllIssues(fake.http, TARGET),
-      (error: Error) => error.message.includes(`"${longUrl.slice(0, 40)}"`) && !error.message.includes(longUrl.slice(0, 41)),
+      (error: Error) =>
+        error.message.includes(`"${longUrl.slice(0, 40)}"`) && !error.message.includes(longUrl.slice(0, 41)),
     );
   });
 
@@ -353,7 +358,10 @@ describe("listAllIssues failures", () => {
   it("stops at the first invalid item without requesting the next page", async () => {
     // Arrange
     const fake = createFakeHttp([
-      { body: [issueJson({ number: 2 }), issueJson({ number: 1, labels: null })], link: `<${SECOND_PAGE_URL}>; rel="next"` },
+      {
+        body: [issueJson({ number: 2 }), issueJson({ number: 1, labels: null })],
+        link: `<${SECOND_PAGE_URL}>; rel="next"`,
+      },
       { body: [] },
     ]);
 

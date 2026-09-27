@@ -9,7 +9,12 @@ describe("renderLines", () => {
     const lines = renderLines("a\r\nb\rc\n");
     assert.deepEqual(
       lines.map((line) => [line.source, line.ending]),
-      [["a", "\r\n"], ["b", "\r"], ["c", "\n"], ["", ""]],
+      [
+        ["a", "\r\n"],
+        ["b", "\r"],
+        ["c", "\n"],
+        ["", ""],
+      ],
     );
   });
 

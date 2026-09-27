@@ -62,7 +62,12 @@ describe("parseConfig: valid environment", () => {
 
   it("leaves frozen and mutable input environments unchanged", () => {
     const frozenEnv = Object.freeze({ ...VALID_ENV });
-    const mutableEnv: EnvSource = { ...VALID_ENV, GITHUB_REPO: " owner/repo ", MAX_WRITES_PER_RUN: " 007 ", DRY_RUN: " FALSE " };
+    const mutableEnv: EnvSource = {
+      ...VALID_ENV,
+      GITHUB_REPO: " owner/repo ",
+      MAX_WRITES_PER_RUN: " 007 ",
+      DRY_RUN: " FALSE ",
+    };
     const snapshots = [{ ...frozenEnv }, { ...mutableEnv }];
 
     parseConfig(frozenEnv);
@@ -98,8 +103,16 @@ describe("parseConfig: valid environment", () => {
       YOUTRACK_TOKEN,
       YOUTRACK_PROJECT: VALID_ENV.YOUTRACK_PROJECT,
     };
-    const explicitUndefined = envWith({ YOUTRACK_TITLE_PREFIX: undefined, MAX_WRITES_PER_RUN: undefined, DRY_RUN: undefined });
-    const expected = { ...EXPECTED_CONFIG, titlePrefix: DEFAULT_TITLE_PREFIX, maxWritesPerRun: DEFAULT_MAX_WRITES_PER_RUN };
+    const explicitUndefined = envWith({
+      YOUTRACK_TITLE_PREFIX: undefined,
+      MAX_WRITES_PER_RUN: undefined,
+      DRY_RUN: undefined,
+    });
+    const expected = {
+      ...EXPECTED_CONFIG,
+      titlePrefix: DEFAULT_TITLE_PREFIX,
+      maxWritesPerRun: DEFAULT_MAX_WRITES_PER_RUN,
+    };
 
     assert.deepEqual(parseConfig(requiredOnly), expected);
     assert.deepEqual(parseConfig(explicitUndefined), expected);
@@ -177,7 +190,11 @@ describe("parseConfig: tokens", () => {
   });
 
   it("accepts real token formats and trims a Windows line ending", () => {
-    const tokens = [`ghp_${"A1b2".repeat(9)}`, `github_pat_11AB_${"x".repeat(20)}`, "perm-cm9vdA==.dG9r+ZW4=.rNZ38ije7uiW"];
+    const tokens = [
+      `ghp_${"A1b2".repeat(9)}`,
+      `github_pat_11AB_${"x".repeat(20)}`,
+      "perm-cm9vdA==.dG9r+ZW4=.rNZ38ije7uiW",
+    ];
     for (const token of tokens) {
       const config = parseConfig(envWith({ GITHUB_TOKEN: `${token}\r\n`, YOUTRACK_TOKEN: ` ${token}\r` }));
 
@@ -312,25 +329,35 @@ describe("parseConfig: collecting problems", () => {
     ]);
   });
 
-  it("stays fast and leak-free on very long values, including long runs of slashes", {
-    timeout: 5_000,
-  }, () => {
-    const long = "a".repeat(200_000);
-    const slashes = "/".repeat(200_000);
-    const env = envWith({
-      GITHUB_REPO: `${long}/${long}!`,
-      YOUTRACK_BASE_URL: `https://example.com/${long}?`,
-      YOUTRACK_PROJECT: `${"-".repeat(200_000)}!`,
-      MAX_WRITES_PER_RUN: "9".repeat(200_000),
-    });
+  it(
+    "stays fast and leak-free on very long values, including long runs of slashes",
+    {
+      timeout: 5_000,
+    },
+    () => {
+      const long = "a".repeat(200_000);
+      const slashes = "/".repeat(200_000);
+      const env = envWith({
+        GITHUB_REPO: `${long}/${long}!`,
+        YOUTRACK_BASE_URL: `https://example.com/${long}?`,
+        YOUTRACK_PROJECT: `${"-".repeat(200_000)}!`,
+        MAX_WRITES_PER_RUN: "9".repeat(200_000),
+      });
 
-    const error = captureConfigError(env);
-    const trailing = parseConfig(envWith({ YOUTRACK_BASE_URL: `https://example.com/yt${slashes}` }));
-    const inner = parseConfig(envWith({ YOUTRACK_BASE_URL: `https://example.com${slashes}x` }));
+      const error = captureConfigError(env);
+      const trailing = parseConfig(envWith({ YOUTRACK_BASE_URL: `https://example.com/yt${slashes}` }));
+      const inner = parseConfig(envWith({ YOUTRACK_BASE_URL: `https://example.com${slashes}x` }));
 
-    assert.deepEqual(error.problems, [OWNER_PROBLEM, REPO_PROBLEM, URL_QUERY_PROBLEM, PROJECT_PROBLEM, MAX_WRITES_PROBLEM]);
-    assert.ok(error.message.length < 1_000);
-    assert.equal(trailing.youtrackBaseUrl, "https://example.com/yt");
-    assert.equal(inner.youtrackBaseUrl, `https://example.com${slashes}x`);
-  });
+      assert.deepEqual(error.problems, [
+        OWNER_PROBLEM,
+        REPO_PROBLEM,
+        URL_QUERY_PROBLEM,
+        PROJECT_PROBLEM,
+        MAX_WRITES_PROBLEM,
+      ]);
+      assert.ok(error.message.length < 1_000);
+      assert.equal(trailing.youtrackBaseUrl, "https://example.com/yt");
+      assert.equal(inner.youtrackBaseUrl, `https://example.com${slashes}x`);
+    },
+  );
 });

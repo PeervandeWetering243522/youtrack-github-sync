@@ -42,7 +42,8 @@ describe("runSync GitHub rate limits: closes", () => {
       // Arrange
       const { deps, calls, lines, sleeps } = harness({
         ...twoCloses,
-        override: (call) => (call.method === "PATCH" && call.url.pathname.endsWith("/12") ? primaryLimit(status) : undefined),
+        override: (call) =>
+          call.method === "PATCH" && call.url.pathname.endsWith("/12") ? primaryLimit(status) : undefined,
       });
 
       // Act
@@ -51,7 +52,9 @@ describe("runSync GitHub rate limits: closes", () => {
       // Assert
       assert.ok(error instanceof SyncFailedError);
       assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`]);
-      const expected = new RegExp(`^close YT-1 #12 failed: PATCH .* -> HTTP ${String(status)}: .*API rate limit exceeded`);
+      const expected = new RegExp(
+        `^close YT-1 #12 failed: PATCH .* -> HTTP ${String(status)}: .*API rate limit exceeded`,
+      );
       assert.match(error.failures[0] ?? "", expected);
       assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 3 }));
       assert.deepEqual(sleeps, []);
@@ -65,7 +68,9 @@ describe("runSync GitHub rate limits: closes", () => {
     const { deps, calls, lines } = harness({
       ...twoCloses,
       override: (call) =>
-        call.url.pathname.endsWith("/12") ? json(403, { message: "Resource not accessible by integration" }) : undefined,
+        call.url.pathname.endsWith("/12")
+          ? json(403, { message: "Resource not accessible by integration" })
+          : undefined,
     });
 
     // Act
@@ -113,7 +118,8 @@ describe("runSync GitHub rate limits: creates", () => {
 
   it("stops after a create answered 403 with retry-after 60 and caps the rest", async () => {
     // Arrange
-    const limited = (): Response => json(403, { message: "You have exceeded a secondary rate limit." }, { "retry-after": "60" });
+    const limited = (): Response =>
+      json(403, { message: "You have exceeded a secondary rate limit." }, { "retry-after": "60" });
     const { deps, calls, lines } = harness({ ...mixed, override: onFirstCreate(limited) });
 
     // Act

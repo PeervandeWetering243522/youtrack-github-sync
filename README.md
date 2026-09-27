@@ -58,16 +58,16 @@ the run shows as failed in Cron Events (or as a failed systemd unit). Tokens are
 
 ## Configuration
 
-| Name | Kind | Default | Notes |
-|---|---|---|---|
-| `GITHUB_TOKEN` | secret | required | Classic PAT with the `repo` scope (decision B12). |
-| `YOUTRACK_TOKEN` | secret | required | YouTrack permanent token. |
-| `GITHUB_REPO` | var | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`. |
-| `YOUTRACK_BASE_URL` | var | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
-| `YOUTRACK_PROJECT` | var | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`. |
-| `YOUTRACK_TITLE_PREFIX` | var | `[team]` | Case-insensitive summary prefix that marks an issue for mirroring. |
-| `MAX_WRITES_PER_RUN` | var | `30` | Whole number from 0 to 40. A create = 1 write, a close = 1, a label re-add = 1. |
-| `DRY_RUN` | var | on | Only `false` (any case, surrounding whitespace ignored) turns it off. |
+| Name                    | Kind   | Default  | Notes                                                                                                         |
+| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN`          | secret | required | Classic PAT with the `repo` scope (decision B12).                                                             |
+| `YOUTRACK_TOKEN`        | secret | required | YouTrack permanent token.                                                                                     |
+| `GITHUB_REPO`           | var    | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                      |
+| `YOUTRACK_BASE_URL`     | var    | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
+| `YOUTRACK_PROJECT`      | var    | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                              |
+| `YOUTRACK_TITLE_PREFIX` | var    | `[team]` | Case-insensitive summary prefix that marks an issue for mirroring.                                            |
+| `MAX_WRITES_PER_RUN`    | var    | `30`     | Whole number from 0 to 40. A create = 1 write, a close = 1, a label re-add = 1.                               |
+| `DRY_RUN`               | var    | on       | Only `false` (any case, surrounding whitespace ignored) turns it off.                                         |
 
 Invalid config fails the run before any request is made, listing every problem at once.
 
@@ -101,16 +101,16 @@ gh label create youtrack --repo BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyU
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `npm run check` | Type-check (Node and Workers configs), lint, and run all tests. |
-| `npm run typecheck` | `tsc` against `tsconfig.node.json` and `tsconfig.worker.json`. Bare `tsc` skips `src/worker.ts`. |
-| `npm run lint` | ESLint with typescript-eslint `strictTypeChecked`. |
-| `npm test` / `npm run test:coverage` | `node --test`, optionally with coverage. |
-| `npm run sync` | One run with Node, reading `.env`. With `DRY_RUN=true` it only reads and logs the plan. |
-| `npm run dev:worker` | `wrangler dev --test-scheduled`, for triggering the Worker locally. |
-| `npm run gen:youtrack` | Regenerate `src/generated/youtrack.ts` from `./youtrack-openapi.json` (see below). |
-| `npm run gen:worker-types` | Regenerate `worker-configuration.d.ts` (`wrangler types`) after editing `wrangler.jsonc`. |
+| Command                              | What it does                                                                                     |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `npm run check`                      | Type-check (Node and Workers configs), lint, and run all tests.                                  |
+| `npm run typecheck`                  | `tsc` against `tsconfig.node.json` and `tsconfig.worker.json`. Bare `tsc` skips `src/worker.ts`. |
+| `npm run lint`                       | ESLint with typescript-eslint `strictTypeChecked`.                                               |
+| `npm test` / `npm run test:coverage` | `node --test`, optionally with coverage.                                                         |
+| `npm run sync`                       | One run with Node, reading `.env`. With `DRY_RUN=true` it only reads and logs the plan.          |
+| `npm run dev:worker`                 | `wrangler dev --test-scheduled`, for triggering the Worker locally.                              |
+| `npm run gen:youtrack`               | Regenerate `src/generated/youtrack.ts` from `./youtrack-openapi.json` (see below).               |
+| `npm run gen:worker-types`           | Regenerate `worker-configuration.d.ts` (`wrangler types`) after editing `wrangler.jsonc`.        |
 
 The tests use a fake `fetch`; they never contact YouTrack or GitHub.
 

@@ -21,7 +21,13 @@ import {
 
 describe("parseConfig: MAX_WRITES_PER_RUN", () => {
   const accepted: readonly (readonly [string, number])[] = [
-    ...[["0", 0], ["1", 1], ["007", 7], ["010", 10], ["0040", 40]] as const,
+    ...([
+      ["0", 0],
+      ["1", 1],
+      ["007", 7],
+      ["010", 10],
+      ["0040", 40],
+    ] as const),
     [`${"0".repeat(400)}1`, 1],
     [String(MAX_WRITES_LIMIT), MAX_WRITES_LIMIT],
   ];
@@ -49,7 +55,17 @@ describe("parseConfig: MAX_WRITES_PER_RUN", () => {
   });
 
   it("rejects look-alike digits, signs and separators", () => {
-    const values = [fullwidth("30"), "-0", `4${ZERO_WIDTH_SPACE}0`, `4${NBSP}0`, "40.", ".5", "4_0", "4,0", `30${char(0)}`];
+    const values = [
+      fullwidth("30"),
+      "-0",
+      `4${ZERO_WIDTH_SPACE}0`,
+      `4${NBSP}0`,
+      "40.",
+      ".5",
+      "4_0",
+      "4,0",
+      `30${char(0)}`,
+    ];
     for (const value of values) {
       assert.deepEqual(problemsFor(envWith({ MAX_WRITES_PER_RUN: value })), [MAX_WRITES_PROBLEM], visible(value));
     }
@@ -84,7 +100,7 @@ describe("parseConfig: DRY_RUN", () => {
     }
   });
 
-  const onValues = [undefined, "", " ", "true", "0", "no", "off", "f", "falsey", "false false", "\"false\""];
+  const onValues = [undefined, "", " ", "true", "0", "no", "off", "f", "falsey", "false false", '"false"'];
   for (const value of onValues) {
     it(`keeps dry-run on for ${value === undefined ? "undefined" : JSON.stringify(value)}`, () => {
       const config = parseConfig(envWith({ DRY_RUN: value }));
@@ -111,7 +127,9 @@ describe("parseConfig: DRY_RUN", () => {
     // e.g. U+017F -> "S", U+FB02 -> "FL", U+212A -> "k", so a /iu regex or toUpperCase() would be unsafe.
     const hazards = [0x00df, 0x017f, 0x0130, 0x0131, 0x1e9a, 0x212a, 0xfb00, 0xfb01, 0xfb02, 0xfb05, 0xfb06].map(char);
     const values = ["false", "FALSE"].flatMap((word) =>
-      hazards.flatMap((hazard) => Array.from(word, (_, index) => `${word.slice(0, index)}${hazard}${word.slice(index + 1)}`)),
+      hazards.flatMap((hazard) =>
+        Array.from(word, (_, index) => `${word.slice(0, index)}${hazard}${word.slice(index + 1)}`),
+      ),
     );
 
     for (const value of values) {

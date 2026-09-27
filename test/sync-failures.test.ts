@@ -169,7 +169,8 @@ describe("runSync write failures", () => {
     const { deps, calls, sleeps } = harness({
       githubIssues: [ghIssue(12, "[YT-1] [team] Task 1")],
       youtrackRows: [ytRow(1, { resolved: RESOLVED_AT })],
-      override: (call, attempt) => (call.method === "PATCH" && attempt === 0 ? json(503, { message: "busy" }) : undefined),
+      override: (call, attempt) =>
+        call.method === "PATCH" && attempt === 0 ? json(503, { message: "busy" }) : undefined,
     });
 
     // Act
@@ -210,7 +211,9 @@ describe("runSync read failures", () => {
     const { deps, calls, lines } = harness({
       ...MIXED_WORLD,
       override: (call) =>
-        call.url.origin === YOUTRACK_BASE_URL ? json(400, { error: "invalid_query", error_description: "bad" }) : undefined,
+        call.url.origin === YOUTRACK_BASE_URL
+          ? json(400, { error: "invalid_query", error_description: "bad" })
+          : undefined,
     });
 
     // Act

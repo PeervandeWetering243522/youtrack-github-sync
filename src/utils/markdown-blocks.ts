@@ -244,7 +244,8 @@ function openLeaf(opening: Opening, line: Line, at: number, rest: string): Class
   const tipIsParagraph = tipLeaf(opening)?.kind === "paragraph";
   if (ATX_HEADING.test(rest)) return contentLine("text", opening, null);
   const fence = FENCE_OPEN.exec(rest)?.[0];
-  if (fence !== undefined) return contentLine("code", opening, { kind: "fence", char: fence.charAt(0), length: fence.length });
+  if (fence !== undefined)
+    return contentLine("code", opening, { kind: "fence", char: fence.charAt(0), length: fence.length });
   const html = rest.startsWith("<") ? openHtmlBlock(rest, tipIsParagraph) : null;
   if (html !== null) return contentLine("code", opening, html.end?.test(rest) === true ? null : html);
   const setext = tipIsOwnParagraph(opening) && SETEXT_UNDERLINE.test(rest);
@@ -306,7 +307,9 @@ function buildState(opening: Opening, hasBlock: boolean, leaf: Leaf | null): Blo
   const keptStops = stops.slice(0, lowerBound(stops, cursor.matched));
   const prefix = keepsAll && markLast ? kept.map(withContent) : kept;
   const prefixStops = prefix === kept ? keptStops : keptStops.slice(0, -1);
-  const added = opened.map((container, index) => (hasBlock || index < opened.length - 1 ? withContent(container) : container));
+  const added = opened.map((container, index) =>
+    hasBlock || index < opened.length - 1 ? withContent(container) : container,
+  );
   const addedStops = added.flatMap((container, index) => (isStop(container) ? [prefix.length + index] : []));
   return { containers: [...prefix, ...added], stops: [...prefixStops, ...addedStops], leaf };
 }

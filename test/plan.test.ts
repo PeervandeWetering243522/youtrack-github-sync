@@ -178,7 +178,9 @@ describe("buildMirrorIndex: matching", () => {
   });
 
   it("does not count a label that merely contains the name", () => {
-    const issues = Object.freeze([ghIssue(12, "[YT-5] Fix it", { labelNames: ["youtrack-old", " youtrack", "you track"] })]);
+    const issues = Object.freeze([
+      ghIssue(12, "[YT-5] Fix it", { labelNames: ["youtrack-old", " youtrack", "you track"] }),
+    ]);
 
     const result = buildMirrorIndex(issues, LABEL);
 
@@ -303,7 +305,10 @@ describe("buildMirrorIndex: precedence and warnings", () => {
   });
 
   it("uses a closed labelled mirror over an open unlabelled one", () => {
-    const issues = Object.freeze([unlabelled(12, "[YT-5] Open copy"), ghIssue(15, "[YT-5] Closed", { state: "closed" })]);
+    const issues = Object.freeze([
+      unlabelled(12, "[YT-5] Open copy"),
+      ghIssue(15, "[YT-5] Closed", { state: "closed" }),
+    ]);
 
     const result = buildMirrorIndex(issues, LABEL);
 

@@ -3,7 +3,13 @@ import { describe, it } from "node:test";
 
 import { parseJson } from "../src/json.ts";
 import type { JsonObject, JsonValue } from "../src/json.ts";
-import { ISSUE_FIELDS, YouTrackSchemaError, issueFieldsParam, parseYouTrackIssue, projectQuery } from "../src/youtrack.ts";
+import {
+  ISSUE_FIELDS,
+  YouTrackSchemaError,
+  issueFieldsParam,
+  parseYouTrackIssue,
+  projectQuery,
+} from "../src/youtrack.ts";
 import {
   NULL_DESCRIPTION_ROW,
   RESOLVED_ROW,
@@ -127,12 +133,15 @@ describe("parseYouTrackIssue", () => {
   });
 
   it("throws an instance of YouTrackSchemaError (an Error subclass)", () => {
-    assert.throws(() => parseYouTrackIssue(null), (error) => {
-      assert.ok(error instanceof YouTrackSchemaError);
-      assert.ok(error instanceof Error);
-      assert.equal(error.name, "YouTrackSchemaError");
-      return true;
-    });
+    assert.throws(
+      () => parseYouTrackIssue(null),
+      (error) => {
+        assert.ok(error instanceof YouTrackSchemaError);
+        assert.ok(error instanceof Error);
+        assert.equal(error.name, "YouTrackSchemaError");
+        return true;
+      },
+    );
   });
 
   const nonObjectRows: readonly { readonly row: JsonValue; readonly kind: string }[] = [
@@ -229,11 +238,14 @@ describe("parseYouTrackIssue", () => {
 
     // Act + Assert
     for (const row of rows) {
-      assert.throws(() => parseYouTrackIssue(row), (error) => {
-        assert.ok(error instanceof YouTrackSchemaError);
-        assert.doesNotMatch(error.message, new RegExp(secret));
-        return true;
-      });
+      assert.throws(
+        () => parseYouTrackIssue(row),
+        (error) => {
+          assert.ok(error instanceof YouTrackSchemaError);
+          assert.doesNotMatch(error.message, new RegExp(secret));
+          return true;
+        },
+      );
     }
   });
 
@@ -314,12 +326,15 @@ describe("parseYouTrackIssue", () => {
     const row = issueRow(6, { idReadable: 'CUI-6\n[fake] "quoted"', resolved: "x" });
 
     // Act + Assert
-    assert.throws(() => parseYouTrackIssue(row), (error) => {
-      assert.ok(error instanceof YouTrackSchemaError);
-      assert.doesNotMatch(error.message, /\n/);
-      assert.ok(error.message.startsWith('YouTrack issue "CUI-6\\n[fake] \\"quoted\\"": field "resolved"'));
-      return true;
-    });
+    assert.throws(
+      () => parseYouTrackIssue(row),
+      (error) => {
+        assert.ok(error instanceof YouTrackSchemaError);
+        assert.doesNotMatch(error.message, /\n/);
+        assert.ok(error.message.startsWith('YouTrack issue "CUI-6\\n[fake] \\"quoted\\"": field "resolved"'));
+        return true;
+      },
+    );
   });
 
   it("does not accept a field supplied only through a JSON __proto__ key", () => {

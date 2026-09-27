@@ -6,23 +6,23 @@ Note on sources: the devportal pages (`/help/youtrack/devportal/...`) are shared
 
 ## TL;DR
 
-| Question | Answer | Status | Source |
-|---|---|---|---|
-| List endpoint | `GET /api/issues` with query params `query`, `customFields`, `fields`, `$skip`, `$top`. None of them is marked required. The only response is 200: an array of `Issue`. | [verified] | [1][2] |
-| Single issue | `GET /api/issues/{id}` with `id` (path, required) and `fields`. `id` can be a database id or a readable id (`CUI-5`). | [verified] [live] | [1][3] |
-| Default fields | With no `fields` parameter, you get only `$type` and `id`. The spec's long `default` for `fields` does not reflect this. | [verified] [live] | [4] |
-| Nullability | The spec has 0 `nullable` markers. Live, `resolved` is null when unresolved and `description` is null when empty. The docs say "Can be null" for `summary`, `description`, `resolved` and `project`. | [verified] [live] | [1][2][5] |
-| `usesMarkdown` | Not in the spec or the entity docs. Live it returns boolean `true` for all 29 CUI issues. | [live] [undocumented] | [1][5] |
-| Default page size without `$top` | The docs contradict each other: 42 (Pagination page) vs "Max issues to export" (Issues page; default 500 on Server 2025.2). It can't be observed here because the token sees only 29 issues. Always send `$top`. | [verified] [partial] | [2][6][7] |
-| Max `$top` | Not documented. Live, `$top=100000` is accepted, `$top=0` returns `[]`, and `$top=abc` returns HTTP 500. | [undocumented] [live] | [6] |
-| Default sort | `sort by: updated desc` | [verified] | [2] |
-| Page stability | Not documented. Live, 3 pages of 10 matched the single `$top=1000` result. | [undocumented] [live] | [6] |
-| Auth | `Authorization: Bearer <permanent token>`. The docs' examples show `perm:`, but this instance's working token starts with `perm-`. Tokens do not expire. | [verified] [live] | [8][9][10] |
-| Error body | JSON `{error, error_description, ...}`. 400 = bad query or fields, 401 = no or invalid token, 404 = unknown issue, 500 = non-numeric `$top`. | [live] | - |
-| Rate limits | No REST request rate limit is documented. The only documented limit is login throttling, applied per login. There are no rate-limit headers live. | [undocumented] [verified] | [11] |
-| Issue count endpoint | `/api/issuesGetter/count` is **POST only**, so it is OFF-LIMITS. GET alternatives: count the paged `GET /api/issues` rows, or `GET /api/admin/projects?fields=shortName,issues(id)`. | [verified] [live] | [1][12] |
-| Moved issue | Gets a new ID with the target project's prefix and next number. The old link redirects in the UI. | [verified] | [13] |
-| Deleted issue | Restorable for a short time, then removed by housekeeping. Live, CUI-24 and CUI-27 return 404. | [verified] [live] | [14] |
+| Question                         | Answer                                                                                                                                                                                                           | Status                    | Source     |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------- |
+| List endpoint                    | `GET /api/issues` with query params `query`, `customFields`, `fields`, `$skip`, `$top`. None of them is marked required. The only response is 200: an array of `Issue`.                                          | [verified]                | [1][2]     |
+| Single issue                     | `GET /api/issues/{id}` with `id` (path, required) and `fields`. `id` can be a database id or a readable id (`CUI-5`).                                                                                            | [verified] [live]         | [1][3]     |
+| Default fields                   | With no `fields` parameter, you get only `$type` and `id`. The spec's long `default` for `fields` does not reflect this.                                                                                         | [verified] [live]         | [4]        |
+| Nullability                      | The spec has 0 `nullable` markers. Live, `resolved` is null when unresolved and `description` is null when empty. The docs say "Can be null" for `summary`, `description`, `resolved` and `project`.             | [verified] [live]         | [1][2][5]  |
+| `usesMarkdown`                   | Not in the spec or the entity docs. Live it returns boolean `true` for all 29 CUI issues.                                                                                                                        | [live] [undocumented]     | [1][5]     |
+| Default page size without `$top` | The docs contradict each other: 42 (Pagination page) vs "Max issues to export" (Issues page; default 500 on Server 2025.2). It can't be observed here because the token sees only 29 issues. Always send `$top`. | [verified] [partial]      | [2][6][7]  |
+| Max `$top`                       | Not documented. Live, `$top=100000` is accepted, `$top=0` returns `[]`, and `$top=abc` returns HTTP 500.                                                                                                         | [undocumented] [live]     | [6]        |
+| Default sort                     | `sort by: updated desc`                                                                                                                                                                                          | [verified]                | [2]        |
+| Page stability                   | Not documented. Live, 3 pages of 10 matched the single `$top=1000` result.                                                                                                                                       | [undocumented] [live]     | [6]        |
+| Auth                             | `Authorization: Bearer <permanent token>`. The docs' examples show `perm:`, but this instance's working token starts with `perm-`. Tokens do not expire.                                                         | [verified] [live]         | [8][9][10] |
+| Error body                       | JSON `{error, error_description, ...}`. 400 = bad query or fields, 401 = no or invalid token, 404 = unknown issue, 500 = non-numeric `$top`.                                                                     | [live]                    | -          |
+| Rate limits                      | No REST request rate limit is documented. The only documented limit is login throttling, applied per login. There are no rate-limit headers live.                                                                | [undocumented] [verified] | [11]       |
+| Issue count endpoint             | `/api/issuesGetter/count` is **POST only**, so it is OFF-LIMITS. GET alternatives: count the paged `GET /api/issues` rows, or `GET /api/admin/projects?fields=shortName,issues(id)`.                             | [verified] [live]         | [1][12]    |
+| Moved issue                      | Gets a new ID with the target project's prefix and next number. The old link redirects in the UI.                                                                                                                | [verified]                | [13]       |
+| Deleted issue                    | Restorable for a short time, then removed by housekeeping. Live, CUI-24 and CUI-27 return 404.                                                                                                                   | [verified] [live]         | [14]       |
 
 ## Details
 
@@ -31,19 +31,25 @@ Note on sources: the devportal pages (`/help/youtrack/devportal/...`) are shared
 Spec header [1]: OpenAPI 3.0.1, `info.version: "2025.2"`, `servers: [{"url": "https://youtrack.ai.buas.nl:443/api"}]`. Paths are relative to `/api`, so the spec's `/issues` is `/api/issues`. Security scheme [1]:
 
 ```json
-{"permanentToken":{"type":"http","scheme":"bearer","bearerFormat":"YouTrack permanent token"}}
+{ "permanentToken": { "type": "http", "scheme": "bearer", "bearerFormat": "YouTrack permanent token" } }
 ```
 
 `paths["/issues"].get.parameters` [1] (all `in: query`, none required; the `fields` default is truncated here):
 
 ```json
 [
-  {"name":"query","in":"query","schema":{"type":"string"}},
-  {"name":"customFields","in":"query","schema":{"type":"string"}},
-  {"name":"fields","in":"query","schema":{"type":"string",
-     "default":"$type,created,customFields($type,id,name,value($type,id,name)),description,id,idReadable,links(...),numberInProject,project($type,id,name,shortName),reporter(...),resolved,summary,updated,updater(...),visibility(...)"}},
-  {"name":"$skip","in":"query","schema":{"type":"integer","format":"int32"}},
-  {"name":"$top","in":"query","schema":{"type":"integer","format":"int32"}}
+  { "name": "query", "in": "query", "schema": { "type": "string" } },
+  { "name": "customFields", "in": "query", "schema": { "type": "string" } },
+  {
+    "name": "fields",
+    "in": "query",
+    "schema": {
+      "type": "string",
+      "default": "$type,created,customFields($type,id,name,value($type,id,name)),description,id,idReadable,links(...),numberInProject,project($type,id,name,shortName),reporter(...),resolved,summary,updated,updater(...),visibility(...)"
+    }
+  },
+  { "name": "$skip", "in": "query", "schema": { "type": "integer", "format": "int32" } },
+  { "name": "$top", "in": "query", "schema": { "type": "integer", "format": "int32" } }
 ]
 ```
 
@@ -61,18 +67,18 @@ The spec documents only `200` responses and defines no error schema. Error handl
 
 `Issue` has `discriminator: {propertyName: "$type"}` and no `required` list [1]. The exact entries from the spec [1]:
 
-| Property | Spec | Docs [2][5] | Live |
-|---|---|---|---|
-| idReadable | `{type:string, readOnly:true}` | "The issue ID as seen in the YouTrack interface. Read-only." | string, e.g. `CUI-31` |
-| numberInProject | `{type:integer, format:int64, readOnly:true}` | "The issue number in the project. Read-only." | number |
-| summary | `{type:string, readOnly:false}` | "Can be null" | string |
-| description | `{type:string, readOnly:false}` | "The issue description. Can be null." | null for 1 of 29, never `""` |
-| resolved | `{type:integer, format:int64, readOnly:true}` | "... null if the issue is still in an unresolved state. Read-only. Can be null." | null for 11, number for 18 |
-| updated | `{type:integer, format:int64, readOnly:true}` | "... last update of the issue. Stored as a unix timestamp at UTC." | epoch ms |
-| created | `{type:integer, format:int64, readOnly:true}` | - | epoch ms, number for 29 of 29 |
-| wikifiedDescription | `{type:string, readOnly:true}` | "as shown in the UI after processing wiki/Markdown markup (including HTML markup)" | always a string, `""` when description is null |
-| usesMarkdown | **absent** (0 occurrences in the spec) | not listed | boolean `true` for 29 of 29 |
-| project | `{$ref:Project, readOnly:false}`; `Project.shortName` is `{type:string}` | "The project where the issue belongs. Can be null." | `{$type, shortName:"CUI"}` |
+| Property            | Spec                                                                     | Docs [2][5]                                                                        | Live                                           |
+| ------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ---------------------------------------------- |
+| idReadable          | `{type:string, readOnly:true}`                                           | "The issue ID as seen in the YouTrack interface. Read-only."                       | string, e.g. `CUI-31`                          |
+| numberInProject     | `{type:integer, format:int64, readOnly:true}`                            | "The issue number in the project. Read-only."                                      | number                                         |
+| summary             | `{type:string, readOnly:false}`                                          | "Can be null"                                                                      | string                                         |
+| description         | `{type:string, readOnly:false}`                                          | "The issue description. Can be null."                                              | null for 1 of 29, never `""`                   |
+| resolved            | `{type:integer, format:int64, readOnly:true}`                            | "... null if the issue is still in an unresolved state. Read-only. Can be null."   | null for 11, number for 18                     |
+| updated             | `{type:integer, format:int64, readOnly:true}`                            | "... last update of the issue. Stored as a unix timestamp at UTC."                 | epoch ms                                       |
+| created             | `{type:integer, format:int64, readOnly:true}`                            | -                                                                                  | epoch ms, number for 29 of 29                  |
+| wikifiedDescription | `{type:string, readOnly:true}`                                           | "as shown in the UI after processing wiki/Markdown markup (including HTML markup)" | always a string, `""` when description is null |
+| usesMarkdown        | **absent** (0 occurrences in the spec)                                   | not listed                                                                         | boolean `true` for 29 of 29                    |
+| project             | `{$ref:Project, readOnly:false}`; `Project.shortName` is `{type:string}` | "The project where the issue belongs. Can be null."                                | `{$type, shortName:"CUI"}`                     |
 
 `grep -c nullable youtrack-openapi.json` returns `0` [1]. Types generated from the spec are therefore wrong for `resolved`, `description`, `summary` and `project`. Type them as `number | null`, `string | null`, and so on.
 
@@ -81,9 +87,11 @@ The spec documents only `200` responses and defines no error schema. Error handl
 ### 3. Fields syntax, pagination, ordering
 
 - Default fields [verified] [4]:
+
   > "by default, the server sends back only the database ID and `$type` of the resource entity."
 
   Live, `GET /api/issues` without `fields` returns rows with keys `["$type","id"]` only [live].
+
 - Nested fields [verified] [4]: the docs give the examples `project(name)` and `customFields(id,name,value(name))`. `project(shortName)` works live [live].
 - Unknown field names are silently dropped. `fields=idReadable,bogusFieldXyz` returns 200 with keys `["$type","idReadable"]` [live]. An unbalanced parenthesis returns 400 `bad_request` "Query string has invalid syntax" [live].
 - `$skip` and `$top` [verified] [6]:
@@ -94,6 +102,7 @@ The spec documents only `200` responses and defines no error schema. Error handl
   - Server 2025.2 Global Settings [7]: "By default, the limit is set to 500 issues."
 
   This can't be resolved live because only 29 issues are visible [partial].
+
 - Maximum `$top`: [undocumented]. The Pagination page gives no maximum [6].
 - Default sort [verified] [2]:
   > "If you don't specify any sorting in the query, the default issue sorting is `sort by: updated desc`."
@@ -102,9 +111,11 @@ The spec documents only `200` responses and defines no error schema. Error handl
 ### 4. Auth, headers, errors
 
 - Auth [verified] [8][9]:
+
   > "You must provide the Authorization HTTP request header for each request. The recommended authorization method is using a permanent token." [9]
 
   > "... utilizes a permanent token as the `Bearer` attribute of the `Authorization` header." Example: `-H 'Authorization: Bearer perm:cm9vdA==.dG9rZW4=.rNZ38ije7uiWwnUTRDdyFDdUkoPUPi'` [8]
+
 - Token format:
   - This instance's working token starts with `perm-` (hyphen), not `perm:`, and has 3 dot-separated segments [live].
   - The Server 2025.2 token page does not document a prefix format [10].
@@ -117,14 +128,14 @@ The spec documents only `200` responses and defines no error schema. Error handl
   - Without `Authorization`: "YouTrack makes the request on behalf of the guest user account. If the guest account is banned, the request will return an error." On this instance that returns 401 [live].
 - Error bodies [live]:
 
-| Case | HTTP | Body |
-|---|---|---|
-| Unknown project in query | 400 | `{"error":"invalid_query","error_description":"Can't parse search query, please check and update query syntax","error_developer_message":"Can't parse search query","error_field":"query","error_children":[{"error":"The value \"DOESNOTEXIST\" isn't used for the project field.","error_description":""}]}` |
-| Malformed `fields` | 400 | `{"error":"bad_request","error_description":"Query string has invalid syntax"}` |
-| No Authorization header | 401 | `{"error":"Unauthorized","error_description":"You are not logged in."}` (no `WWW-Authenticate` header) |
-| Invalid token | 401 | `{"error":"Unauthorized","error_description":"Invalid token"}` |
-| Unknown issue id | 404 | `{"error":"Not Found","error_description":"Entity with id CUI-24 not found"}` |
-| `$top=abc` | 500 | `{"error":"server_error","error_description":"HTTP 404 Not Found"}` |
+| Case                     | HTTP | Body                                                                                                                                                                                                                                                                                                           |
+| ------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unknown project in query | 400  | `{"error":"invalid_query","error_description":"Can't parse search query, please check and update query syntax","error_developer_message":"Can't parse search query","error_field":"query","error_children":[{"error":"The value \"DOESNOTEXIST\" isn't used for the project field.","error_description":""}]}` |
+| Malformed `fields`       | 400  | `{"error":"bad_request","error_description":"Query string has invalid syntax"}`                                                                                                                                                                                                                                |
+| No Authorization header  | 401  | `{"error":"Unauthorized","error_description":"You are not logged in."}` (no `WWW-Authenticate` header)                                                                                                                                                                                                         |
+| Invalid token            | 401  | `{"error":"Unauthorized","error_description":"Invalid token"}`                                                                                                                                                                                                                                                 |
+| Unknown issue id         | 404  | `{"error":"Not Found","error_description":"Entity with id CUI-24 not found"}`                                                                                                                                                                                                                                  |
+| `$top=abc`               | 500  | `{"error":"server_error","error_description":"HTTP 404 Not Found"}`                                                                                                                                                                                                                                            |
 
 The `error` code strings are inconsistent, so branch on the HTTP status.
 
@@ -146,14 +157,19 @@ The `error` code strings are inconsistent, so branch on the HTTP status.
   - The workflow API has `becomesUnresolved` ("previously resolved and is assigned a state that is considered unresolved") [17].
   - That `resolved` returns to null after a reopen follows from "null if the issue is still in an unresolved state", but the docs never state it outright [partial].
 - Move [verified] [13]:
+
   > "The issue gets a new ID with the prefix of the target project and the next consecutive issue number in the target project." / "The old link to the issue will now redirect to the new link with the new ID."
 
   So `numberInProject` changes and the issue drops out of `project: CUI`. Whether `GET /api/issues/{oldId}` resolves after a move is [undocumented].
+
 - Delete [verified] [14]:
+
   > "Deleted issues are only available for a short period of time before YouTrack's automated housekeeping permanently removes them."
 
   Live, the gaps CUI-24 and CUI-27 return 404. A deleted issue and one moved to a project the token can't see look the same [live].
+
 - Single-issue access [verified] [3]:
+
   > "You can specify either the database ID of the issue (for example, `2-24`) or issue ID in the project (for example, `TST-5`)."
 
   It requires Read Issue, and visibility restrictions apply.
@@ -186,17 +202,19 @@ Differences that matter when a description is copied into a GitHub issue body:
 
 Checked with jq against the spec [1]:
 
-| Endpoint | Methods in spec | Mirror uses |
-|---|---|---|
-| `/api/issues` | get, post | **GET only** |
-| `/api/issues/{id}` | get, post, delete | GET only (optional) |
-| `/api/admin/projects` | get, post | GET only (optional startup check) |
-| `/api/issuesGetter/count` | **post only** | **OFF-LIMITS** |
+| Endpoint                  | Methods in spec   | Mirror uses                       |
+| ------------------------- | ----------------- | --------------------------------- |
+| `/api/issues`             | get, post         | **GET only**                      |
+| `/api/issues/{id}`        | get, post, delete | GET only (optional)               |
+| `/api/admin/projects`     | get, post         | GET only (optional startup check) |
+| `/api/issuesGetter/count` | **post only**     | **OFF-LIMITS**                    |
 
 - `/issuesGetter/count` is the only path whose name contains "count" [1]. The docs confirm POST [12]:
+
   > "GET requests don't take request body, so you need to send a POST request in this case."
 
   A count of `-1` means "YouTrack hasn't finished counting the issues yet" [12].
+
 - GET ways to count a project's issues:
   - (a) Page through `GET /api/issues?query=project: CUI&fields=id` and count the rows.
   - (b) `GET /api/admin/projects?fields=shortName,issues(id)`. Live this returned CUI with 29, which matches (a) [live]. Whether that nested collection is capped for large projects is [undocumented].
@@ -207,22 +225,22 @@ Checked with jq against the spec [1]:
 
 All requests were `curl -sS -G https://youtrack.ai.buas.nl/api/... -H "Authorization: Bearer $YOUTRACK_TOKEN" -H "Accept: application/json" --data-urlencode ...`. They were re-run by the verifier on 2026-09-24.
 
-| Probe | Result |
-|---|---|
-| (a) `/api/issues` `fields=id,project(shortName)`, no query, no `$top` | 200, 29 rows, projects `[CUI]` |
-| (a) same with `$top=1000` | 200, 29 rows, projects `[CUI]`. The default page size can't be observed. |
+| Probe                                                                                                                                                    | Result                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) `/api/issues` `fields=id,project(shortName)`, no query, no `$top`                                                                                    | 200, 29 rows, projects `[CUI]`                                                                                                                                                                                                                                                                                               |
+| (a) same with `$top=1000`                                                                                                                                | 200, 29 rows, projects `[CUI]`. The default page size can't be observed.                                                                                                                                                                                                                                                     |
 | (b) `query=project: CUI`, `fields=numberInProject,usesMarkdown,created,resolved,updated,project(shortName),description,wikifiedDescription`, `$top=1000` | 29 rows. `usesMarkdown` true x29. `created` number x29. `resolved` null x11. `project` keys `[$type,shortName]`, shortName CUI x29. `description` null x1, `""` x0. `wikifiedDescription` always a string. `resolved > updated` only for CUI-12. Earliest created 2026-09-10T07:36:55Z. Latest updated 2026-09-24T13:32:13Z. |
-| (c) `query=project: DOESNOTEXIST` | 400 `invalid_query` (body in section 4) |
-| (d) no Authorization header | 401 "You are not logged in.", no `WWW-Authenticate` |
-| No `fields` param, `$top=2` | keys `[$type,id]` |
-| `fields=idReadable,bogusFieldXyz` | 200, keys `[$type,idReadable]` |
-| `fields=numberInProject,project(shortName` | 400 `bad_request` |
-| `$top=0` / `$top=100000` / `$top=abc` | 200 `[]` / 200, 29 rows / 500 `server_error` |
-| `query=project: CUI sort by: updated desc`: `$top=10` with `$skip` 0,10,20,30 vs `$top=1000` | identical order |
-| `/api/admin/projects` `fields=shortName,issues(id)` | `[{shortName:CUI, n:29}]` |
-| `/api/issues/CUI-24` | 404 "Entity with id CUI-24 not found" |
-| Bearer `perm:invalid.invalid.invalid` | 401 "Invalid token" |
-| Response headers | `Server: YouTrack`, `Via: 1.1 Caddy`, `X-Version`; no rate-limit headers |
+| (c) `query=project: DOESNOTEXIST`                                                                                                                        | 400 `invalid_query` (body in section 4)                                                                                                                                                                                                                                                                                      |
+| (d) no Authorization header                                                                                                                              | 401 "You are not logged in.", no `WWW-Authenticate`                                                                                                                                                                                                                                                                          |
+| No `fields` param, `$top=2`                                                                                                                              | keys `[$type,id]`                                                                                                                                                                                                                                                                                                            |
+| `fields=idReadable,bogusFieldXyz`                                                                                                                        | 200, keys `[$type,idReadable]`                                                                                                                                                                                                                                                                                               |
+| `fields=numberInProject,project(shortName`                                                                                                               | 400 `bad_request`                                                                                                                                                                                                                                                                                                            |
+| `$top=0` / `$top=100000` / `$top=abc`                                                                                                                    | 200 `[]` / 200, 29 rows / 500 `server_error`                                                                                                                                                                                                                                                                                 |
+| `query=project: CUI sort by: updated desc`: `$top=10` with `$skip` 0,10,20,30 vs `$top=1000`                                                             | identical order                                                                                                                                                                                                                                                                                                              |
+| `/api/admin/projects` `fields=shortName,issues(id)`                                                                                                      | `[{shortName:CUI, n:29}]`                                                                                                                                                                                                                                                                                                    |
+| `/api/issues/CUI-24`                                                                                                                                     | 404 "Entity with id CUI-24 not found"                                                                                                                                                                                                                                                                                        |
+| Bearer `perm:invalid.invalid.invalid`                                                                                                                    | 401 "Invalid token"                                                                                                                                                                                                                                                                                                          |
+| Response headers                                                                                                                                         | `Server: YouTrack`, `Via: 1.1 Caddy`, `X-Version`; no rate-limit headers                                                                                                                                                                                                                                                     |
 
 ## Undocumented / not found
 

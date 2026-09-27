@@ -45,8 +45,7 @@ export const UNRESOLVED_ROW: JsonObject = {
   updated: 1790256733345,
   resolved: null,
   numberInProject: 31,
-  description:
-    "Probably gonna have Claude draft up a project to use API keys to have ideally bidirectional syncing",
+  description: "Probably gonna have Claude draft up a project to use API keys to have ideally bidirectional syncing",
   $type: "Issue",
 };
 

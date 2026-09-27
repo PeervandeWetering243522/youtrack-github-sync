@@ -152,7 +152,9 @@ describe("parseGitHubIssue", () => {
 
   it("keeps a long or oddly encoded title verbatim (no trimming, truncation or normalisation)", () => {
     // Arrange: 300 astral code points, a lone surrogate from a JSON escape and surrounding spaces.
-    const raw = parseJson(`{"number":1,"title":" [YT-1] ${"😀".repeat(300)} \\ud800 e\\u0301 ","state":"open","labels":[]}`);
+    const raw = parseJson(
+      `{"number":1,"title":" [YT-1] ${"😀".repeat(300)} \\ud800 e\\u0301 ","state":"open","labels":[]}`,
+    );
 
     // Act
     const issue = parseGitHubIssue(raw);
@@ -201,12 +203,18 @@ describe("parseGitHubIssue rejections", () => {
 
   for (const value of [0, -3, 1.5, 2 ** 53, "12", null]) {
     it(`rejects number = ${JSON.stringify(value)}`, () => {
-      assert.throws(() => parseGitHubIssue(issueJson({ number: value })), schemaError(/"number" must be a positive integer/));
+      assert.throws(
+        () => parseGitHubIssue(issueJson({ number: value })),
+        schemaError(/"number" must be a positive integer/),
+      );
     });
   }
 
   it("rejects number = -0", () => {
-    assert.throws(() => parseGitHubIssue(issueJson({ number: -0 })), schemaError(/"number" must be a positive integer/));
+    assert.throws(
+      () => parseGitHubIssue(issueJson({ number: -0 })),
+      schemaError(/"number" must be a positive integer/),
+    );
   });
 
   for (const value of [null, 12, ["t"]]) {

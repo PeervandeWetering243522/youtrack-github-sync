@@ -6,20 +6,20 @@ This topic did not contact YouTrack or GitHub. All live checks were against node
 
 ## TL;DR
 
-| Question | Answer | Status | Source |
-|---|---|---|---|
-| Node release status (2026-09-24) | v24 "Krypton" is Active LTS until 2026-10-20, then Maintenance LTS; EOL 2028-04-30. v22 "Jod" is Maintenance LTS; EOL 2027-04-30. v26 is Current; LTS from 2026-10-28, EOL 2029-04-30. v20 EOL 2026-04-30. v25 EOL 2026-06-01. Latest builds: v24.21.0, v22.23.3, v26.10.0. | [verified] [live] | [1][2][3] |
-| Global `fetch` | Unflagged since v18.0.0. Stable since v21.0.0. | [verified] [live] | [4] |
-| Run `.ts` directly | Type stripping arrived in v22.6.0 behind a flag. On by default since v23.6.0 and v22.18.0. Stable since v25.2.0 and v24.12.0; the v22 docs still say "1.2 Release candidate". Only erasable syntax works. Import specifiers need the `.ts` extension. Files under `node_modules` are not stripped. | [verified] [live] | [5][6][7] |
-| Same `.ts` sources for wrangler | Yes, in a local test: `.ts` specifiers plus `import type` passed `tsc --noEmit` (TS 7.0.2) and `wrangler deploy --dry-run` (4.133.0). No official doc states this. | [live] [undocumented] | -- |
-| Env loading | `--env-file` since v20.6.0, `--env-file-if-exists` since v22.9.0 (backported to v20.19.0), `process.loadEnvFile` since v21.7.0 and v20.12.0. All three are non-experimental since v24.10.0 and v22.21.0. | [verified] [live] | [8][9][10] |
-| Debian `nodejs` package | bookworm 18.20.4, trixie 20.19.2, forky 24.21.0. No backports packages exist. Neither stable release can run the `.ts` sources. | [live] | [11][12][13] |
-| Getting a current Node | NodeSource `node_24.x` "nodistro" apt repo (currently 24.21.0-1nodesource1), or the official nodejs.org tarball with SHASUMS256. | [verified] [live] | [14][15][16][17] |
-| Every-10-min schedule | `OnCalendar=*:0/10` normalizes to `*-*-* *:00/10:00`. | [verified] [live] | [18][19] |
-| Overlapping runs | A run that is still active is not started again: "no concept of spawning new service instances". | [verified] | [20] |
-| Oneshot timeout | Disabled by default for `Type=oneshot`, so set `TimeoutStartSec=` yourself. | [verified] | [21] |
-| Secrets | Environment variables are "not suitable for passing secrets". Use `LoadCredential=` (or `LoadCredentialEncrypted=`) and read the files from `$CREDENTIALS_DIRECTORY`. | [verified] | [22][23] |
-| Toolchain | `typescript` 7.0.2 (latest dist-tag) plus `@types/node`, with `"type": "module"`. | [live] [verified] | [5][24][25] |
+| Question                         | Answer                                                                                                                                                                                                                                                                                             | Status                | Source           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ---------------- |
+| Node release status (2026-09-24) | v24 "Krypton" is Active LTS until 2026-10-20, then Maintenance LTS; EOL 2028-04-30. v22 "Jod" is Maintenance LTS; EOL 2027-04-30. v26 is Current; LTS from 2026-10-28, EOL 2029-04-30. v20 EOL 2026-04-30. v25 EOL 2026-06-01. Latest builds: v24.21.0, v22.23.3, v26.10.0.                        | [verified] [live]     | [1][2][3]        |
+| Global `fetch`                   | Unflagged since v18.0.0. Stable since v21.0.0.                                                                                                                                                                                                                                                     | [verified] [live]     | [4]              |
+| Run `.ts` directly               | Type stripping arrived in v22.6.0 behind a flag. On by default since v23.6.0 and v22.18.0. Stable since v25.2.0 and v24.12.0; the v22 docs still say "1.2 Release candidate". Only erasable syntax works. Import specifiers need the `.ts` extension. Files under `node_modules` are not stripped. | [verified] [live]     | [5][6][7]        |
+| Same `.ts` sources for wrangler  | Yes, in a local test: `.ts` specifiers plus `import type` passed `tsc --noEmit` (TS 7.0.2) and `wrangler deploy --dry-run` (4.133.0). No official doc states this.                                                                                                                                 | [live] [undocumented] | --               |
+| Env loading                      | `--env-file` since v20.6.0, `--env-file-if-exists` since v22.9.0 (backported to v20.19.0), `process.loadEnvFile` since v21.7.0 and v20.12.0. All three are non-experimental since v24.10.0 and v22.21.0.                                                                                           | [verified] [live]     | [8][9][10]       |
+| Debian `nodejs` package          | bookworm 18.20.4, trixie 20.19.2, forky 24.21.0. No backports packages exist. Neither stable release can run the `.ts` sources.                                                                                                                                                                    | [live]                | [11][12][13]     |
+| Getting a current Node           | NodeSource `node_24.x` "nodistro" apt repo (currently 24.21.0-1nodesource1), or the official nodejs.org tarball with SHASUMS256.                                                                                                                                                                   | [verified] [live]     | [14][15][16][17] |
+| Every-10-min schedule            | `OnCalendar=*:0/10` normalizes to `*-*-* *:00/10:00`.                                                                                                                                                                                                                                              | [verified] [live]     | [18][19]         |
+| Overlapping runs                 | A run that is still active is not started again: "no concept of spawning new service instances".                                                                                                                                                                                                   | [verified]            | [20]             |
+| Oneshot timeout                  | Disabled by default for `Type=oneshot`, so set `TimeoutStartSec=` yourself.                                                                                                                                                                                                                        | [verified]            | [21]             |
+| Secrets                          | Environment variables are "not suitable for passing secrets". Use `LoadCredential=` (or `LoadCredentialEncrypted=`) and read the files from `$CREDENTIALS_DIRECTORY`.                                                                                                                              | [verified]            | [22][23]         |
+| Toolchain                        | `typescript` 7.0.2 (latest dist-tag) plus `@types/node`, with `"type": "module"`.                                                                                                                                                                                                                  | [live] [verified]     | [5][24][25]      |
 
 ## Details
 
@@ -35,11 +35,11 @@ The nodejs/Release `schedule.json` gives these dates [2]:
 
 The dist index shows the latest build per line [3]. [live]
 
-| Line | Latest | Date | lts field |
-|---|---|---|---|
-| v26 | v26.10.0 | 2026-09-21 | false |
-| v24 | v24.21.0 | 2026-09-07 | Krypton |
-| v22 | v22.23.3 | 2026-09-23 | Jod |
+| Line | Latest   | Date       | lts field |
+| ---- | -------- | ---------- | --------- |
+| v26  | v26.10.0 | 2026-09-21 | false     |
+| v24  | v24.21.0 | 2026-09-07 | Krypton   |
+| v22  | v22.23.3 | 2026-09-23 | Jod       |
 
 > "Production applications should only use Active LTS or Maintenance LTS releases." [1]
 
@@ -57,13 +57,13 @@ Local check: `node -e "console.log(typeof fetch)"` printed `function` on v22.22.
 
 **Versions** [5] [verified]
 
-| Change | Versions |
-|---|---|
-| Introduced behind a flag | v22.6.0 |
-| Enabled by default | v23.6.0, v22.18.0 |
-| No experimental warning | v24.3.0, v22.18.0 |
-| Stable | v25.2.0, v24.12.0 |
-| `--experimental-transform-types` removed | v26.0.0 |
+| Change                                   | Versions          |
+| ---------------------------------------- | ----------------- |
+| Introduced behind a flag                 | v22.6.0           |
+| Enabled by default                       | v23.6.0, v22.18.0 |
+| No experimental warning                  | v24.3.0, v22.18.0 |
+| Stable                                   | v25.2.0, v24.12.0 |
+| `--experimental-transform-types` removed | v26.0.0           |
 
 - The stability banner differs by line: main and v24.x say "Stability: 2 - Stable", while v22.x says "Stability: 1.2 - Release candidate" [5][6].
 - The disable flag is now `--no-strip-types`. It was "renamed from `--no-experimental-strip-types`" in v25.2.0 and v24.12.0 [7].
@@ -71,17 +71,21 @@ Local check: `node -e "console.log(typeof fetch)"` printed `function` on v22.22.
 **Restrictions** [5] [verified]
 
 - **Only erasable syntax runs.**
+
   > "The most prominent features that require transformation are: `Enum` declarations, `namespace` with runtime code, parameter properties, import aliases"
 
   Namespaces that contain only types are allowed. Decorators "will result in a parser error".
+
 - **Type imports need the `type` keyword.**
   > "Without the `type` keyword, Node.js will treat the import as a value import, which will result in a runtime error."
 - **Import specifiers need a file extension.**
   > "file extensions are mandatory in `import` statements and `import()` expressions: `import './file.ts'`, not `import './file'`."
 - **tsconfig.json is not read.**
+
   > "Node.js ignores `tsconfig.json` files"
 
   As a result, `paths` aliases produce an error. Subpath imports starting with `#` are the closest alternative.
+
 - **Module system.** `.ts` files follow the package.json `"type"` field. `.mts` is always ESM, `.cts` is always CJS, and `.tsx` is unsupported.
 - **node_modules is excluded.**
   > "Node.js refuses to handle TypeScript files inside folders under a `node_modules` path."
@@ -90,27 +94,37 @@ Local check: `node -e "console.log(typeof fetch)"` printed `function` on v22.22.
 **Recommended tsconfig** (Node recommends TS 5.8 or newer) [5] [verified]:
 
 ```json
-{ "compilerOptions": { "noEmit": true, "target": "esnext", "module": "nodenext",
-  "rewriteRelativeImportExtensions": true, "erasableSyntaxOnly": true, "verbatimModuleSyntax": true } }
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "nodenext",
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
+  }
+}
 ```
 
 Related tsconfig options [26] [verified]:
 
 - **`allowImportingTsExtensions`:**
+
   > "This flag is only allowed when --noEmit or --emitDeclarationOnly is enabled"
 
   > "Default: true if rewriteRelativeImportExtensions; false otherwise."
+
 - **`erasableSyntaxOnly`** rejects "enum declarations, namespaces and modules with runtime code, parameter properties in classes, Non-ECMAScript import = and export = assignments". It also rejects `<prefix>`-style type assertions.
 
 **Local experiments** (node v22.22.2, `package.json` = `{"type":"module"}`) [live]:
 
-| Test | Result |
-|---|---|
-| `a.ts` importing `./sync.ts` | Ran, no warning |
-| enum | `SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode` |
-| parameter property | `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX ... parameter property is not supported in strip-only mode` |
-| `import ... from './sync'` (no extension) | `ERR_MODULE_NOT_FOUND` |
-| interface imported without `type` | `SyntaxError: The requested module './types.ts' does not provide an export named 'Row'` |
+| Test                                      | Result                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `a.ts` importing `./sync.ts`              | Ran, no warning                                                                                        |
+| enum                                      | `SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode` |
+| parameter property                        | `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX ... parameter property is not supported in strip-only mode`         |
+| `import ... from './sync'` (no extension) | `ERR_MODULE_NOT_FOUND`                                                                                 |
+| interface imported without `type`         | `SyntaxError: The requested module './types.ts' does not provide an export named 'Row'`                |
 
 **Wrangler cross-check** [live] [undocumented]:
 
@@ -143,12 +157,12 @@ Related tsconfig options [26] [verified]:
 
 **Debian archive** (packages.debian.org, fetched 2026-09-24) [live]
 
-| Suite | nodejs | Source |
-|---|---|---|
-| bookworm (12) | 18.20.4+dfsg-1~deb12u2 | [11] |
-| trixie (13) | 20.19.2+dfsg-1+deb13u2 | [12] |
-| forky (testing) | 24.21.0+dfsg+~cs24.13.4-1 | [13] |
-| bookworm-backports, trixie-backports | no package ("Debian -- Error" page) | -- |
+| Suite                                | nodejs                              | Source |
+| ------------------------------------ | ----------------------------------- | ------ |
+| bookworm (12)                        | 18.20.4+dfsg-1~deb12u2              | [11]   |
+| trixie (13)                          | 20.19.2+dfsg-1+deb13u2              | [12]   |
+| forky (testing)                      | 24.21.0+dfsg+~cs24.13.4-1           | [13]   |
+| bookworm-backports, trixie-backports | no package ("Debian -- Error" page) | --     |
 
 - Both upstream lines are EOL: v18 in 2025, v20 on 2026-04-30 [2].
 - Neither supports type stripping, which needs v22.6.0 or later [5].
@@ -208,16 +222,21 @@ Calendar expressions without a timezone use local time [partial: inferred from s
 **Timer options** [20] [verified]
 
 - **Persistent=**
+
   > "If true, the time when the service unit was last triggered is stored on disk. When the timer is activated, the service unit is triggered immediately if it would have been triggered at least once during the time when the timer was inactive."
 
   It "only has an effect on timers configured with OnCalendar=" and defaults to false.
+
 - **AccuracySec=**
+
   > "Specify the accuracy the timer shall elapse with. Defaults to 1min."
 
   "To get best accuracy, set this option to 1us."
+
 - **RandomizedDelaySec=**
   > "Delay the timer by a randomly selected, evenly distributed amount of time between 0 and the specified time value. Defaults to 0"
 - **Overlap**
+
   > "Note that in case the unit to activate is already active at the time the timer elapses it is not restarted, but simply left running. There is no concept of spawning new service instances in this case."
 
   The same sentence is in the bookworm page [29].
@@ -233,9 +252,11 @@ Calendar expressions without a timezone use local time [partial: inferred from s
 **Secrets vs configuration** [22] [verified]
 
 - Environment variables are the wrong channel for secrets:
+
   > "Note that environment variables are not suitable for passing secrets (such as passwords, key material, ...) to service processes. Environment variables set for a unit are exposed to unprivileged clients via D-Bus IPC"
 
   The same sentence is in the bookworm page [30].
+
 - **LoadCredential=ID[:PATH]** makes the data available at "a read-only location". It "is only accessible to the user associated with the unit, via the User=/DynamicUser= settings (as well as the superuser)." Its location is exported "as the $CREDENTIALS_DIRECTORY environment variable".
 - If PATH is omitted, "the directories /etc/credstore/, /run/credstore/ and /usr/lib/credstore/ are searched".
 - **systemd-creds encrypt** "encrypts it and writes the (encrypted ciphertext) output ... The resulting file may be referenced in the LoadCredentialEncrypted= setting" [23].
@@ -246,9 +267,11 @@ Calendar expressions without a timezone use local time [partial: inferred from s
 **DynamicUser and hardening** [22] [verified]
 
 - **DynamicUser=yes** allocates a UID/GID from the range "61184...65519".
+
   > "Furthermore NoNewPrivileges= and RestrictSUIDSGID= are implicitly enabled (and cannot be disabled) ... Moreover ProtectSystem=strict and ProtectHome=read-only are implied"
 
   On trixie, "unless PrivateTmp= is manually set to "true", "disconnected" would be implied."
+
 - **ProtectSystem=strict:** "the entire file system hierarchy is mounted read-only, except for the API file system subtrees /dev/, /proc/ and /sys/".
 - **ProtectHome=yes:** "/home/, /root, and /run/user are made inaccessible and empty".
 - **PrivateTmp=:**

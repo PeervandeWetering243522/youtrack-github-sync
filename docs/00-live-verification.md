@@ -20,32 +20,60 @@ Fields: `idReadable,numberInProject,summary,description,resolved,updated`
 Unresolved (`query=project: CUI #Unresolved`, `$top=1`):
 
 ```json
-[{"idReadable":"CUI-31","summary":"[individual] Explore GH-YouTrack integrations","updated":1790256733345,"resolved":null,"numberInProject":31,"description":"Probably gonna have Claude draft up a project to use API keys to have ideally bidirectional syncing","$type":"Issue"}]
+[
+  {
+    "idReadable": "CUI-31",
+    "summary": "[individual] Explore GH-YouTrack integrations",
+    "updated": 1790256733345,
+    "resolved": null,
+    "numberInProject": 31,
+    "description": "Probably gonna have Claude draft up a project to use API keys to have ideally bidirectional syncing",
+    "$type": "Issue"
+  }
+]
 ```
 
 Resolved (`query=project: CUI #Resolved`, `$top=1`):
 
 ```json
-[{"idReadable":"CUI-11","summary":"[Team] Audit and revise the research proposal","updated":1790254466400,"resolved":1789644365309,"numberInProject":11,"description":"Review Gabriel's draft, identify factual and structural issues, apply corrections, merge into the shared document.","$type":"Issue"}]
+[
+  {
+    "idReadable": "CUI-11",
+    "summary": "[Team] Audit and revise the research proposal",
+    "updated": 1790254466400,
+    "resolved": 1789644365309,
+    "numberInProject": 11,
+    "description": "Review Gabriel's draft, identify factual and structural issues, apply corrections, merge into the shared document.",
+    "$type": "Issue"
+  }
+]
 ```
 
 Empty description (CUI-30, found by filtering a full-project fetch):
 
 ```json
-{"idReadable":"CUI-30","summary":"Add finalized research proposal to github","updated":1790254466396,"resolved":null,"numberInProject":30,"description":null,"$type":"Issue"}
+{
+  "idReadable": "CUI-30",
+  "summary": "Add finalized research proposal to github",
+  "updated": 1790254466396,
+  "resolved": null,
+  "numberInProject": 30,
+  "description": null,
+  "$type": "Issue"
+}
 ```
 
 What the spec says (`./youtrack-openapi.json`, `info.version = 2025.2`,
 `components.schemas.Issue.properties`):
 
-| Field | Spec | Observed |
-|---|---|---|
-| `idReadable` | `string`, readOnly | string |
-| `numberInProject` | `integer/int64`, readOnly | number |
-| `summary` | `string` | string |
-| `description` | `string` (no `nullable`) | string, or **`null` when empty** (never `""` in CUI) |
-| `resolved` | `integer/int64`, readOnly (no `nullable`) | epoch ms, or **`null` when unresolved** |
-| `updated` | `integer/int64`, readOnly | epoch ms |
+| Field             | Spec                                      | Observed                                             |
+| ----------------- | ----------------------------------------- | ---------------------------------------------------- |
+| `idReadable`      | `string`, readOnly                        | string                                               |
+| `numberInProject` | `integer/int64`, readOnly                 | number                                               |
+| `summary`         | `string`                                  | string                                               |
+| `description`     | `string` (no `nullable`)                  | string, or **`null` when empty** (never `""` in CUI) |
+| `resolved`        | `integer/int64`, readOnly (no `nullable`) | epoch ms, or **`null` when unresolved**              |
+| `updated`         | `integer/int64`, readOnly                 | epoch ms                                             |
 
 Every returned object also includes `"$type": "Issue"`, which we didn't request.
 
@@ -54,16 +82,16 @@ is not reliable about nullability.
 
 ## Project shape (probe P1, `query=project: CUI`, `$top=1000`)
 
-| Metric | Value |
-|---|---|
-| Issues visible | 29 |
-| Resolved / unresolved | 18 / 11 |
-| `numberInProject` range | 1..31 |
-| Missing numbers | 24, 27 (deleted or moved) |
-| `description == null` | 1 (CUI-30) |
+| Metric                    | Value                                                      |
+| ------------------------- | ---------------------------------------------------------- |
+| Issues visible            | 29                                                         |
+| Resolved / unresolved     | 18 / 11                                                    |
+| `numberInProject` range   | 1..31                                                      |
+| Missing numbers           | 24, 27 (deleted or moved)                                  |
+| `description == null`     | 1 (CUI-30)                                                 |
 | Distinct `updated` values | 29 (all distinct; several only ms apart, from a bulk edit) |
-| Oldest `updated` | 1789307190036 |
-| Newest `updated` | 1790256733345 (2026-09-24 13:32 UTC) |
+| Oldest `updated`          | 1789307190036                                              |
+| Newest `updated`          | 1790256733345 (2026-09-24 13:32 UTC)                       |
 
 **Implication for backfill:** `numberInProject` has gaps, so "max issue number" can't stand in
 for "issue count".

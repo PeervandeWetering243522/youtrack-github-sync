@@ -152,10 +152,7 @@ describe("runSync with writes enabled", () => {
     // Assert: YT-2 (resolved, no mirror) gets no mirror (decision R9).
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [team] Task 1"]);
-    assert.deepEqual(
-      result,
-      summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 4 }),
-    );
+    assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 4 }));
   });
 
   it("never creates a mirror for an issue that is already resolved (R9)", async () => {
@@ -183,10 +180,7 @@ describe("runSync with writes enabled", () => {
     const create = bodyOf(calls.find(isCreate));
     assert.equal(create["title"], "[YT-1] [team] Task 1");
     assert.deepEqual(create["labels"], [MIRROR_LABEL]);
-    assert.equal(
-      create["body"],
-      `Details of task 1\n\n---\nMirrored from YouTrack: ${YOUTRACK_BASE_URL}/issue/CUI-1`,
-    );
+    assert.equal(create["body"], `Details of task 1\n\n---\nMirrored from YouTrack: ${YOUTRACK_BASE_URL}/issue/CUI-1`);
     const close = bodyOf(calls.find((call) => call.method === "PATCH"));
     assert.deepEqual(close, { state: "closed", state_reason: "completed" });
   });
@@ -199,16 +193,15 @@ describe("runSync with writes enabled", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(messages(lines), [
-      "create YT-1 -> #101",
-      "close YT-3 #12",
-      formatSummary(result, "ok"),
-    ]);
+    assert.deepEqual(messages(lines), ["create YT-1 -> #101", "close YT-3 #12", formatSummary(result, "ok")]);
   });
 
   it("pauses WRITE_PAUSE_MS between writes, not before the first one", async () => {
     // Arrange
-    const { deps, sleeps } = harness({ ...MIXED_WORLD, youtrackRows: [...(MIXED_WORLD.youtrackRows ?? []), ytRow(7), ytRow(8)] });
+    const { deps, sleeps } = harness({
+      ...MIXED_WORLD,
+      youtrackRows: [...(MIXED_WORLD.youtrackRows ?? []), ytRow(7), ytRow(8)],
+    });
 
     // Act
     await runSync(config(), deps);
@@ -395,7 +388,8 @@ describe("runSync label re-add", () => {
     const { deps, calls } = harness({
       ...CREATE_THEN_CLOSE,
       createdLabels: [],
-      override: (call) => (LABELS_PATH.test(call.url.pathname) ? json(422, { message: "Label does not exist" }) : undefined),
+      override: (call) =>
+        LABELS_PATH.test(call.url.pathname) ? json(422, { message: "Label does not exist" }) : undefined,
     });
 
     // Act

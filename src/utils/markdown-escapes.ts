@@ -15,7 +15,12 @@ import { countBelow } from "./text.ts";
 const ESCAPE_OR_ENTITY =
   /\\[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]|&(?:#\d{1,7}|#[Xx][\dA-Fa-f]{1,6}|commat|num|sol|period|lowbar|UnderBar);/g;
 const NAMED_REFERENCES: ReadonlyMap<string, string> = new Map([
-  ["commat", "@"], ["num", "#"], ["sol", "/"], ["period", "."], ["lowbar", "_"], ["UnderBar", "_"],
+  ["commat", "@"],
+  ["num", "#"],
+  ["sol", "/"],
+  ["period", "."],
+  ["lowbar", "_"],
+  ["UnderBar", "_"],
 ]);
 /** Stands in for any decoded non-ASCII (or invalid, CommonMark: U+FFFD) character, keeping tokens one unit long. */
 const INERT = String.fromCharCode(0xfffd);

@@ -17,13 +17,23 @@ const EXHAUSTED = { "x-ratelimit-remaining": "0" };
 
 const CASES: readonly RateLimitCase[] = [
   { name: "403 with x-ratelimit-remaining: 0", status: 403, headers: EXHAUSTED, rateLimited: true },
-  { name: "429 whose x-ratelimit-remaining trims to 0", status: 429, headers: { "x-ratelimit-remaining": " 0 " }, rateLimited: true },
+  {
+    name: "429 whose x-ratelimit-remaining trims to 0",
+    status: 429,
+    headers: { "x-ratelimit-remaining": " 0 " },
+    rateLimited: true,
+  },
   { name: "403 with retry-after", status: 403, headers: { "retry-after": "60" }, rateLimited: true },
   { name: "429 with an unusable retry-after", status: 429, headers: { "retry-after": "soon" }, rateLimited: true },
   { name: "403 whose body names a secondary rate limit", status: 403, body: SECONDARY_LIMIT_BODY, rateLimited: true },
   { name: "429 whose body says Secondary Rate Limit", status: 429, body: "Secondary Rate Limit", rateLimited: true },
   { name: "403 without rate-limit signals", status: 403, body: "Resource not accessible by token", rateLimited: false },
-  { name: "403 with requests remaining", status: 403, headers: { "x-ratelimit-remaining": "4999" }, rateLimited: false },
+  {
+    name: "403 with requests remaining",
+    status: 403,
+    headers: { "x-ratelimit-remaining": "4999" },
+    rateLimited: false,
+  },
   { name: "429 without any rate-limit signal", status: 429, body: "Too Many Requests", rateLimited: false },
   { name: "500 with retry-after", status: 500, headers: { "retry-after": "1" }, rateLimited: false },
   { name: "503 with x-ratelimit-remaining: 0", status: 503, headers: EXHAUSTED, rateLimited: false },
@@ -74,7 +84,10 @@ describe("HttpError.rateLimited (decision R7)", () => {
   });
 
   it("is false when a rate-limited first attempt is retried and the retry fails otherwise", async () => {
-    const { client } = harness([textResponse(403, "", { "retry-after": "1" }), jsonResponse(404, { message: "Not Found" })]);
+    const { client } = harness([
+      textResponse(403, "", { "retry-after": "1" }),
+      jsonResponse(404, { message: "Not Found" }),
+    ]);
 
     const error = await rejection(client.request(GET));
 

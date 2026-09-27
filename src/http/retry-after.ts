@@ -12,9 +12,15 @@ const DELTA_SECONDS = /^\d+$/;
 // accept. Day names are shape-checked only; the value comes from day, month, year and time.
 const MONTH_GROUP = "(?<month>[A-Z][a-z]{2})";
 const TIME_GROUPS = String.raw`(?<hour>\d\d):(?<minute>\d\d):(?<second>\d\d)`;
-const IMF_FIXDATE = new RegExp(String.raw`^[A-Z][a-z]{2}, (?<day>\d\d) ${MONTH_GROUP} (?<year>\d{4}) ${TIME_GROUPS} GMT$`);
-const RFC850_DATE = new RegExp(String.raw`^[A-Z][a-z]{5,8}, (?<day>\d\d)-${MONTH_GROUP}-(?<yy>\d\d) ${TIME_GROUPS} GMT$`);
-const ASCTIME_DATE = new RegExp(String.raw`^[A-Z][a-z]{2} ${MONTH_GROUP} (?<day>[ \d]\d) ${TIME_GROUPS} (?<year>\d{4})$`);
+const IMF_FIXDATE = new RegExp(
+  String.raw`^[A-Z][a-z]{2}, (?<day>\d\d) ${MONTH_GROUP} (?<year>\d{4}) ${TIME_GROUPS} GMT$`,
+);
+const RFC850_DATE = new RegExp(
+  String.raw`^[A-Z][a-z]{5,8}, (?<day>\d\d)-${MONTH_GROUP}-(?<yy>\d\d) ${TIME_GROUPS} GMT$`,
+);
+const ASCTIME_DATE = new RegExp(
+  String.raw`^[A-Z][a-z]{2} ${MONTH_GROUP} (?<day>[ \d]\d) ${TIME_GROUPS} (?<year>\d{4})$`,
+);
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 /** Calendar fields of an HTTP-date; `month` is 0-11, or -1 for an unknown month name. */

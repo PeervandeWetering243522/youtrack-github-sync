@@ -63,7 +63,14 @@ function closerEnd(text: string, from: number, length: number): number {
 
 /** A numeric character reference, or a named one for a character the references use. */
 const CHARACTER_REFERENCE = /&(?:#(\d{1,7})|#[Xx]([\dA-Fa-f]{1,6})|(commat|num|sol|period|lowbar|UnderBar));/y;
-const NAMED: Readonly<Record<string, string>> = { commat: "@", num: "#", sol: "/", period: ".", lowbar: "_", UnderBar: "_" };
+const NAMED: Readonly<Record<string, string>> = {
+  commat: "@",
+  num: "#",
+  sol: "/",
+  period: ".",
+  lowbar: "_",
+  UnderBar: "_",
+};
 
 function characterReferenceAt(text: string, index: number): { readonly char: string; readonly length: number } | null {
   CHARACTER_REFERENCE.lastIndex = index;
@@ -71,7 +78,8 @@ function characterReferenceAt(text: string, index: number): { readonly char: str
   if (match === null) return null;
   const [whole, decimal, hex, name] = match;
   const code = decimal !== undefined ? Number(decimal) : Number.parseInt(hex ?? "", 16);
-  const numeric = code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : "\u{FFFD}";
+  const numeric =
+    code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : "\u{FFFD}";
   return { char: name !== undefined ? (NAMED[name] ?? "") : numeric, length: whole.length };
 }
 
@@ -160,8 +168,37 @@ function prng(seed: number): () => number {
 }
 
 const FUZZ_ALPHABET = [
-  "`", "``", "\\", "#", "1", "12", "@", "a", "b", " ", "/", ".", "-", "GH-", "gh-", "x/y#3",
-  "@o/t", "\\#", "\\`", "é", "😀", "\n", "\n", "\n\n", "```", "~~~", "(", ")", "&#64;", "&", ";",
+  "`",
+  "``",
+  "\\",
+  "#",
+  "1",
+  "12",
+  "@",
+  "a",
+  "b",
+  " ",
+  "/",
+  ".",
+  "-",
+  "GH-",
+  "gh-",
+  "x/y#3",
+  "@o/t",
+  "\\#",
+  "\\`",
+  "é",
+  "😀",
+  "\n",
+  "\n",
+  "\n\n",
+  "```",
+  "~~~",
+  "(",
+  ")",
+  "&#64;",
+  "&",
+  ";",
 ];
 
 /**

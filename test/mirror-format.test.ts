@@ -150,7 +150,10 @@ describe("formatMirror closes a block the description leaves open", () => {
   });
 
   it("falls back to truncation when the closer no longer fits, keeping the hard limit", () => {
-    for (const [opener, closer] of [["```\n", "\n```"], ["<!--\n", "\n-->"]] as const) {
+    for (const [opener, closer] of [
+      ["```\n", "\n```"],
+      ["<!--\n", "\n-->"],
+    ] as const) {
       const fill = ROOM - opener.length - closer.length;
       const exact = formatMirror(makeIssue({ description: opener + "a".repeat(fill) }), BASE_URL);
       assert.equal(exact.body, `${opener}${"a".repeat(fill)}${closer}${SEPARATOR}${FOOTER}`, opener);
