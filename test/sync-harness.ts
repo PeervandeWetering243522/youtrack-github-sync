@@ -131,7 +131,7 @@ export type Harness = {
 
 /**
  * YT-1 unresolved, no mirror       -> create
- * YT-2 resolved, no mirror         -> create + close
+ * YT-2 resolved, no mirror         -> unchanged (never mirrored, decision R9)
  * YT-3 resolved, open mirror #12   -> close
  * YT-4 not "[team]"                -> filtered
  * YT-5 unresolved, open mirror #13 -> unchanged

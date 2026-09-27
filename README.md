@@ -22,16 +22,17 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
 3. **Filters** to issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
    case-insensitive). Everything else counts as `filtered`.
 4. **Plans**, oldest first (ascending issue number):
-   - no mirror: **create** `[YT-<n>] <summary>` with the `youtrack` label. The body is the
-     description with `@mentions` and `#123`-style references wrapped in backticks, plus a link
-     back to YouTrack. If the YouTrack issue is resolved, the new mirror is **closed** right away.
+   - no mirror and the YouTrack issue is unresolved: **create** `[YT-<n>] <summary>` with the
+     `youtrack` label. The body is the description with `@mentions` and `#123`-style references
+     wrapped in backticks, plus a link back to YouTrack.
+   - no mirror and the YouTrack issue is already resolved: nothing (`unchanged`). Issues that
+     are resolved before they are ever mirrored never get a mirror (decision R9).
    - open mirror and the YouTrack issue is resolved: **close** it (`state_reason: completed`).
    - anything else: nothing (`unchanged`). Mirrors are **never reopened, retitled, edited or
      commented on**.
 5. **Writes** serially, 1 s apart, at most `MAX_WRITES_PER_RUN` per run. Whatever does not
-   fit is `capped` and picked up by the next run; nothing later jumps ahead. When a
-   create+close pair does not fit but its create does, the mirror is created now and the next
-   run closes it (the close counts as `capped`). If GitHub drops the label on create, it is
+   fit is `capped` and picked up by the next run; nothing later jumps ahead. Every create and
+   every close costs one write. If GitHub drops the label on create, it is
    re-added once (this counts as a write). The write phase also stops early, counting the rest
    as `capped`, when GitHub rate-limits a write, when the fetch guard is reached, or when the
    run deadline passes (see [Limits and budget](#limits-and-budget)).
@@ -43,8 +44,7 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
    yt-gh-sync ok scanned=29 created=5 closed=3 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=10 dryRun=false
    ```
 
-   The headline counts come first; `skipped` = `filtered` + `unchanged`. A pair that was split
-   by the cap counts as both `created` and `capped`.
+   The headline counts come first; `skipped` = `filtered` + `unchanged`.
 
 YouTrack is only ever read: the only call is `GET /api/issues`.
 
@@ -66,7 +66,7 @@ the run shows as failed in Cron Events (or as a failed systemd unit). Tokens are
 | `YOUTRACK_BASE_URL` | var | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
 | `YOUTRACK_PROJECT` | var | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`. |
 | `YOUTRACK_TITLE_PREFIX` | var | `[team]` | Case-insensitive summary prefix that marks an issue for mirroring. |
-| `MAX_WRITES_PER_RUN` | var | `30` | Whole number from 0 to 40. Create+close = 2 writes, a label re-add = 1. |
+| `MAX_WRITES_PER_RUN` | var | `30` | Whole number from 0 to 40. A create = 1 write, a close = 1, a label re-add = 1. |
 | `DRY_RUN` | var | on | Only `false` (any case, surrounding whitespace ignored) turns it off. |
 
 Invalid config fails the run before any request is made, listing every problem at once.

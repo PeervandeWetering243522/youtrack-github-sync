@@ -21,7 +21,7 @@ export type MirrorIndexResult = {
 };
 
 export type Action =
-  | { readonly kind: "create"; readonly issue: YouTrackIssue; readonly closeAfter: boolean }
+  | { readonly kind: "create"; readonly issue: YouTrackIssue }
   | { readonly kind: "close"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef };
 
 export type Plan = {
@@ -31,12 +31,13 @@ export type Plan = {
   readonly scanned: number;
   /** Issues whose summary lacks the title prefix. */
   readonly filtered: number;
-  /** Eligible issues that need no action. */
-  readonly unchanged: number;
   /**
-   * Actions dropped by the write cap, plus 1 for a create+close pair taken as a plain
-   * create because only the create fit (its close waits for the next run, decision R6).
+   * Eligible issues that need no action: a mirror already in the right state, a closed
+   * mirror of a reopened issue (never reopened), or a resolved issue without a mirror
+   * (never mirrored, decision R9).
    */
+  readonly unchanged: number;
+  /** Actions dropped by the write cap. */
   readonly capped: number;
 };
 
@@ -71,11 +72,10 @@ export function buildMirrorIndex(issues: readonly GitHubIssue[], label: string):
   return { index, warnings };
 }
 
-/** GitHub writes an action costs: create = 1 (+1 if closeAfter), close = 1. */
+/** GitHub writes an action costs: create = 1, close = 1. */
 export function writeCost(action: Action): number {
   switch (action.kind) {
     case "create":
-      return action.closeAfter ? 2 : 1;
     case "close":
       return 1;
   }
@@ -83,16 +83,13 @@ export function writeCost(action: Action): number {
 
 /**
  * - skip issues without the title prefix (filtered);
- * - no mirror -> create (closeAfter = resolved !== null);
- * - mirror open && resolved !== null -> close;
+ * - no mirror && unresolved -> create;
+ * - no mirror && resolved -> unchanged: already-resolved issues are never mirrored (decision R9);
+ * - mirror open && resolved -> close;
  * - otherwise unchanged (no reopen, no title/body updates);
  * - order by ascending numberInProject; take actions while their cost fits in
  *   maxWrites; at the first action that does not fit, stop -- it and everything
  *   after it count as capped. Nothing later jumps ahead (decision A2).
- * - exception (decision R6): when that action is a create+close pair and only its
- *   create fits, take it as a create with closeAfter = false and stop there. Its close
- *   counts as 1 capped; the next run closes the mirror (open mirror + resolved -> close).
- *   Without this, a cap of 1 would never get past a resolved issue that has no mirror.
  */
 export function planActions(input: {
   readonly youtrackIssues: readonly YouTrackIssue[];
@@ -112,9 +109,8 @@ export function planActions(input: {
     else if (outcome === "unchanged") unchanged += 1;
     else needed.push(outcome);
   }
-  const { actions, deferredCloses } = withinWriteCap(needed, input.maxWrites);
-  const capped = needed.length - actions.length + deferredCloses;
-  return { actions, scanned: ordered.length, filtered, unchanged, capped };
+  const actions = withinWriteCap(needed, input.maxWrites);
+  return { actions, scanned: ordered.length, filtered, unchanged, capped: needed.length - actions.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,36 +177,29 @@ function uniqueAscending(issues: readonly YouTrackIssue[]): readonly YouTrackIss
   return sorted.filter((issue, position) => sorted[position - 1]?.numberInProject !== issue.numberInProject);
 }
 
-/** The action an eligible issue needs, or "unchanged". Mirrors are never reopened or edited. */
+/**
+ * The action an eligible issue needs, or "unchanged". Only unresolved issues get a
+ * mirror (decision R9); mirrors are never reopened or edited.
+ */
 function actionFor(issue: YouTrackIssue, mirror: MirrorRef | undefined): Action | "unchanged" {
   const isResolved = issue.resolved !== null;
-  if (mirror === undefined) return { kind: "create", issue, closeAfter: isResolved };
+  if (mirror === undefined) return isResolved ? "unchanged" : { kind: "create", issue };
   return mirror.state === "open" && isResolved ? { kind: "close", issue, mirror } : "unchanged";
 }
 
-type Capped = {
-  readonly actions: readonly Action[];
-  /** 1 when the last taken action is a create whose close was deferred to the next run, else 0. */
-  readonly deferredCloses: number;
-};
-
 /**
  * The longest prefix of `actions` whose total writeCost fits in `maxWrites` (NaN: none).
- * A create+close pair that does not fit while its create alone does is taken as a plain
- * create, and the prefix ends there (decision R6).
+ * It ends at the first action that does not fit, so nothing later jumps ahead.
  */
-function withinWriteCap(actions: readonly Action[], maxWrites: number): Capped {
+function withinWriteCap(actions: readonly Action[], maxWrites: number): readonly Action[] {
   const taken: Action[] = [];
   let used = 0;
   for (const action of actions) {
-    if (used + writeCost(action) <= maxWrites) {
-      taken.push(action);
-      used += writeCost(action);
-      continue;
-    }
-    const isSplittable = action.kind === "create" && action.closeAfter && used + 1 <= maxWrites;
-    if (!isSplittable) break;
-    return { actions: [...taken, { ...action, closeAfter: false }], deferredCloses: 1 };
+    const cost = writeCost(action);
+    // Written as !(<=) so a NaN cap takes nothing.
+    if (!(used + cost <= maxWrites)) break;
+    taken.push(action);
+    used += cost;
   }
-  return { actions: taken, deferredCloses: 0 };
+  return taken;
 }

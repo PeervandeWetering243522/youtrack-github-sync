@@ -9,12 +9,15 @@
 
 - **Summary line (R5).** `yt-gh-sync <ok|failed> scanned= created= closed= skipped= capped=
   failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` = `filtered`
-  (no title prefix) + `unchanged` (mirror already in the right state). A failed read logs the
+  (no title prefix) + `unchanged` (mirror already in the right state, or resolved with no
+  mirror, R9). A failed read logs the
   same line with outcome `failed` before the error is rethrown; a failed write logs it at the
   end, then `SyncFailedError` is thrown.
-- **Pair split (R6).** When a create+close pair does not fit the remaining writes but its
-  create does, the create is taken alone and the plan ends there; its close counts as 1
-  `capped` and the next run closes the mirror. Oldest-first is kept: nothing later jumps ahead.
+- **Already-resolved issues (R9, supersedes R6).** An issue that is resolved and has no mirror
+  gets no mirror; it counts as `unchanged`. Only unresolved issues are created, so there is
+  no create+close pair: every action (create or close) costs 1 write. The write cap takes
+  actions in order while they fit and stops at the first that does not; nothing later jumps
+  ahead. Open mirrors are still closed on resolution, closed mirrors are never reopened.
 - **GitHub rate limit (R7).** A write that fails with a rate limit (403/429 with
   `x-ratelimit-remaining: 0`, with `retry-after`, or whose body names the secondary rate limit)
   is recorded as failed and stops the write phase; the remaining actions count as `capped`.
@@ -58,12 +61,12 @@ Each run:
 3. **Filter.** Keep only issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
    case-insensitive). Everything else counts as `filtered` (part of `skipped`, R5).
 4. **Plan actions** as a pure function:
-   - no mirror -> `create` (plus `close` if resolved: 2 writes, planned together as a pair);
-   - mirror open and YouTrack resolved -> `close`;
+   - no mirror and YouTrack unresolved -> `create` (1 write);
+   - no mirror and YouTrack resolved -> nothing (R9: never mirrored);
+   - mirror open and YouTrack resolved -> `close` (1 write);
    - otherwise nothing.
    Actions are sorted by ascending `numberInProject` (A2). The write cap takes the longest
-   prefix that fits; a create+close pair that does not fit while its create does is taken as a
-   plain create and ends the prefix (R6). Anything left over counts as `capped`.
+   prefix that fits. Anything left over counts as `capped`.
 5. **Execute** serially with a 1 s pause between writes. In `DRY_RUN` mode, log each intended
    write instead of sending it.
    - After a create, if the 201 response lacks the `youtrack` label: one
@@ -136,7 +139,7 @@ src/
   youtrack.ts             # derived YouTrackIssue type, field list, guard, R4 check, paged full scan
   github.ts               # list (Link paging), create, close, add labels; types from @octokit/openapi-types
   mirror.ts               # pure: parse/format title, body layout, truncation, prefix filter
-  plan.ts                 # pure: mirror map + YouTrack issues -> ordered, capped actions (R6)
+  plan.ts                 # pure: mirror map + YouTrack issues -> ordered, capped actions (R9)
   utils/                  # pure (R1): markdown-{blocks,inline,render,cut,escapes}.ts, text.ts, redact.ts
   sync.ts                 # orchestration only (uses fetch via http.ts); dry-run preview; returns RunSummary
   sync/

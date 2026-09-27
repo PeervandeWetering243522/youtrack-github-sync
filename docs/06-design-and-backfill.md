@@ -14,7 +14,8 @@
    or a short page comes back ([01](01-youtrack-query-syntax.md), [02](02-youtrack-rest-api.md)).
 3. **Decide:** no mirror means create it, and close it right after if YouTrack has it resolved.
    A mirror that is open while YouTrack has the issue resolved gets closed. Everything else
-   is left alone.
+   is left alone. *(Superseded by decision R9: an issue that is already resolved and has no
+   mirror is never mirrored; only unresolved issues get a mirror.)*
 4. **Cap:** at most `MAX_WRITES_PER_RUN` writes, oldest unsynced first. Log one summary line.
 
 ## Facts from research that constrain the implementation

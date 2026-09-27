@@ -141,10 +141,11 @@ describe("runSync GitHub rate limits: creates", () => {
     assert.equal(error.summary.capped, 2);
   });
 
-  it("stops after the close of a create+close pair is rate-limited", async () => {
-    // Arrange: YT-1 is resolved, so its create is followed by a close of #101.
+  it("stops after a close that follows a successful create is rate-limited", async () => {
+    // Arrange: YT-1 is created, the YT-2 close of #50 is rate-limited, YT-3 waits.
     const { deps, calls } = harness({
-      youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)],
+      githubIssues: [ghIssue(50, "[YT-2] [team] Task 2")],
+      youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT }), ytRow(3)],
       override: (call) => (call.method === "PATCH" ? primaryLimit(403) : undefined),
     });
 
@@ -153,21 +154,17 @@ describe("runSync GitHub rate limits: creates", () => {
 
     // Assert
     assert.ok(error instanceof SyncFailedError);
-    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/101`]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, created: 1, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/50`]);
+    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, capped: 1, failed: 1, fetches: 4 }));
   });
 });
 
 describe("runSync GitHub rate limits: label re-adds", () => {
   const limitedLabels: Override = (call) => (LABELS_PATH.test(call.url.pathname) ? primaryLimit(429) : undefined);
 
-  it("skips the pending close when the re-add is rate-limited, and caps it", async () => {
+  it("records a rate-limited re-add as failed without retrying it", async () => {
     // Arrange
-    const { deps, calls, sleeps } = harness({
-      youtrackRows: [ytRow(1, { resolved: RESOLVED_AT })],
-      createdLabels: [],
-      override: limitedLabels,
-    });
+    const { deps, calls, sleeps } = harness({ youtrackRows: [ytRow(1)], createdLabels: [], override: limitedLabels });
 
     // Act
     const error = await rejection(runSync(config(), deps));
@@ -176,11 +173,11 @@ describe("runSync GitHub rate limits: label re-adds", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}/101/labels`]);
     assert.match(error.failures[0] ?? "", /^label YT-1 #101 failed: POST .* -> HTTP 429/);
-    assert.deepEqual(error.summary, summary({ scanned: 1, created: 1, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 1, created: 1, failed: 1, fetches: 4 }));
     assert.deepEqual(sleeps, [WRITE_PAUSE_MS]);
   });
 
-  it("caps the later actions when a re-add with no close pending is rate-limited", async () => {
+  it("caps the later actions when a re-add is rate-limited", async () => {
     // Arrange
     const { deps, calls } = harness({ youtrackRows: [ytRow(1), ytRow(2)], createdLabels: [], override: limitedLabels });
 

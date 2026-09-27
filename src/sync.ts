@@ -59,20 +59,22 @@ export type RunSummary = {
   readonly scanned: number;
   /** Mirrors created (or that would be, in dry run). */
   readonly created: number;
-  /** Mirrors closed, including the close right after creating a resolved issue. */
+  /** Open mirrors closed because their YouTrack issue is resolved. */
   readonly closed: number;
   /** Scanned issues that needed nothing: `filtered` + `unchanged` (decision R5). */
   readonly skipped: number;
   /**
-   * Planned actions, or the close of a create+close pair, left undone by the write cap,
-   * the fetch guard, a GitHub rate limit or the run deadline; picked up by the next run.
-   * So one pair can count as both created and capped.
+   * Planned actions left undone by the write cap, the fetch guard, a GitHub rate limit
+   * or the run deadline; picked up by the next run.
    */
   readonly capped: number;
   readonly failed: number;
   /** Issues whose summary lacks YOUTRACK_TITLE_PREFIX. */
   readonly filtered: number;
-  /** Eligible issues whose mirror is already in the right state. */
+  /**
+   * Eligible issues that need no write: the mirror is already in the right state, or the
+   * issue is resolved and has no mirror (never mirrored, decision R9).
+   */
   readonly unchanged: number;
   readonly labelsReAdded: number;
   readonly fetches: number;
@@ -107,8 +109,9 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
  * 3. planActions.
  * 4. Execute serially, WRITE_PAUSE_MS between real writes. In dry run, log each
  *    intended write ("[dry-run] would create ...", "[dry-run] would close ...") and send nothing.
- *    - create: POST; if the response lacks MIRROR_LABEL and writes remain, addLabel
- *      (counts as a write); if closeAfter, close. A failed create skips its close.
+ *    - create (unresolved issues only, decision R9): POST; if the response lacks
+ *      MIRROR_LABEL and writes remain, addLabel (counts as a write);
+ *    - close: an open mirror whose YouTrack issue is resolved;
  *    - a failed write (HttpError / NetworkError) is recorded and execution continues. That
  *      includes a write that was sent and failed but whose retry the fetch budget could not
  *      pay for: it really failed (decision A10);
@@ -258,12 +261,9 @@ function previewActions(actions: readonly Action[], youtrackBaseUrl: string, log
 function previewAction(action: Action, youtrackBaseUrl: string, log: Logger): Tally {
   const name = mirrorName(action.issue);
   switch (action.kind) {
-    case "create": {
+    case "create":
       log.info(`${DRY_RUN_TAG} would create ${name}: ${formatMirror(action.issue, youtrackBaseUrl).title}`);
-      if (!action.closeAfter) return { ...NOTHING, created: 1 };
-      log.info(`${DRY_RUN_TAG} would close ${name} right after creating it`);
-      return { ...NOTHING, created: 1, closed: 1 };
-    }
+      return { ...NOTHING, created: 1 };
     case "close":
       log.info(`${DRY_RUN_TAG} would close ${name} #${String(action.mirror.issueNumber)}`);
       return { ...NOTHING, closed: 1 };

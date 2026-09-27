@@ -65,25 +65,16 @@ function plan(
   });
 }
 
-/** Compact view of actions: "create 3", "create+close 4", "close 5 -> #12". */
+/** Compact view of actions: "create 3", "close 5 -> #12". */
 function describeActions(actions: readonly Action[]): readonly string[] {
   return actions.map((action) => {
     const n = String(action.issue.numberInProject);
-    if (action.kind === "close") return `close ${n} -> #${String(action.mirror.issueNumber)}`;
-    return action.closeAfter ? `create+close ${n}` : `create ${n}`;
+    return action.kind === "close" ? `close ${n} -> #${String(action.mirror.issueNumber)}` : `create ${n}`;
   });
 }
 
-/** A create of a resolved issue that is not closed after: its close was deferred by the cap (decision R6). */
-function isDeferredPair(action: Action): boolean {
-  return action.kind === "create" && !action.closeAfter && action.issue.resolved !== null;
-}
-
-/** capped counts a deferred close on top of the actions it dropped. */
 function assertCountsAddUp(result: Plan): void {
-  const deferredCloses = result.actions.filter(isDeferredPair).length;
-  const needingAction = result.actions.length + result.capped - deferredCloses;
-  assert.equal(result.scanned, result.filtered + result.unchanged + needingAction);
+  assert.equal(result.scanned, result.filtered + result.unchanged + result.actions.length + result.capped);
 }
 
 // ---------------------------------------------------------------------------
@@ -343,12 +334,8 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 // ---------------------------------------------------------------------------
 
 describe("writeCost", () => {
-  it("costs 1 for a create of an unresolved issue", () => {
-    assert.equal(writeCost({ kind: "create", issue: ytIssue(1), closeAfter: false }), 1);
-  });
-
-  it("costs 2 for a create that is closed right after", () => {
-    assert.equal(writeCost({ kind: "create", issue: resolvedIssue(1), closeAfter: true }), 2);
+  it("costs 1 for a create", () => {
+    assert.equal(writeCost({ kind: "create", issue: ytIssue(1) }), 1);
   });
 
   it("costs 1 for a close", () => {
@@ -361,21 +348,29 @@ describe("writeCost", () => {
 // ---------------------------------------------------------------------------
 
 describe("planActions: decisions", () => {
-  it("creates a mirror for an unresolved issue without one, not closed after", () => {
+  it("creates a mirror for an unresolved issue without one", () => {
     const issue = ytIssue(3);
 
     const result = plan([issue]);
 
-    assert.deepEqual(result.actions, [{ kind: "create", issue, closeAfter: false }]);
+    assert.deepEqual(result.actions, [{ kind: "create", issue }]);
     assert.deepEqual({ ...result, actions: [] }, { actions: [], scanned: 1, filtered: 0, unchanged: 0, capped: 0 });
   });
 
-  it("creates and then closes a mirror for a resolved issue without one", () => {
-    const issue = resolvedIssue(3);
+  it("never creates a mirror for an already-resolved issue, and counts it as unchanged (R9)", () => {
+    const result = plan([resolvedIssue(3)]);
 
-    const result = plan([issue]);
+    assert.deepEqual(result, { actions: [], scanned: 1, filtered: 0, unchanged: 1, capped: 0 });
+  });
 
-    assert.deepEqual(result.actions, [{ kind: "create", issue, closeAfter: true }]);
+  it("creates only the unresolved issues of a project with no mirrors (R9)", () => {
+    const issues = [resolvedIssue(1), ytIssue(2), resolvedIssue(3), ytIssue(4)];
+
+    const result = plan(issues);
+
+    assert.deepEqual(describeActions(result.actions), ["create 2", "create 4"]);
+    assert.equal(result.unchanged, 2);
+    assertCountsAddUp(result);
   });
 
   it("closes an open mirror of a resolved issue", () => {
@@ -429,7 +424,8 @@ describe("planActions: decisions", () => {
 
     const result = plan([withoutMirror, withMirror], { mirrors: lockedMap([[4, mirror(12)]]) });
 
-    assert.deepEqual(describeActions(result.actions), ["create+close 3", "close 4 -> #12"]);
+    assert.deepEqual(describeActions(result.actions), ["close 4 -> #12"]);
+    assert.equal(result.unchanged, 1);
   });
 
   it("puts the index's own mirror ref into a close action", () => {
@@ -526,13 +522,8 @@ describe("planActions: order and counts", () => {
 
     const result = plan(issues, { mirrors });
 
-    assert.deepEqual(describeActions(result.actions), [
-      "create 1",
-      "create+close 2",
-      "close 5 -> #40",
-      "create 9",
-      "create 27",
-    ]);
+    assert.deepEqual(describeActions(result.actions), ["create 1", "close 5 -> #40", "create 9", "create 27"]);
+    assert.equal(result.unchanged, 1);
   });
 
   it("adds up scanned = filtered + unchanged + actions + capped on a mixed project", () => {
@@ -551,57 +542,45 @@ describe("planActions: order and counts", () => {
       [6, mirror(12, "closed")],
     ]);
 
-    const result = plan(issues, { mirrors, maxWrites: 3 });
+    const result = plan(issues, { mirrors, maxWrites: 1 });
 
-    assert.deepEqual(describeActions(result.actions), ["create 2", "create+close 3"]);
-    assert.deepEqual({ ...result, actions: [] }, { actions: [], scanned: 7, filtered: 2, unchanged: 2, capped: 1 });
+    // YT-3 (resolved, no mirror), YT-5 and YT-6 are unchanged; YT-4's close is capped.
+    assert.deepEqual(describeActions(result.actions), ["create 2"]);
+    assert.deepEqual({ ...result, actions: [] }, { actions: [], scanned: 7, filtered: 2, unchanged: 3, capped: 1 });
     assertCountsAddUp(result);
   });
 });
 
 describe("planActions: write cap", () => {
   it("takes every action when their costs exactly fill the cap", () => {
-    const issues = [ytIssue(1), resolvedIssue(2), resolvedIssue(3)];
+    const issues = [ytIssue(1), ytIssue(2), resolvedIssue(3)];
     const mirrors = lockedMap([[3, mirror(20)]]);
 
-    const result = plan(issues, { mirrors, maxWrites: 4 });
+    const result = plan(issues, { mirrors, maxWrites: 3 });
 
-    assert.deepEqual(describeActions(result.actions), ["create 1", "create+close 2", "close 3 -> #20"]);
+    assert.deepEqual(describeActions(result.actions), ["create 1", "create 2", "close 3 -> #20"]);
     assert.equal(result.capped, 0);
     assertCountsAddUp(result);
   });
 
-  it("takes only the create of a pair that does not fit when the create does, then stops (R6)", () => {
-    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3)];
+  it("stops at the first action that does not fit; it and the rest count as capped", () => {
+    const issues = [ytIssue(1), ytIssue(2), resolvedIssue(3), ytIssue(4)];
+    const mirrors = lockedMap([[3, mirror(20)]]);
 
-    const result = plan(issues, { maxWrites: 2 });
+    const result = plan(issues, { mirrors, maxWrites: 2 });
 
     assert.deepEqual(describeActions(result.actions), ["create 1", "create 2"]);
-    // YT-2's deferred close and YT-3.
     assert.equal(result.capped, 2);
     assertCountsAddUp(result);
   });
 
-  it("keeps the rest of the deferred pair's action untouched apart from closeAfter", () => {
-    const issue = resolvedIssue(1);
+  it("spends no write on a resolved issue without a mirror, so it never blocks the cap (R9)", () => {
+    const issues = [resolvedIssue(1), ytIssue(2), ytIssue(3)];
 
-    const result = plan([issue], { maxWrites: 1 });
+    const result = plan(issues, { maxWrites: 1 });
 
-    assert.deepEqual(result.actions, [{ kind: "create", issue, closeAfter: false }]);
-    assert.equal(result.actions[0]?.issue, issue);
-    assert.equal(result.capped, 1);
-  });
-
-  it("does not let a later, cheaper action jump ahead of a deferred pair", () => {
-    const issues = [resolvedIssue(1), ytIssue(2), resolvedIssue(3)];
-    const mirrors = lockedMap([[3, mirror(20)]]);
-
-    const result = plan(issues, { mirrors, maxWrites: 1 });
-
-    assert.deepEqual(describeActions(result.actions), ["create 1"]);
-    // YT-1's close, YT-2 and YT-3.
-    assert.equal(result.capped, 3);
-    assertCountsAddUp(result);
+    assert.deepEqual(describeActions(result.actions), ["create 2"]);
+    assert.deepEqual({ ...result, actions: [] }, { actions: [], scanned: 3, filtered: 0, unchanged: 1, capped: 1 });
   });
 
   it("does not let a later action jump ahead of a close that does not fit", () => {
@@ -618,7 +597,7 @@ describe("planActions: write cap", () => {
   it("plans nothing and caps every action when maxWrites is 0", () => {
     const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3, { summary: "Other" })];
 
-    const result = plan(issues, { maxWrites: 0 });
+    const result = plan(issues, { mirrors: lockedMap([[2, mirror(20)]]), maxWrites: 0 });
 
     assert.deepEqual(result, { actions: [], scanned: 3, filtered: 1, unchanged: 0, capped: 2 });
   });
@@ -643,27 +622,7 @@ describe("planActions: write cap", () => {
     assert.equal(result.capped, 2);
   });
 
-  it("fills the cap exactly with a create+close pair that ends on the last write", () => {
-    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3)];
-
-    const result = plan(issues, { maxWrites: 3 });
-
-    assert.deepEqual(describeActions(result.actions), ["create 1", "create+close 2"]);
-    assert.equal(result.capped, 1);
-    assertCountsAddUp(result);
-  });
-
-  it("makes progress with a cap of 1 when the oldest action is a pair: its create only (R6)", () => {
-    const issues = [resolvedIssue(1), ytIssue(2)];
-
-    const result = plan(issues, { maxWrites: 1 });
-
-    assert.deepEqual(describeActions(result.actions), ["create 1"]);
-    assert.equal(result.capped, 2);
-    assertCountsAddUp(result);
-  });
-
-  it("closes the deferred pair's mirror on the next run, which sees it open", () => {
+  it("takes the oldest action first under a cap of 1, even when it is a close", () => {
     const issues = [resolvedIssue(1), ytIssue(2)];
 
     const result = plan(issues, { mirrors: lockedMap([[1, mirror(101)]]), maxWrites: 1 });
@@ -675,10 +634,11 @@ describe("planActions: write cap", () => {
   it("takes every action under an unlimited cap", () => {
     const issues = [resolvedIssue(1), resolvedIssue(2), ytIssue(3)];
 
-    const result = plan(issues, { maxWrites: Number.POSITIVE_INFINITY });
+    const result = plan(issues, { mirrors: lockedMap([[1, mirror(101)]]), maxWrites: Number.POSITIVE_INFINITY });
 
-    assert.deepEqual(describeActions(result.actions), ["create+close 1", "create+close 2", "create 3"]);
+    assert.deepEqual(describeActions(result.actions), ["close 1 -> #101", "create 3"]);
     assert.equal(result.capped, 0);
+    assert.equal(result.unchanged, 1);
   });
 
   it("caps by the order of numberInProject, not input order", () => {
@@ -690,26 +650,24 @@ describe("planActions: write cap", () => {
     assert.equal(result.capped, 1);
   });
 
-  it("plans the longest in-order prefix that fits, for every cap from 0 to 12", () => {
-    const issues = [resolvedIssue(1), ytIssue(2), resolvedIssue(3), resolvedIssue(4), ytIssue(5), resolvedIssue(6)];
-    const mirrors = lockedMap([[4, mirror(20)]]);
+  it("plans the longest in-order prefix that fits, for every cap from 0 to 8", () => {
+    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3), resolvedIssue(4), ytIssue(5), resolvedIssue(6)];
+    const mirrors = lockedMap([
+      [4, mirror(20)],
+      [6, mirror(21)],
+    ]);
     const everything = describeActions(plan(issues, { mirrors, maxWrites: Number.POSITIVE_INFINITY }).actions);
-    // Cumulative cost after each action: 2, 3, 5, 6, 7, 9. [actions taken, last one a deferred pair]:
-    // a cap one short of a pair's end takes that pair's create only (R6).
-    const expected: readonly (readonly [number, boolean])[] = [
-      [0, false], [1, true], [1, false], [2, false], [3, true], [3, false], [4, false],
-      [5, false], [6, true], [6, false], [6, false], [6, false], [6, false],
-    ];
+    assert.deepEqual(everything, ["create 1", "create 3", "close 4 -> #20", "create 5", "close 6 -> #21"]);
 
-    for (const [maxWrites, [count, isDeferred]] of expected.entries()) {
+    for (let maxWrites = 0; maxWrites <= 8; maxWrites += 1) {
       const result = plan(issues, { mirrors, maxWrites });
 
+      const count = Math.min(maxWrites, everything.length);
       const used = result.actions.reduce((total, action) => total + writeCost(action), 0);
-      assert.ok(used <= maxWrites, `maxWrites=${String(maxWrites)} used ${String(used)}`);
-      const prefix = everything.slice(0, count);
-      const wanted = isDeferred ? [...prefix.slice(0, -1), (prefix.at(-1) ?? "").replace("create+close", "create")] : prefix;
-      assert.deepEqual(describeActions(result.actions), wanted, `maxWrites=${String(maxWrites)}`);
-      assert.equal(result.capped, 6 - count + (isDeferred ? 1 : 0));
+      assert.equal(used, count, `maxWrites=${String(maxWrites)}`);
+      assert.deepEqual(describeActions(result.actions), everything.slice(0, count), `maxWrites=${String(maxWrites)}`);
+      assert.equal(result.capped, everything.length - count);
+      assert.equal(result.unchanged, 1);
       assertCountsAddUp(result);
     }
   });
@@ -726,7 +684,7 @@ describe("planActions: immutability", () => {
 
     assert.deepEqual(issues, issuesBefore);
     assert.deepEqual([...mirrors.entries()], mirrorsBefore);
-    assert.deepEqual(describeActions(result.actions), ["create 2", "close 5 -> #40", "create+close 9"]);
+    assert.deepEqual(describeActions(result.actions), ["create 2", "close 5 -> #40"]);
   });
 
   it("returns the input issue objects in its actions, not copies", () => {

@@ -106,7 +106,7 @@ function stopCause(reason: StopReason): string {
 function executeAction(action: Action, context: WriteContext): Promise<Tally> {
   switch (action.kind) {
     case "create":
-      return executeCreate(action.issue, action.closeAfter, context);
+      return executeCreate(action.issue, context);
     case "close":
       return executeClose(action.issue, action.mirror.issueNumber, context);
   }
@@ -139,33 +139,28 @@ function failure(context: WriteContext, what: string, outcome: Failed): Tally {
   return { ...NOTHING, failures: [redacted], stop: outcome.kind === "rate-limited" ? "rate-limit" : null };
 }
 
-async function executeCreate(issue: YouTrackIssue, closeAfter: boolean, context: WriteContext): Promise<Tally> {
+async function executeCreate(issue: YouTrackIssue, context: WriteContext): Promise<Tally> {
   const name = mirrorName(issue);
   const mirror = formatMirror(issue, context.youtrackBaseUrl);
   const body = { title: mirror.title, body: mirror.body, labels: [MIRROR_LABEL] } satisfies CreateIssueBody;
   const outcome = await attemptWrite(() => context.writer.create(body));
   if (outcome.kind === "out-of-fetches") return OUT_OF_FETCHES;
-  // A failed create skips its close: there is no issue to close.
   if (outcome.kind !== "ok") return failure(context, `create ${name}`, outcome);
   const created = outcome.value;
   context.log.info(`create ${name} -> #${String(created.number)}`);
-  const labelled = combine({ ...NOTHING, created: 1 }, await ensureLabel(created, name, closeAfter, context));
-  if (!closeAfter) return labelled;
-  // The fetch guard refused the label re-add, or GitHub rate-limited it: the close waits.
-  if (labelled.stop !== null) return combine(labelled, { ...NOTHING, capped: 1 });
-  return combine(labelled, await executeClose(issue, created.number, context));
+  return combine({ ...NOTHING, created: 1 }, await ensureLabel(created, name, context));
 }
 
 /**
  * Re-adds MIRROR_LABEL when the 201 response lacks it (decision A5), if a write is
- * left after the pending close. Without it the next run still matches the mirror by title.
+ * left. Without it the next run still matches the mirror by title.
  */
-async function ensureLabel(created: GitHubIssue, name: string, closeAfter: boolean, context: WriteContext): Promise<Tally> {
+async function ensureLabel(created: GitHubIssue, name: string, context: WriteContext): Promise<Tally> {
   const wanted = MIRROR_LABEL.toLowerCase();
   if (created.labelNames.some((label) => label.toLowerCase() === wanted)) return NOTHING;
   const what = `${name} #${String(created.number)}`;
   const notReAdded = `${what} was created without the "${MIRROR_LABEL}" label and it was not re-added`;
-  if (context.writer.count() + (closeAfter ? 1 : 0) >= context.maxWrites) {
+  if (context.writer.count() >= context.maxWrites) {
     context.log.warn(`${notReAdded} (write cap reached)`);
     return NOTHING;
   }

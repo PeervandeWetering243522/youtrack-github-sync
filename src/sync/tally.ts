@@ -12,10 +12,7 @@ export type Tally = {
   readonly created: number;
   readonly closed: number;
   readonly labelsReAdded: number;
-  /**
-   * Actions (or the close of a create+close pair) left undone by the write cap, the fetch
-   * guard, a GitHub rate limit or the run deadline.
-   */
+  /** Actions left undone by the write cap, the fetch guard, a GitHub rate limit or the run deadline. */
   readonly capped: number;
   readonly failures: readonly string[];
   /** Set when nothing after this may run; the first reason wins. */

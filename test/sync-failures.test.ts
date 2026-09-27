@@ -31,10 +31,9 @@ import type { Override, World } from "./sync-harness.ts";
 // ---------------------------------------------------------------------------
 
 describe("runSync write cap", () => {
-  it("sends only the create of a pair that no longer fits, then stops (R6)", async () => {
-    // Arrange: YT-1 create (1) fits; YT-2 create+close (2) would make 3, its create alone
-    // fits; YT-3 comes after it and waits.
-    const { deps, calls, lines } = harness({ youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT }), ytRow(3)] });
+  it("sends the actions that fit, in order, then stops without a warning", async () => {
+    // Arrange: YT-1 and YT-2 fit in a cap of 2; YT-3 comes after them and waits.
+    const { deps, calls, lines } = harness({ youtrackRows: [ytRow(1), ytRow(2), ytRow(3)] });
 
     // Act
     const result = await runSync(config({ maxWritesPerRun: 2 }), deps);
@@ -43,26 +42,25 @@ describe("runSync write cap", () => {
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`]);
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [team] Task 1", "[YT-2] [team] Task 2"]);
     assert.equal(result.created, 2);
-    assert.equal(result.closed, 0);
-    assert.equal(result.capped, 2);
+    assert.equal(result.capped, 1);
     assert.equal(result.failed, 0);
     assert.deepEqual(messages(lines, "warn"), []);
   });
 
-  it("makes progress with a cap of 1 when the oldest issue is resolved and has no mirror", async () => {
+  it("spends no write on a resolved issue without a mirror under a cap of 1 (R9)", async () => {
     // Arrange
-    const { deps, calls } = harness({ youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)] });
+    const { deps, calls } = harness({ youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2), ytRow(3)] });
 
     // Act
     const result = await runSync(config({ maxWritesPerRun: 1 }), deps);
 
     // Assert
-    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
-    assert.deepEqual(result, summary({ scanned: 2, created: 1, capped: 2, fetches: 3 }));
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-2] [team] Task 2"]);
+    assert.deepEqual(result, summary({ scanned: 3, unchanged: 1, created: 1, capped: 1, fetches: 3 }));
   });
 
-  it("closes that mirror on the next run with a cap of 1", async () => {
-    // Arrange: the previous run left #101 open for resolved YT-1.
+  it("closes the open mirror of a resolved issue first under a cap of 1", async () => {
+    // Arrange: #101 is the open mirror of resolved YT-1.
     const { deps, calls } = harness({
       githubIssues: [ghIssue(101, "[YT-1] [team] Task 1")],
       youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)],
@@ -86,7 +84,7 @@ describe("runSync write cap", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.equal(result.capped, 3);
+    assert.equal(result.capped, 2);
   });
 });
 
@@ -98,11 +96,11 @@ describe("runSync write failures", () => {
   const failFirstCreate: Override = (call) =>
     isCreate(call) && titleOf(call).startsWith("[YT-1]") ? json(422, { message: "Validation Failed" }) : undefined;
 
-  it("records a failed create, skips its close, runs the rest, then throws", async () => {
-    // Arrange: YT-1 is resolved, so its failed create must not be followed by a close.
+  it("records a failed create, runs the rest, then throws", async () => {
+    // Arrange
     const world: World = {
       githubIssues: [ghIssue(12, "[YT-3] [team] Task 3")],
-      youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2), ytRow(3, { resolved: RESOLVED_AT })],
+      youtrackRows: [ytRow(1), ytRow(2), ytRow(3, { resolved: RESOLVED_AT })],
       override: failFirstCreate,
     };
     const { deps, calls } = harness(world);
