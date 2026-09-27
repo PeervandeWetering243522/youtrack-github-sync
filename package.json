@@ -12,9 +12,11 @@
     "gen:worker-types": "wrangler types",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.worker.json",
     "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "node --test \"test/**/*.test.ts\"",
     "test:coverage": "node --test --experimental-test-coverage \"test/**/*.test.ts\"",
-    "check": "npm run typecheck && npm run lint && npm test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "sync": "node --env-file-if-exists=.env src/node.ts",
     "dev:worker": "wrangler dev --test-scheduled"
   },
@@ -24,6 +26,7 @@
     "@types/node": "^24.13.5",
     "eslint": "^9.39.5",
     "openapi-typescript": "^7.13.0",
+    "prettier": "^3.9.8",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.70.0",
     "wrangler": "^4.141.0"

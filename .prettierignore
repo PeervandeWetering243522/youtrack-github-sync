@@ -1,0 +1,14 @@
+# Generated: regenerate instead of formatting.
+src/generated/
+worker-configuration.d.ts
+package-lock.json
+
+# Local only, never committed (the instance's OpenAPI spec is kept as downloaded).
+youtrack-openapi.json
+.env
+.dev.vars
+
+# Tool output and local state.
+coverage/
+.wrangler/
+.claude/
