@@ -17,7 +17,8 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
    One with the `youtrack` label wins. A title match without the label still counts as the
    mirror, and a warning is logged. If several issues match, the lowest number wins (warning).
 2. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
-   `project: CUI sort by: {issue id} asc`, 100 per page). There is no lookback window.
+   `project: CUI sort by: {issue id} asc`, 100 per page). There is no lookback window. Every
+   row must have `idReadable` = `<project>-<numberInProject>`, otherwise the run fails.
 3. **Filters** to issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
    case-insensitive). Everything else counts as `filtered`.
 4. **Plans**, oldest first (ascending issue number):
@@ -25,23 +26,32 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
      description with `@mentions` and `#123`-style references wrapped in backticks, plus a link
      back to YouTrack. If the YouTrack issue is resolved, the new mirror is **closed** right away.
    - open mirror and the YouTrack issue is resolved: **close** it (`state_reason: completed`).
-   - anything else: nothing. Mirrors are **never reopened, retitled, edited or commented on**.
+   - anything else: nothing (`unchanged`). Mirrors are **never reopened, retitled, edited or
+     commented on**.
 5. **Writes** serially, 1 s apart, at most `MAX_WRITES_PER_RUN` per run. Whatever does not
-   fit is `capped` and picked up by the next run. If GitHub drops the label on create, it is
-   re-added once (this counts as a write).
+   fit is `capped` and picked up by the next run; nothing later jumps ahead. When a
+   create+close pair does not fit but its create does, the mirror is created now and the next
+   run closes it (the close counts as `capped`). If GitHub drops the label on create, it is
+   re-added once (this counts as a write). The write phase also stops early, counting the rest
+   as `capped`, when GitHub rate-limits a write, when the fetch guard is reached, or when the
+   run deadline passes (see [Limits and budget](#limits-and-budget)).
 6. **Logs one line per write and one summary line**, for example:
 
    ```text
    create YT-5 -> #41
    close YT-3 #12
-   yt-gh-sync ok dryRun=false scanned=29 filtered=19 unchanged=4 created=5 closed=3 labelsReAdded=0 capped=0 failed=0 fetches=10
+   yt-gh-sync ok scanned=29 created=5 closed=3 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=10 dryRun=false
    ```
+
+   The headline counts come first; `skipped` = `filtered` + `unchanged`. A pair that was split
+   by the cap counts as both `created` and `capped`.
 
 YouTrack is only ever read: the only call is `GET /api/issues`.
 
-**Failures.** A failed read (GitHub list, YouTrack scan) aborts the run. A failed write is
-logged, the run carries on with the other writes, and at the end it throws, so the run shows as
-failed in Cron Events (or as a failed systemd unit). Tokens are never logged.
+**Failures.** A failed read (GitHub list, YouTrack scan) logs a `yt-gh-sync failed ...` summary
+line and aborts the run. A failed write is logged, the run carries on with the other writes
+(unless GitHub rate-limited it), and at the end it logs `yt-gh-sync failed ...` and throws, so
+the run shows as failed in Cron Events (or as a failed systemd unit). Tokens are never logged.
 
 **Dry run is on by default.** With `DRY_RUN` on, the run reads both sides and logs
 `[dry-run] would create ...` / `[dry-run] would close ...` lines, but sends no GitHub write at all.
@@ -53,18 +63,19 @@ failed in Cron Events (or as a failed systemd unit). Tokens are never logged.
 | `GITHUB_TOKEN` | secret | required | Classic PAT with the `repo` scope (decision B12). |
 | `YOUTRACK_TOKEN` | secret | required | YouTrack permanent token. |
 | `GITHUB_REPO` | var | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`. |
-| `YOUTRACK_BASE_URL` | var | required | https URL, no query string. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
-| `YOUTRACK_PROJECT` | var | required | Project shortName. `wrangler.jsonc` sets `CUI`. |
+| `YOUTRACK_BASE_URL` | var | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
+| `YOUTRACK_PROJECT` | var | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`. |
 | `YOUTRACK_TITLE_PREFIX` | var | `[team]` | Case-insensitive summary prefix that marks an issue for mirroring. |
 | `MAX_WRITES_PER_RUN` | var | `30` | Whole number from 0 to 40. Create+close = 2 writes, a label re-add = 1. |
-| `DRY_RUN` | var | on | Only the exact value `false` (any case) turns it off. |
+| `DRY_RUN` | var | on | Only `false` (any case, surrounding whitespace ignored) turns it off. |
 
 Invalid config fails the run before any request is made, listing every problem at once.
 
 Where the values come from:
 
 - **Worker:** vars in `wrangler.jsonc`, secrets via `wrangler secret put`.
-- **Node (`npm run sync`):** the environment, plus `.env` if present. Start from `.env.example`.
+- **Node (`npm run sync`):** the environment, plus `.env` if present. It does **not** read
+  `wrangler.jsonc`, so the three required vars must be in `.env` (or the environment).
 - **systemd:** `EnvironmentFile=` for vars, `LoadCredential=` for the two tokens (see below).
 
 ## Local setup
@@ -76,10 +87,16 @@ npm ci
 cp .env.example .env     # then fill in GITHUB_TOKEN and YOUTRACK_TOKEN
 ```
 
-Create the `youtrack` label once, by hand. The script never creates it:
+`.env` must also contain `GITHUB_REPO`, `YOUTRACK_BASE_URL` and `YOUTRACK_PROJECT`, which
+`.env.example` already sets. If you have an older `.env` with only the tokens, copy those lines
+(and the optional ones) over from `.env.example`; otherwise `npm run sync` stops with a
+`ConfigError` naming the missing vars.
+
+Create the `youtrack` label in the mirror repo once, by hand. The script never creates it:
 
 ```bash
-gh label create youtrack --color 6f42c1 --description "Mirrored from YouTrack (read-only)"
+gh label create youtrack --repo BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI \
+  --color 6f42c1 --description "Mirrored from YouTrack (read-only)"
 ```
 
 ## Commands
@@ -87,15 +104,19 @@ gh label create youtrack --color 6f42c1 --description "Mirrored from YouTrack (r
 | Command | What it does |
 |---|---|
 | `npm run check` | Type-check (Node and Workers configs), lint, and run all tests. |
-| `npm run typecheck` | `tsc` against `tsconfig.node.json` and `tsconfig.worker.json`. |
+| `npm run typecheck` | `tsc` against `tsconfig.node.json` and `tsconfig.worker.json`. Bare `tsc` skips `src/worker.ts`. |
 | `npm run lint` | ESLint with typescript-eslint `strictTypeChecked`. |
 | `npm test` / `npm run test:coverage` | `node --test`, optionally with coverage. |
 | `npm run sync` | One run with Node, reading `.env`. With `DRY_RUN=true` it only reads and logs the plan. |
 | `npm run dev:worker` | `wrangler dev --test-scheduled`, for triggering the Worker locally. |
-| `npm run gen:youtrack` | Regenerate `src/generated/youtrack.ts` from `youtrack-openapi.json`. |
+| `npm run gen:youtrack` | Regenerate `src/generated/youtrack.ts` from `./youtrack-openapi.json` (see below). |
 | `npm run gen:worker-types` | Regenerate `worker-configuration.d.ts` (`wrangler types`) after editing `wrangler.jsonc`. |
 
 The tests use a fake `fetch`; they never contact YouTrack or GitHub.
+
+`youtrack-openapi.json` (the instance's OpenAPI spec, about 500 KB) is intentionally not
+committed; the generated `src/generated/youtrack.ts` is. To regenerate the types, for example
+after a YouTrack upgrade, first place the instance's OpenAPI spec at `./youtrack-openapi.json`.
 
 ## Deploying to Cloudflare Workers
 
@@ -112,8 +133,8 @@ npx wrangler tail                        # live logs; add --status error to see 
 
 - Each `wrangler secret put` creates and deploys a new version right away. Until both secrets
   exist, runs fail at config validation without sending any request.
-- A new or changed cron can take up to 15 minutes to propagate. Past Cron Events can take up to
-  30 minutes to show up for a new Worker (Workers & Pages > the Worker > Settings >
+- A new, changed or removed cron can take up to 15 minutes to propagate. Past Cron Events can
+  take up to 30 minutes to show up for a new Worker (Workers & Pages > the Worker > Settings >
   Trigger Events > View events). It keeps the last 100 runs. Workers Logs keeps 3 days on Free.
 
 ### Testing the Worker locally
@@ -141,8 +162,14 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 ## Alternative host: Debian + systemd timer
 
 > **Never run the Worker and the timer at the same time.** Neither holds a lock, so two hosts
-> can race and create duplicate `[YT-n]` issues. Disable the Worker's cron (`"crons": []`,
-> redeploy) before enabling the timer, and the other way round.
+> can race and create duplicate `[YT-n]` issues.
+>
+> - **Worker to timer:** deploy `"crons": []` (ideally with `"DRY_RUN": "true"` in the same
+>   deploy, so a late firing only reads). Removing a cron can take up to 15 minutes to reach
+>   Cloudflare, so wait at least 15 minutes and check that no new Past Cron Events appear
+>   before you enable the timer.
+> - **Timer to Worker:** run `sudo systemctl disable --now youtrack-gh.timer` first, then
+>   re-add the cron and deploy.
 
 ### Node 24
 
@@ -169,10 +196,23 @@ official nodejs.org tarball unpacked into `/opt` is the alternative (point `run.
 
 ### App, config and secrets
 
-The runtime has no dependencies (every package import is type-only), so copying the repo to
-`/opt/youtrack-gh` (with `git clone`, `rsync`, ...) is enough; `npm ci` is not needed on the
-host. `package.json` must come along (`"type": "module"`). Files there must be world-readable,
-because the service runs as a dynamic user.
+The runtime has no dependencies (every package import is type-only), so a copy of the repo in
+`/opt/youtrack-gh` is enough; `npm ci` is not needed on the host. `package.json` must come
+along (`"type": "module"`).
+
+**Never copy a `.env` or `.dev.vars` there**: on this host the tokens exist only under
+`/etc/youtrack-gh`. Use `git clone` (which leaves out the gitignored files), or rsync from a
+dev checkout with explicit excludes into a staging directory, then install it as root:
+
+```bash
+# on the dev machine
+rsync -a --exclude=.env --exclude=.dev.vars --exclude=.wrangler/ --exclude=node_modules/ \
+  ./ host:youtrack-gh/
+# on the host (--exclude keeps run.sh, below, from being deleted on updates)
+sudo rsync -a --delete --exclude=/run.sh youtrack-gh/ /opt/youtrack-gh/
+```
+
+Secrets and vars:
 
 ```bash
 sudo install -d -m 0700 /etc/youtrack-gh
@@ -195,7 +235,7 @@ DRY_RUN=true
 Environment variables set in a unit are visible to unprivileged clients over D-Bus, so the
 tokens do not go there. systemd hands them to the service as files in `$CREDENTIALS_DIRECTORY`,
 and a tiny wrapper, `/opt/youtrack-gh/run.sh` (`chmod 755`), turns them into env vars for the
-one process. It passes no `--env-file`, so a `.env` on the host is never read:
+one process. It passes no `--env-file`; there must be no `.env` in `/opt/youtrack-gh` anyway:
 
 ```sh
 #!/bin/sh
@@ -206,6 +246,17 @@ YOUTRACK_TOKEN="$(cat "$CREDENTIALS_DIRECTORY/youtrack_token")"
 export GITHUB_TOKEN YOUTRACK_TOKEN
 exec /usr/bin/node /opt/youtrack-gh/src/node.ts
 ```
+
+Then make the tree owned by root, readable by the service's dynamic user and writable only by
+root (the code there runs with both tokens), and check that no secrets file came along:
+
+```bash
+sudo chown -R root:root /opt/youtrack-gh
+sudo chmod -R u=rwX,go=rX /opt/youtrack-gh
+test ! -e /opt/youtrack-gh/.env && test ! -e /opt/youtrack-gh/.dev.vars && echo "no .env: ok"
+```
+
+Repeat these three commands after every update of `/opt/youtrack-gh`.
 
 ### Units
 
@@ -225,8 +276,9 @@ LoadCredential=youtrack_token:/etc/youtrack-gh/youtrack_token
 EnvironmentFile=/etc/youtrack-gh/config.env
 WorkingDirectory=/opt/youtrack-gh
 ExecStart=/opt/youtrack-gh/run.sh
-# A oneshot has no start timeout by default, and a hung run would block every later tick.
-TimeoutStartSec=5min
+# Hard backstop only. The code starts no new write later than 8 min after the process
+# starts (decision R8), and a write already under way finishes within about 2 min.
+TimeoutStartSec=10min
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -269,14 +321,27 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 
 - **Workers Free:** 50 subrequests per invocation (reads, writes, retries and redirects all
   count), 10 ms CPU (waiting on the network is free), 15 minutes wall time.
-- **Fetch guard:** the HTTP client refuses a 46th fetch. When the guard is reached, the run
-  stops cleanly and the remaining actions count as `capped`, not `failed`.
-- **Today:** 1 GitHub page + 1 YouTrack page + at most 30 writes = 32 fetches at most. Every
+- **Fetch guard:** the HTTP client refuses a 46th fetch. When it refuses a write, the run stops
+  cleanly and that action and the remaining ones count as `capped`, not `failed`. A write that
+  was sent and failed but whose retry the guard cannot pay for counts as `failed`.
+- **Today:** 1 GitHub page + 1 YouTrack page + at most 30 writes = 32 fetches without retries.
+  Each retry of a GET, close or label re-add is one more fetch, up to the 45-fetch guard. Every
   further 100 GitHub items (issues and pull requests) or 100 YouTrack issues costs one more page.
 - **Retries:** every GET, close and label re-add is retried once on a network error, timeout,
-  5xx or 429 (after 2 s, or `retry-after` if that is 10 s or less). A create is **never**
-  retried, since a timed-out create may have succeeded; the next run acts as the retry. Every
-  request times out after 15 s.
+  5xx, 429, or a 403 that carries `retry-after` (GitHub's secondary rate limit). The retry
+  waits `retry-after` when it is 10 s or less, and 2 s when the header is missing or
+  unreadable. There is no retry when `retry-after` is over 10 s, or when GitHub's primary rate
+  limit (`x-ratelimit-remaining: 0`) comes without a usable `retry-after`. A create is
+  **never** retried, since a timed-out create may have succeeded; the next run acts as the
+  retry. Every request times out after 15 s.
+- **GitHub rate limit:** when a write still fails with a rate limit (a 403 or 429 with
+  `x-ratelimit-remaining: 0`, with `retry-after`, or whose body names the secondary rate
+  limit), it counts as `failed`, the run stops writing, and the remaining actions count as
+  `capped` (decision R7). The run still ends as failed.
+- **Run deadline:** no new write action starts later than 8 minutes after the run's scheduled
+  time (Worker: the cron's `scheduledTime`; Node: process start). The rest counts as `capped`
+  and a `run deadline reached` warning is logged. Reads and the dry-run preview are not
+  affected. On systemd, `TimeoutStartSec=10min` is the hard backstop.
 - **GitHub:** writes are serial and 1 s apart, well within the secondary limit of 80
   content-creating requests per minute. If the token lacks push access, GitHub silently drops
   labels on create. The label re-add and the title fallback stop that from causing duplicates.
@@ -289,7 +354,8 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 Research and design notes live in [`docs/`](docs/README.md):
 
 - [08-decisions.md](docs/08-decisions.md): every decision this behavior follows.
-- [09-implementation-plan.md](docs/09-implementation-plan.md): the plan.
+- [09-implementation-plan.md](docs/09-implementation-plan.md): the original plan (implemented),
+  with an "As built" section where the code differs.
 - [04-cloudflare-workers.md](docs/04-cloudflare-workers.md): Workers limits, cron, secrets, local testing.
 - [05-node-debian-systemd.md](docs/05-node-debian-systemd.md): Node versions, Debian packages, systemd.
 - [03-github-rest-api.md](docs/03-github-rest-api.md) and

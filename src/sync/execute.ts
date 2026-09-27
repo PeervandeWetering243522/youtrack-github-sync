@@ -1,20 +1,21 @@
 /**
  * The write phase of a run: planned actions become GitHub writes, sent serially and
- * WRITE_PAUSE_MS apart, until the write cap or the fetch guard stops them.
- * Only src/sync.ts builds the writer, and only when dry run is off.
+ * WRITE_PAUSE_MS apart, until the write cap, the fetch guard, a GitHub rate limit or the
+ * run deadline stops them. Only src/sync.ts builds the writer, and only when dry run is off.
  */
 
 import { addLabel, closeIssue, createIssue, MIRROR_LABEL } from "../github.ts";
 import type { CreateIssueBody, GitHubIssue, GitHubTarget } from "../github.ts";
-import { DEFAULT_MAX_FETCHES, FetchBudgetExceededError } from "../http.ts";
+import { DEFAULT_MAX_FETCHES, FetchBudgetExceededError, HttpError } from "../http.ts";
 import type { HttpClient } from "../http.ts";
 import { formatMirror } from "../mirror.ts";
 import { writeCost } from "../plan.ts";
 import type { Action } from "../plan.ts";
+import type { Redact } from "../utils/redact.ts";
 import type { YouTrackIssue } from "../youtrack.ts";
-import type { Logger, Redact } from "./log.ts";
+import type { Logger } from "./log.ts";
 import { combine, mirrorName, NOTHING, OUT_OF_FETCHES } from "./tally.ts";
-import type { Tally } from "./tally.ts";
+import type { StopReason, Tally } from "./tally.ts";
 
 /** Pause between GitHub writes (GitHub best practice: serial, >= 1 s apart). */
 export const WRITE_PAUSE_MS = 1_000;
@@ -34,12 +35,19 @@ export type WriteContext = {
   readonly redact: Redact;
   readonly youtrackBaseUrl: string;
   readonly maxWrites: number;
+  /** Current time, epoch ms. */
+  readonly now: () => number;
+  /** No action starts at or after this time, epoch ms (decision R8). */
+  readonly deadline: number;
 };
 
 type WriteOutcome<T> =
   | { readonly kind: "ok"; readonly value: T }
   | { readonly kind: "failed"; readonly reason: string }
+  | { readonly kind: "rate-limited"; readonly reason: string }
   | { readonly kind: "out-of-fetches" };
+
+type Failed = Extract<WriteOutcome<never>, { readonly reason: string }>;
 
 export function githubWriter(http: HttpClient, target: GitHubTarget, sleep: (ms: number) => Promise<void>): GitHubWriter {
   let writes = 0;
@@ -57,7 +65,13 @@ export function githubWriter(http: HttpClient, target: GitHubTarget, sleep: (ms:
   };
 }
 
-/** Runs the actions in order until the write cap or the fetch guard stops it. */
+/**
+ * Runs the actions in order until one of these stops it; the stopping action (unless it
+ * was sent) and everything after it count as capped:
+ * - the write cap (no warning: planActions already capped by writeCost);
+ * - the run deadline, checked before each action starts (decision R8);
+ * - the fetch guard refusing a write, or GitHub rate-limiting one (decision R7).
+ */
 export async function executeActions(actions: readonly Action[], context: WriteContext): Promise<Tally> {
   let tally = NOTHING;
   for (const [position, action] of actions.entries()) {
@@ -66,14 +80,27 @@ export async function executeActions(actions: readonly Action[], context: WriteC
     if (context.writer.count() + writeCost(action) > context.maxWrites) {
       return combine(tally, { ...NOTHING, capped: notYetRun });
     }
+    if (context.now() >= context.deadline) {
+      context.log.warn(`run deadline reached; ${String(notYetRun)} more action(s) capped`);
+      return combine(tally, { ...NOTHING, capped: notYetRun });
+    }
     tally = combine(tally, await executeAction(action, context));
-    if (tally.stopped) {
+    if (tally.stop !== null) {
       const rest = notYetRun - 1;
-      context.log.warn(`fetch guard of ${String(DEFAULT_MAX_FETCHES)} reached; ${String(rest)} more action(s) capped`);
+      context.log.warn(`${stopCause(tally.stop)}; ${String(rest)} more action(s) capped`);
       return combine(tally, { ...NOTHING, capped: rest });
     }
   }
   return tally;
+}
+
+function stopCause(reason: StopReason): string {
+  switch (reason) {
+    case "fetch-guard":
+      return `fetch guard of ${String(DEFAULT_MAX_FETCHES)} reached`;
+    case "rate-limit":
+      return "GitHub rate limit hit";
+  }
 }
 
 function executeAction(action: Action, context: WriteContext): Promise<Tally> {
@@ -86,24 +113,30 @@ function executeAction(action: Action, context: WriteContext): Promise<Tally> {
 }
 
 /**
- * A failed write becomes a value. Only FetchBudgetExceededError is told apart: the client
- * throws it before sending anything. A write that was sent and failed is a failure, also
- * when its retry was skipped because the budget could not pay for it (decision A10).
+ * A failed write becomes a value. FetchBudgetExceededError is told apart: the client throws
+ * it before sending anything. So is an HttpError GitHub marked as rate-limited (decision R7).
+ * Any other write that was sent and failed is a plain failure, also when its retry was
+ * skipped because the budget could not pay for it (decision A10).
  */
 async function attemptWrite<T>(write: () => Promise<T>): Promise<WriteOutcome<T>> {
   try {
     return { kind: "ok", value: await write() };
   } catch (error) {
     if (error instanceof FetchBudgetExceededError) return { kind: "out-of-fetches" };
-    return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
+    const reason = error instanceof Error ? error.message : String(error);
+    if (error instanceof HttpError && error.rateLimited) return { kind: "rate-limited", reason };
+    return { kind: "failed", reason };
   }
 }
 
-/** Logs and records one failed write; the run goes on and throws at the end (decision A10). */
-function failure(context: WriteContext, message: string): Tally {
-  const redacted = context.redact(message);
+/**
+ * Logs and records one failed write; the run throws at the end (decision A10). A
+ * rate-limited write also stops the write phase (decision R7).
+ */
+function failure(context: WriteContext, what: string, outcome: Failed): Tally {
+  const redacted = context.redact(`${what} failed: ${outcome.reason}`);
   context.log.error(redacted);
-  return { ...NOTHING, failures: [redacted] };
+  return { ...NOTHING, failures: [redacted], stop: outcome.kind === "rate-limited" ? "rate-limit" : null };
 }
 
 async function executeCreate(issue: YouTrackIssue, closeAfter: boolean, context: WriteContext): Promise<Tally> {
@@ -113,13 +146,13 @@ async function executeCreate(issue: YouTrackIssue, closeAfter: boolean, context:
   const outcome = await attemptWrite(() => context.writer.create(body));
   if (outcome.kind === "out-of-fetches") return OUT_OF_FETCHES;
   // A failed create skips its close: there is no issue to close.
-  if (outcome.kind === "failed") return failure(context, `create ${name} failed: ${outcome.reason}`);
+  if (outcome.kind !== "ok") return failure(context, `create ${name}`, outcome);
   const created = outcome.value;
   context.log.info(`create ${name} -> #${String(created.number)}`);
   const labelled = combine({ ...NOTHING, created: 1 }, await ensureLabel(created, name, closeAfter, context));
   if (!closeAfter) return labelled;
-  // The fetch guard refused the label re-add, so it would refuse the close too.
-  if (labelled.stopped) return combine(labelled, { ...NOTHING, capped: 1 });
+  // The fetch guard refused the label re-add, or GitHub rate-limited it: the close waits.
+  if (labelled.stop !== null) return combine(labelled, { ...NOTHING, capped: 1 });
   return combine(labelled, await executeClose(issue, created.number, context));
 }
 
@@ -142,10 +175,11 @@ async function ensureLabel(created: GitHubIssue, name: string, closeAfter: boole
       context.log.info(`label ${what}`);
       return { ...NOTHING, labelsReAdded: 1 };
     case "failed":
-      return failure(context, `label ${what} failed: ${outcome.reason}`);
+    case "rate-limited":
+      return failure(context, `label ${what}`, outcome);
     case "out-of-fetches":
       context.log.warn(`${notReAdded} (fetch guard reached)`);
-      return { ...NOTHING, stopped: true };
+      return { ...NOTHING, stop: "fetch-guard" };
   }
 }
 
@@ -157,7 +191,8 @@ async function executeClose(issue: YouTrackIssue, issueNumber: number, context: 
       context.log.info(`close ${what}`);
       return { ...NOTHING, closed: 1 };
     case "failed":
-      return failure(context, `close ${what} failed: ${outcome.reason}`);
+    case "rate-limited":
+      return failure(context, `close ${what}`, outcome);
     case "out-of-fetches":
       return OUT_OF_FETCHES;
   }

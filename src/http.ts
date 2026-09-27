@@ -4,9 +4,11 @@
  * a retry-once policy for safe requests, and typed errors.
  */
 
-import { redactedExcerpt, redactHeaderValues } from "./http/redact.ts";
+import { HTTP_FORBIDDEN, HTTP_TOO_MANY_REQUESTS, isPrimaryRateLimit, isRateLimited } from "./http/rate-limit.ts";
+import { requestRedactor } from "./http/redact.ts";
 import { parseRetryAfterMs } from "./http/retry-after.ts";
 import { parseJson, type JsonValue } from "./json.ts";
+import { redactedExcerpt } from "./utils/redact.ts";
 
 export type HttpMethod = "GET" | "POST" | "PATCH";
 
@@ -57,7 +59,8 @@ export type HttpClient = {
    *   unit) is skipped, and the first attempt's failure is thrown: a write that really failed
    *   counts as failed, not as refused by the budget.
    * A non-2xx whose body cannot be read is still an HttpError with that status and an empty excerpt.
-   * A 2xx whose body is not JSON throws a plain Error.
+   * A 2xx whose body is not JSON throws a plain Error that quotes the body only when its content type
+   * is present and not JSON (see invalidJsonDetail).
    */
   readonly request: (request: HttpRequest) => Promise<HttpResponse>;
   /** Number of fetch() calls made so far (attempts, including retries). */
@@ -76,16 +79,22 @@ export class HttpError extends Error {
   readonly status: number;
   readonly method: HttpMethod;
   readonly url: string;
-  /** First ~500 chars of the response body, for logs. */
+  /** First ~500 chars of the response body with credential header values redacted, for logs. */
   readonly bodyExcerpt: string;
+  /**
+   * GitHub refused the request for a rate limit (decision R7): a 403 or 429 with
+   * x-ratelimit-remaining: 0, with retry-after, or whose body names a secondary rate limit.
+   */
+  readonly rateLimited: boolean;
 
-  constructor(method: HttpMethod, url: string, status: number, bodyExcerpt: string) {
+  constructor(method: HttpMethod, url: string, status: number, bodyExcerpt: string, rateLimited = false) {
     super(`${method} ${url} -> HTTP ${String(status)}: ${bodyExcerpt}`);
     this.name = "HttpError";
     this.method = method;
     this.url = url;
     this.status = status;
     this.bodyExcerpt = bodyExcerpt;
+    this.rateLimited = rateLimited;
   }
 }
 
@@ -170,10 +179,9 @@ const BODY_EXCERPT_CHARS = 500;
 const INVALID_JSON_EXCERPT_CHARS = 200;
 /** Largest delay setTimeout / AbortSignal.timeout honour (2^31 - 1 ms, about 24.8 days). */
 const MAX_TIMER_MS = 2_147_483_647;
-const HTTP_FORBIDDEN = 403;
-const HTTP_TOO_MANY_REQUESTS = 429;
 const HTTP_SERVER_ERROR_MIN = 500;
 const JSON_CONTENT_TYPE = "application/json";
+const JSON_SUFFIX = "+json";
 
 /** A response whose body has been read as text ("" when a non-2xx body could not be read). */
 type ResponseAttempt = {
@@ -319,15 +327,6 @@ function isRetryable(attempt: Attempt): boolean {
   );
 }
 
-/** GitHub's primary rate limit (docs/03): a 403 or 429 with x-ratelimit-remaining: 0. */
-function isPrimaryRateLimit(attempt: Attempt): boolean {
-  if (attempt.kind === "network-failure") {
-    return false;
-  }
-  const isLimitStatus = attempt.status === HTTP_FORBIDDEN || attempt.status === HTTP_TOO_MANY_REQUESTS;
-  return isLimitStatus && attempt.headers.get("x-ratelimit-remaining")?.trim() === "0";
-}
-
 /** Milliseconds to wait before the single retry, or undefined when no retry should happen. */
 function retryWaitMs(policy: RetryPolicy, failed: Attempt, options: HttpClientOptions): number | undefined {
   if (policy === "no-retry" || !isRetryable(failed)) {
@@ -336,7 +335,7 @@ function retryWaitMs(policy: RetryPolicy, failed: Attempt, options: HttpClientOp
   const headerWaitMs =
     failed.kind === "response" ? parseRetryAfterMs(failed.headers.get("retry-after"), Date.now()) : undefined;
   // Out of requests until x-ratelimit-reset: only a retry-after we can wait for is worth a fetch.
-  if (headerWaitMs === undefined && isPrimaryRateLimit(failed)) {
+  if (headerWaitMs === undefined && failed.kind === "response" && isPrimaryRateLimit(failed)) {
     return undefined;
   }
   const waitMs = headerWaitMs ?? options.retryDelayMs;
@@ -357,18 +356,40 @@ function parseBody(request: HttpRequest, attempt: ResponseAttempt): JsonValue {
   try {
     return parseJson(attempt.text);
   } catch {
-    const excerpt = redactedExcerpt(request.headers, attempt.text, INVALID_JSON_EXCERPT_CHARS);
+    const detail = invalidJsonDetail(request, attempt);
     throw new Error(
-      `${request.method} ${request.url} -> HTTP ${String(attempt.status)}: response is not valid JSON: ${excerpt}`,
+      `${request.method} ${request.url} -> HTTP ${String(attempt.status)}: response is not valid JSON ${detail}`,
     );
   }
 }
 
+/**
+ * Length and content type, plus a redacted excerpt only for a declared non-JSON type (an SSO
+ * login page, say). A broken JSON body is never quoted: a YouTrack scan page would put an
+ * issue description into the logs (decision R3). A missing content type is treated the same way.
+ */
+function invalidJsonDetail(request: HttpRequest, attempt: ResponseAttempt): string {
+  const contentType = attempt.headers.get("content-type");
+  const meta = `(${String(attempt.text.length)} chars, content-type ${contentType ?? "none"})`;
+  if (contentType === null || isJsonContentType(contentType)) {
+    return meta;
+  }
+  const excerpt = redactedExcerpt(requestRedactor(request.headers), attempt.text, INVALID_JSON_EXCERPT_CHARS);
+  return `${meta}: ${excerpt}`;
+}
+
+/** application/json, or any structured +json type such as application/vnd.github+json. */
+function isJsonContentType(contentType: string): boolean {
+  const mediaType = (contentType.split(";")[0] ?? "").trim().toLowerCase();
+  return mediaType === JSON_CONTENT_TYPE || mediaType.endsWith(JSON_SUFFIX);
+}
+
 /** Every error text is redacted (see src/http/redact.ts): fetch errors can quote a header value. */
 function toFailure(request: HttpRequest, attempt: Attempt): HttpError | NetworkError {
+  const redact = requestRedactor(request.headers);
   if (attempt.kind === "network-failure") {
-    return new NetworkError(request.method, request.url, redactHeaderValues(request.headers, attempt.reason));
+    return new NetworkError(request.method, request.url, redact(attempt.reason));
   }
-  const excerpt = redactedExcerpt(request.headers, attempt.text, BODY_EXCERPT_CHARS);
-  return new HttpError(request.method, request.url, attempt.status, excerpt);
+  const excerpt = redactedExcerpt(redact, attempt.text, BODY_EXCERPT_CHARS);
+  return new HttpError(request.method, request.url, attempt.status, excerpt, isRateLimited(attempt));
 }

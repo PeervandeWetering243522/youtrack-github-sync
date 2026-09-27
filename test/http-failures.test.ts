@@ -235,6 +235,49 @@ describe("createHttpClient: secret redaction", () => {
     assert.match(error.message, /\[redacted\]/);
   });
 
+  it("redacts only credential headers, keeping Accept and the API version readable", async () => {
+    const headers = {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${TOKEN}`,
+      "X-GitHub-Api-Version": "2026-03-10",
+    };
+    const body = `Unsupported 'X-GitHub-Api-Version' '2026-03-10' for application/vnd.github+json (${TOKEN})`;
+    const { client } = harness([textResponse(400, body)]);
+
+    const error = await rejection(client.request({ ...GET, headers }));
+
+    assert.ok(error instanceof HttpError);
+    assert.equal(
+      error.bodyExcerpt,
+      "Unsupported 'X-GitHub-Api-Version' '2026-03-10' for application/vnd.github+json ([redacted])",
+    );
+  });
+
+  it("keeps the YouTrack Accept value readable", async () => {
+    const { client } = harness([textResponse(406, "Not Acceptable: application/json")]);
+
+    const error = await rejection(client.request(GET));
+
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.bodyExcerpt, "Not Acceptable: application/json");
+  });
+
+  it("redacts other token-bearing headers, whatever their case", async () => {
+    const headers = {
+      "x-api-key": "key-1234567890",
+      "Private-Token": "glpat-abcdefgh",
+      "X-Auth-Token": "auth-0987654321",
+      Cookie: "session=abcdef123456",
+    };
+    const body = "key-1234567890 glpat-abcdefgh auth-0987654321 session=abcdef123456";
+    const { client } = harness([textResponse(401, body)]);
+
+    const error = await rejection(client.request({ ...GET, headers }));
+
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.bodyExcerpt, "[redacted] [redacted] [redacted] [redacted]");
+  });
+
   it("leaves short header values such as the auth scheme alone", async () => {
     const { client } = harness([textResponse(401, "Bearer realm=api")]);
 

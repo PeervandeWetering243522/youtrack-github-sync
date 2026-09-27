@@ -35,14 +35,14 @@ import {
 describe("formatSummary", () => {
   const sample = summary({ dryRun: true, scanned: 29, filtered: 19, unchanged: 4, created: 5, closed: 3, fetches: 2 });
 
-  it("prints every field in the documented order after the tag and outcome", () => {
+  it("prints the headline counts, then the breakdown, then dryRun (decision R5)", () => {
     // Act
     const line = formatSummary(sample, "ok");
 
     // Assert
     assert.equal(
       line,
-      "yt-gh-sync ok dryRun=true scanned=29 filtered=19 unchanged=4 created=5 closed=3 labelsReAdded=0 capped=0 failed=0 fetches=2",
+      "yt-gh-sync ok scanned=29 created=5 closed=3 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=2 dryRun=true",
     );
   });
 
@@ -51,8 +51,24 @@ describe("formatSummary", () => {
     const line = formatSummary({ ...sample, dryRun: false, failed: 2, capped: 1 }, "failed");
 
     // Assert
-    assert.match(line, /^yt-gh-sync failed dryRun=false /);
-    assert.match(line, / capped=1 failed=2 fetches=2$/);
+    assert.match(line, /^yt-gh-sync failed scanned=29 /);
+    assert.match(line, / skipped=23 capped=1 failed=2 /);
+    assert.match(line, / dryRun=false$/);
+  });
+});
+
+describe("runSync summary", () => {
+  it("counts skipped as filtered plus unchanged", async () => {
+    // Arrange: MIXED_WORLD has one issue without the prefix and two that need nothing.
+    const { deps } = harness(MIXED_WORLD);
+
+    // Act
+    const result = await runSync(config({ dryRun: true }), deps);
+
+    // Assert
+    assert.equal(result.filtered, 1);
+    assert.equal(result.unchanged, 2);
+    assert.equal(result.skipped, 3);
   });
 });
 
@@ -107,17 +123,19 @@ describe("runSync in dry run", () => {
   });
 
   it("applies the write cap to the preview as well", async () => {
-    // Arrange: YT-1 (1 write) fits, the YT-2 create+close pair (2 writes) does not.
-    const { deps, calls } = harness(MIXED_WORLD);
+    // Arrange: YT-1 (1 write) fits; of the YT-2 create+close pair only the create does (R6).
+    const { deps, calls, lines } = harness(MIXED_WORLD);
 
     // Act
     const result = await runSync(config({ dryRun: true, maxWritesPerRun: 2 }), deps);
 
     // Assert
-    assert.equal(result.created, 1);
+    assert.equal(result.created, 2);
     assert.equal(result.closed, 0);
+    // YT-2's close and the YT-3 close.
     assert.equal(result.capped, 2);
     assert.deepEqual(writeCalls(calls), []);
+    assert.ok(!messages(lines).some((line) => line.includes("would close")));
   });
 });
 

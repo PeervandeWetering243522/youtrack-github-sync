@@ -15,12 +15,25 @@ enables YouTrack's Webhook Triggers app.
 - **`DRY_RUN` defaults to ON.** Only the user turns it off. Never do real GitHub writes while
   testing unless the user explicitly asks.
 - Never print or commit tokens. `.env` is gitignored. Log redacted values only.
-- The official docs and the instance's `youtrack-openapi.json` beat blog posts and training
+- The official docs and the instance's `youtrack-openapi.json` (local only, not committed) beat blog posts and training
   data. The spec lies about nullability: `resolved` and `description` can be `null`.
 
-## Layout (planned)
+## Layout
 
-- `src/sync.ts`: pure logic. Uses only `fetch`, takes config as an argument, no Workers/Node APIs.
+- `src/sync.ts` + `src/sync/`: orchestration of one run (not pure: it does the I/O). Uses only
+  `fetch`, takes config and deps as arguments, no Workers/Node APIs. `sync/execute.ts` is the
+  only GitHub write path (built only when `DRY_RUN` is off); `sync/tally.ts` counts, `sync/log.ts`
+  redacts every log line.
+- `src/plan.ts`, `src/mirror.ts`, `src/utils/`: pure decision and formatting logic, no I/O. New
+  decision logic goes in `plan.ts`, not `sync.ts`.
+- `src/http.ts` + `src/http/`: fetch wrapper (User-Agent, timeout, 45-fetch guard, retry-once,
+  rate-limit detection, credential redaction).
+- `src/youtrack.ts` (GET only) and `src/github.ts`: API clients. `src/config.ts`: env -> validated
+  `Config`. `src/json.ts`: the only JSON entry point (`parseJson` -> `JsonValue`).
+- `src/generated/youtrack.ts`: openapi-typescript output, do not edit. Regenerate with
+  `npm run gen:youtrack` after placing the instance's spec at `./youtrack-openapi.json` (the spec
+  is intentionally not committed).
+- `src/runtime.ts`: console logger and sleep shared by the two entrypoints; the sync core must not import it.
 - `src/worker.ts`: Cloudflare `scheduled()` entrypoint (Workers Free, cron every 10 min, no HTTP route).
 - `src/node.ts`: Node entrypoint that reads env vars. Also used for local dry runs and the Debian systemd timer.
 - `docs/`: research and design. Start at `docs/README.md`.
@@ -29,16 +42,19 @@ enables YouTrack's Webhook Triggers app.
 
 Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_URL`,
 `YOUTRACK_PROJECT` (CUI), `YOUTRACK_TITLE_PREFIX` (`[team]`), `MAX_WRITES_PER_RUN` (30), `DRY_RUN`
-(on). Full project scan every run; no lookback. Plan: `docs/09-implementation-plan.md`.
+(on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the Worker,
+`.env` for `npm run sync`). Full project scan every run; no lookback. Plan (implemented, see its
+"As built" section): `docs/09-implementation-plan.md`.
 
 ## Conventions
 
 - TypeScript with erasable syntax only (no enums/namespaces/parameter properties). Relative
   imports use `.ts` extensions, so Node type-stripping and wrangler/esbuild both run the same
-  sources. Type-check with `tsc --noEmit`.
+  sources. Type-check with `npm run typecheck` (runs tsconfig.node.json and tsconfig.worker.json;
+  bare `tsc` skips src/worker.ts). Run `npm run check` before committing.
 - Minimal dependencies, no frameworks.
 - Probe YouTrack by hand like this (GET only, token never echoed):
-  `set -a; . ./.env; set +a; curl -sS -G "$BASE/api/issues" -H "Authorization: Bearer $YOUTRACK_TOKEN" --data-urlencode 'query=...' --data-urlencode 'fields=...' --data-urlencode '$top=...'`
+  `set -a; . ./.env; set +a; curl -sS -G "https://youtrack.ai.buas.nl/api/issues" -H "Authorization: Bearer $YOUTRACK_TOKEN" --data-urlencode 'query=...' --data-urlencode 'fields=...' --data-urlencode '$top=...'`
 - Shell is Git Bash on Windows. `jq` and `node` are available.
 
 ## Gotchas that have already bitten (or nearly)

@@ -15,4 +15,4 @@ source. Claims carry status tags: `[verified]`, `[live]`, `[partial]`, `[undocum
 | [06-design-and-backfill.md](06-design-and-backfill.md) | Constraints from research, subrequest budget, backfill options, idempotency |
 | [07-open-questions.md](07-open-questions.md) | Questions to answer before implementation |
 | [08-decisions.md](08-decisions.md) | Answers to the open questions (decided / pending) |
-| [09-implementation-plan.md](09-implementation-plan.md) | Implementation plan awaiting sign-off |
+| [09-implementation-plan.md](09-implementation-plan.md) | Implementation plan (implemented), with an "As built" section where the code differs |

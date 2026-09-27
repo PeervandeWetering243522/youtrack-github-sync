@@ -33,7 +33,10 @@ export type Plan = {
   readonly filtered: number;
   /** Eligible issues that need no action. */
   readonly unchanged: number;
-  /** Actions dropped by the write cap. */
+  /**
+   * Actions dropped by the write cap, plus 1 for a create+close pair taken as a plain
+   * create because only the create fit (its close waits for the next run, decision R6).
+   */
   readonly capped: number;
 };
 
@@ -85,7 +88,11 @@ export function writeCost(action: Action): number {
  * - otherwise unchanged (no reopen, no title/body updates);
  * - order by ascending numberInProject; take actions while their cost fits in
  *   maxWrites; at the first action that does not fit, stop -- it and everything
- *   after it count as capped (a create+close pair is never split).
+ *   after it count as capped. Nothing later jumps ahead (decision A2).
+ * - exception (decision R6): when that action is a create+close pair and only its
+ *   create fits, take it as a create with closeAfter = false and stop there. Its close
+ *   counts as 1 capped; the next run closes the mirror (open mirror + resolved -> close).
+ *   Without this, a cap of 1 would never get past a resolved issue that has no mirror.
  */
 export function planActions(input: {
   readonly youtrackIssues: readonly YouTrackIssue[];
@@ -105,8 +112,9 @@ export function planActions(input: {
     else if (outcome === "unchanged") unchanged += 1;
     else needed.push(outcome);
   }
-  const actions = withinWriteCap(needed, input.maxWrites);
-  return { actions, scanned: ordered.length, filtered, unchanged, capped: needed.length - actions.length };
+  const { actions, deferredCloses } = withinWriteCap(needed, input.maxWrites);
+  const capped = needed.length - actions.length + deferredCloses;
+  return { actions, scanned: ordered.length, filtered, unchanged, capped };
 }
 
 // ---------------------------------------------------------------------------
@@ -180,16 +188,29 @@ function actionFor(issue: YouTrackIssue, mirror: MirrorRef | undefined): Action 
   return mirror.state === "open" && isResolved ? { kind: "close", issue, mirror } : "unchanged";
 }
 
-/** The longest prefix of `actions` whose total writeCost fits in `maxWrites` (NaN: none). */
-function withinWriteCap(actions: readonly Action[], maxWrites: number): readonly Action[] {
+type Capped = {
+  readonly actions: readonly Action[];
+  /** 1 when the last taken action is a create whose close was deferred to the next run, else 0. */
+  readonly deferredCloses: number;
+};
+
+/**
+ * The longest prefix of `actions` whose total writeCost fits in `maxWrites` (NaN: none).
+ * A create+close pair that does not fit while its create alone does is taken as a plain
+ * create, and the prefix ends there (decision R6).
+ */
+function withinWriteCap(actions: readonly Action[], maxWrites: number): Capped {
   const taken: Action[] = [];
   let used = 0;
   for (const action of actions) {
-    const cost = writeCost(action);
-    const fits = used + cost <= maxWrites;
-    if (!fits) break;
-    taken.push(action);
-    used += cost;
+    if (used + writeCost(action) <= maxWrites) {
+      taken.push(action);
+      used += writeCost(action);
+      continue;
+    }
+    const isSplittable = action.kind === "create" && action.closeAfter && used + 1 <= maxWrites;
+    if (!isSplittable) break;
+    return { actions: [...taken, { ...action, closeAfter: false }], deferredCloses: 1 };
   }
-  return taken;
+  return { actions: taken, deferredCloses: 0 };
 }

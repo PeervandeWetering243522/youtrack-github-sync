@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { nextPageUrl } from "../src/github.ts";
+import { schemaError } from "./github-fixtures.ts";
+
+// nextPageUrl is what listAllIssues calls for every page, so these tests cover production paging.
+// Host checks and error-message redaction are in github-link-host.test.ts.
 
 // ---------------------------------------------------------------------------
 // nextPageUrl: RFC 8288 Link header parsing
@@ -189,11 +193,17 @@ describe("nextPageUrl", () => {
   it("returns null for an empty rel value or a rel param without a value", () => {
     assert.equal(nextPageUrl('<https://api.github.com/p2>; rel=""'), null);
     assert.equal(nextPageUrl("<https://api.github.com/p2>; rel"), null);
-    assert.equal(nextPageUrl("<https://api.github.com/p2>; rel="), null);
   });
 
-  it("returns null for an unterminated <URL>", () => {
-    assert.equal(nextPageUrl('<https://api.github.com/p2; rel="next"'), null);
+  it("throws, rather than treating it as the last page, for a rel param with '=' but no value", () => {
+    assert.throws(() => nextPageUrl("<https://api.github.com/p2>; rel="), schemaError(/Link header does not parse/));
+  });
+
+  it("throws, rather than treating it as the last page, for an unterminated <URL>", () => {
+    assert.throws(
+      () => nextPageUrl('<https://api.github.com/p2; rel="next"'),
+      schemaError(/Link header does not parse/),
+    );
   });
 
   it("trims whitespace inside the angle brackets", () => {
@@ -215,148 +225,60 @@ describe("nextPageUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// nextPageUrl: only https://api.github.com/ targets are followed
+// nextPageUrl: a header without rel="next" must parse cleanly to count as the last page
 // ---------------------------------------------------------------------------
 
-const API_ORIGIN = "https://api.github.com";
+const PREV = '<https://api.github.com/p1>; rel="prev"';
+const DOES_NOT_PARSE = schemaError(/Link header does not parse/);
 
-function nextOf(url: string): string | null {
-  return nextPageUrl(`<${url}>; rel="next"`);
-}
+describe("nextPageUrl malformed headers", () => {
+  for (const [what, link] of [
+    ["an unclosed quote in an earlier entry hides the next entry", '<https://api.github.com/p1>; rel="prev, <https://api.github.com/p3>; rel="next"'],
+    ["a stray quote in a later param hides the next entry", `${PREV}; title="x, <https://api.github.com/p3>; rel="next"`],
+    ["the header ends inside a quoted string", '<https://api.github.com/p1>; rel="prev'],
+    ["the header ends inside a <URL>", `${PREV}, <https://api.github.com/p3; rel="next"`],
+    ["an entry does not start with <URL>", `${PREV}, garbage; rel="next"`],
+    ["a URL is not in angle brackets", 'https://api.github.com/p3; rel="next"'],
+    ["text between '>' and the first ';'", '<https://api.github.com/p1>junk; rel="prev"'],
+    ["text after a quoted value", '<https://api.github.com/p1>; rel="prev" junk'],
+    ["the comma between two entries is missing", `${PREV} <https://api.github.com/p3>; rel="next"`],
+    ["a param name that is not a token", `${PREV}; ti tle=x`],
+    ["a param value that is neither a token nor a quoted string", `${PREV}; title=a<b`],
+    ["an unterminated '<' inside the params", `${PREV}; <x`],
+  ] as const) {
+    it(`throws instead of reporting the last page when ${what}`, () => {
+      assert.throws(() => nextPageUrl(link), DOES_NOT_PARSE);
+    });
+  }
 
-describe("nextPageUrl host check", () => {
-  for (const url of [
-    "https://evil.example.com/repos/o/r/issues?page=2",
-    "http://api.github.com/repos/o/r/issues?page=2",
-    "https://api.github.com.evil.example/repos?page=2",
-    "https://api.github.com@evil.example/repos?page=2",
-    "https://api.github.com:8443/repos?page=2",
-    "https://API.GITHUB.COM/repos?page=2",
-    "HTTPS://api.github.com/repos?page=2",
-    "https://api.github.com./repos?page=2",
-    "https://api.github.com%2F@evil.example/repos?page=2",
-    "https:/api.github.com/repos?page=2",
-    "//api.github.com/repos?page=2",
-    "https://api.github.com?page=2",
-    "https://api.github.com#/repos",
-    "https://api.github.com",
-    "/repositories/1/issues?page=2",
-    "",
+  for (const link of [
+    `${PREV};`,
+    '<https://api.github.com/p1>;; rel="prev"',
+    `${PREV}; title*=UTF-8''page%201; hreflang=en`,
+    `${PREV}; crossorigin; title="a, b; <c>"`,
+    `${PREV}; title="say \\"hi\\""`,
+    `  ${PREV} ,, <https://api.github.com/p9>\t;\trel = last ,`,
   ]) {
-    it(`rejects a next link outside https://api.github.com/ (${JSON.stringify(url)})`, () => {
-      assert.equal(nextPageUrl(`<${url}>; rel="next"`), null);
+    it(`returns null for the well-formed last-page header ${JSON.stringify(link)}`, () => {
+      assert.equal(nextPageUrl(link), null);
     });
   }
 
-  it("returns null when the first next link is foreign, without falling back to a later one", () => {
-    const link = '<https://evil.example.com/p2>; rel="next", <https://api.github.com/p2>; rel="next"';
-    assert.equal(nextPageUrl(link), null);
-  });
-
-  for (const url of ["https://api.github.com/@evil.example/p2", "https://api.github.com/../../evil.example/p2"]) {
-    it(`accepts ${JSON.stringify(url)} because the host is still api.github.com`, () => {
-      // Act
-      const next = nextPageUrl(`<${url}>; rel="next"`);
-
-      // Assert: the prefix ends with "/", so nothing after it can change the host.
-      assert.equal(next, url);
-      assert.equal(new URL(url).host, "api.github.com");
+  for (const [what, link] of [
+    ["after it", '<https://api.github.com/p2>; rel="next", <https://api.github.com/p1>; rel="prev'],
+    ["before it", 'garbage, <https://api.github.com/p2>; rel="next"'],
+  ] as const) {
+    it(`still follows a valid next link when another entry is malformed (${what})`, () => {
+      // Pagination continues, so nothing is truncated; later pages are checked again.
+      assert.equal(nextPageUrl(link), "https://api.github.com/p2");
     });
   }
 
-  it("rejects a backslash right after the host", () => {
-    assert.equal(nextPageUrl('<https://api.github.com\\@evil.example/p2>; rel="next"'), null);
-  });
+  it("rejects a 400,000-character malformed header without next in linear time", { timeout: 5_000 }, () => {
+    // Arrange: stray quotes, angle brackets and "@" (for the redaction) must not cause backtracking.
+    const link = `${PREV}; title=${'"<@'.repeat(133_334)}`;
 
-  for (const url of [
-    "https://user:pass@api.github.com/p2",
-    "https://user@api.github.com/p2",
-    "https://:secret@api.github.com/p2",
-    "https://evil.example@api.github.com/p2",
-  ]) {
-    it(`rejects userinfo even when the parsed host is api.github.com (${JSON.stringify(url)})`, () => {
-      // Arrange: prove the URL really parses to GitHub's origin, so only the userinfo is at fault.
-      const parsed = URL.parse(url);
-      assert.ok(parsed);
-      assert.equal(parsed.origin, API_ORIGIN);
-      assert.notEqual(`${parsed.username}${parsed.password}`, "");
-
-      // Act + Assert
-      assert.equal(nextOf(url), null);
-    });
-  }
-
-  for (const url of [
-    "https://api%2Egithub.com/p2",
-    "https://api\u3002github.com/p2",
-    "https://\uFF41\uFF50\uFF49.github.com/p2",
-    "https://api.git\thub.com/p2",
-    "https://api.github.com\n/p2",
-    "https://api.github.com:443/p2",
-    "https:\\\\api.github.com/p2",
-    "https:api.github.com/p2",
-    "https:///api.github.com/p2",
-    "hTTps://api.github.com/p2",
-    "\u0001https://api.github.com/p2",
-  ]) {
-    it(`rejects the non-canonical spelling ${JSON.stringify(url)} although it parses to api.github.com`, () => {
-      // Arrange: the WHATWG parser maps each of these onto GitHub; only the exact spelling is followed.
-      assert.equal(URL.parse(url)?.origin, API_ORIGIN);
-
-      // Act + Assert
-      assert.equal(nextOf(url), null);
-    });
-  }
-
-  it("never yields a URL whose parsed origin is not https://api.github.com or that carries userinfo", () => {
-    // Arrange: every combination of a tricky authority and a tricky path/suffix.
-    const authorities = [
-      "https://api.github.com",
-      "https://api.github.com.",
-      "https://api.github.com:443",
-      "https://user@api.github.com",
-      "https://api.github.com@evil.example",
-      "https://api.github.com%2F@evil.example",
-      "https://evil.example#@api.github.com",
-      "https://evil.example?@api.github.com",
-      "https://evil.example\\@api.github.com",
-      "https:\\\\api.github.com",
-      "https:api.github.com",
-      "http://api.github.com",
-    ];
-    const suffixes = [
-      "/p2",
-      "/@evil.example/p2",
-      "/../../evil.example/p2",
-      "/%2e%2e/%2e%2e/evil.example",
-      "//evil.example/p2",
-      "/\\evil.example/p2",
-      "/\t@evil.example/p2",
-      "/?next=https://evil.example/",
-      "/#@evil.example",
-      "\\@evil.example/p2",
-      "@evil.example/p2",
-      ".evil.example/p2",
-      ":8443/p2",
-    ];
-    const candidates = authorities.flatMap((authority) => suffixes.map((suffix) => `${authority}${suffix}`));
-
-    // Act
-    const accepted = candidates.flatMap((url) => {
-      const next = nextOf(url);
-      return next === null ? [] : [{ url, next }];
-    });
-
-    // Assert: something is accepted (the check is not vacuous), and everything accepted is safe.
-    assert.ok(accepted.length > 0);
-    for (const { url, next } of accepted) {
-      assert.equal(next, url, "the URL is returned verbatim");
-      const parsed = URL.parse(next);
-      const context = `accepted ${JSON.stringify(next)}`;
-      assert.ok(parsed, context);
-      assert.equal(parsed.origin, API_ORIGIN, context);
-      assert.equal(parsed.username, "", context);
-      assert.equal(parsed.password, "", context);
-    }
+    // Act + Assert
+    assert.throws(() => nextPageUrl(link), DOES_NOT_PARSE);
   });
 });

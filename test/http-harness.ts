@@ -83,6 +83,11 @@ export function textResponse(status: number, text: string, headers: Readonly<Rec
   return new Response(text, { status, headers });
 }
 
+/** A response without a content-type header (a string body would get text/plain). */
+export function untypedResponse(status: number, text: string): Response {
+  return new Response(new TextEncoder().encode(text), { status });
+}
+
 /** A response with the given status whose body stream fails when read. */
 export function brokenBodyResponse(status: number, headers: Readonly<Record<string, string>> = {}): Response {
   const brokenStream = new ReadableStream({

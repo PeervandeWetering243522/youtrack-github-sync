@@ -1,41 +1,23 @@
 /**
- * Keeps request credentials out of error text: every value of the request's headers
- * (and its parts, "Bearer <token>" -> "<token>") is replaced before the text is cut.
+ * Keeps request credentials out of error text. Only credential headers count: Authorization
+ * and other token-bearing names. Their values, and the parts of each value ("Bearer <token>" ->
+ * "<token>"), go through the shared redactor in src/utils/redact.ts. Accept, X-GitHub-Api-Version
+ * and the like stay readable, since they are often what an error message is about.
  */
 
-/** Header values (and their parts) shorter than this are not treated as secrets. */
-const MIN_SECRET_CHARS = 8;
-const REDACTED = "[redacted]";
-const HIGH_SURROGATE_MIN = 0xd800;
-const HIGH_SURROGATE_MAX = 0xdbff;
+import { secretRedactor, type Redact } from "../utils/redact.ts";
 
-type RequestHeaders = Readonly<Record<string, string>>;
+/** Authorization, Proxy-Authorization, X-Auth-Token, Private-Token, Cookie, X-Api-Key and the like. */
+const CREDENTIAL_HEADER_NAME = /auth|token|secret|password|cookie|api-?key/i;
 
-/**
- * Removes the request's header values from text headed for an error. Node's
- * fetch, for one, quotes an invalid header value (a token) in its TypeError.
- */
-export function redactHeaderValues(headers: RequestHeaders, text: string): string {
-  return secretsOf(headers).reduce((redacted, secret) => redacted.replaceAll(secret, REDACTED), text);
+/** A redactor for text headed for an error about this request. Node's fetch, for one, quotes an invalid header value. */
+export function requestRedactor(headers: Readonly<Record<string, string>>): Redact {
+  return secretRedactor(credentialValuesOf(headers));
 }
 
-/** Redacts before truncating, so a secret that straddles the cut cannot leak its first half. */
-export function redactedExcerpt(headers: RequestHeaders, text: string, maxChars: number): string {
-  return truncate(redactHeaderValues(headers, text), maxChars);
-}
-
-/** Each header value, trimmed, plus its parts ("Bearer <token>" -> "<token>"); longest first. */
-function secretsOf(headers: RequestHeaders): readonly string[] {
-  const candidates = Object.values(headers).flatMap((value) => [value, value.trim(), ...value.split(/\s+/)]);
-  return [...new Set(candidates)]
-    .filter((candidate) => candidate.length >= MIN_SECRET_CHARS)
-    .toSorted((a, b) => b.length - a.length);
-}
-
-/** At most `maxChars` UTF-16 units, never ending in the first half of a cut surrogate pair. */
-function truncate(text: string, maxChars: number): string {
-  const cut = text.slice(0, maxChars);
-  const lastUnit = cut.charCodeAt(cut.length - 1);
-  const splitsPair = cut.length < text.length && lastUnit >= HIGH_SURROGATE_MIN && lastUnit <= HIGH_SURROGATE_MAX;
-  return splitsPair ? cut.slice(0, -1) : cut;
+/** Each credential header value, trimmed, plus its whitespace-separated parts. */
+function credentialValuesOf(headers: Readonly<Record<string, string>>): readonly string[] {
+  return Object.entries(headers)
+    .filter(([name]) => CREDENTIAL_HEADER_NAME.test(name))
+    .flatMap(([, value]) => [value, value.trim(), ...value.split(/\s+/)]);
 }

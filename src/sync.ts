@@ -1,7 +1,7 @@
 /**
  * One sync run. Runtime-agnostic: depends only on `fetch` (passed in) and the
  * pure modules. Used by src/worker.ts and src/node.ts.
- * The write phase lives in src/sync/execute.ts, log redaction in src/sync/log.ts.
+ * The write phase lives in src/sync/execute.ts, the redacting logger in src/sync/log.ts.
  */
 
 import type { Config } from "./config.ts";
@@ -20,35 +20,61 @@ import { formatMirror } from "./mirror.ts";
 import { buildMirrorIndex, planActions } from "./plan.ts";
 import type { Action, MirrorIndex, Plan } from "./plan.ts";
 import { executeActions, githubWriter } from "./sync/execute.ts";
-import { redactingLogger, secretRedactor } from "./sync/log.ts";
-import type { Logger, Redact } from "./sync/log.ts";
+import { redactingLogger } from "./sync/log.ts";
+import type { Logger } from "./sync/log.ts";
 import { combine, mirrorName, NOTHING } from "./sync/tally.ts";
 import type { Tally } from "./sync/tally.ts";
+import { secretRedactor } from "./utils/redact.ts";
+import type { Redact } from "./utils/redact.ts";
 import { fetchProjectIssues } from "./youtrack.ts";
 import type { YouTrackIssue, YouTrackSource } from "./youtrack.ts";
 
 export type { Logger } from "./sync/log.ts";
 export { WRITE_PAUSE_MS } from "./sync/execute.ts";
 
+/**
+ * How long after its start a run may still begin a write action (decision R8). The longest
+ * single action (a create, then a close with a retry) takes about a minute, so a run that
+ * starts its last action just before this ends inside the 10-minute cron slot.
+ */
+export const RUN_DEADLINE_MS = 8 * 60_000;
+
 export type SyncDeps = {
   readonly fetch: typeof fetch;
   readonly sleep: (ms: number) => Promise<void>;
   readonly log: Logger;
+  /** Current time in epoch ms (`Date.now` in production); only compared with `deadline`. */
+  readonly now: () => number;
+  /**
+   * Epoch ms at or after which no new write action starts; the rest count as capped
+   * (decision R8). The Worker passes `controller.scheduledTime + RUN_DEADLINE_MS`, Node its
+   * start time + RUN_DEADLINE_MS. Reads and the dry-run preview are not affected.
+   */
+  readonly deadline: number;
 };
 
 export type RunSummary = {
   readonly dryRun: boolean;
+  /** YouTrack issues scanned. */
   readonly scanned: number;
-  readonly filtered: number;
-  readonly unchanged: number;
   /** Mirrors created (or that would be, in dry run). */
   readonly created: number;
   /** Mirrors closed, including the close right after creating a resolved issue. */
   readonly closed: number;
-  readonly labelsReAdded: number;
-  /** Planned actions not executed because of the write cap or the fetch guard. */
+  /** Scanned issues that needed nothing: `filtered` + `unchanged` (decision R5). */
+  readonly skipped: number;
+  /**
+   * Planned actions, or the close of a create+close pair, left undone by the write cap,
+   * the fetch guard, a GitHub rate limit or the run deadline; picked up by the next run.
+   * So one pair can count as both created and capped.
+   */
   readonly capped: number;
   readonly failed: number;
+  /** Issues whose summary lacks YOUTRACK_TITLE_PREFIX. */
+  readonly filtered: number;
+  /** Eligible issues whose mirror is already in the right state. */
+  readonly unchanged: number;
+  readonly labelsReAdded: number;
   readonly fetches: number;
 };
 
@@ -67,8 +93,8 @@ export class SyncFailedError extends Error {
 
 /**
  * One line for `wrangler tail` / journalctl, e.g.
- * `yt-gh-sync ok dryRun=true scanned=29 filtered=19 unchanged=4 created=5 closed=3 labelsReAdded=0 capped=0 failed=0 fetches=2`
- * `outcome` is "ok" or "failed".
+ * `yt-gh-sync ok scanned=29 created=5 closed=3 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=2 dryRun=true`
+ * `outcome` is "ok" or "failed". The headline counts come first, then the breakdown (decision R5).
  */
 export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): string {
   const fields = SUMMARY_FIELDS.map((field) => `${field}=${String(summary[field])}`);
@@ -86,8 +112,12 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
  *    - a failed write (HttpError / NetworkError) is recorded and execution continues. That
  *      includes a write that was sent and failed but whose retry the fetch budget could not
  *      pay for: it really failed (decision A10);
+ *    - a write GitHub rate-limited (HttpError.rateLimited) is recorded as failed too, and
+ *      stops execution: the remaining actions count as capped (decision R7);
  *    - FetchBudgetExceededError (the budget refused a write before sending anything) stops
- *      execution; that action and the remaining ones count as capped.
+ *      execution; that action and the remaining ones count as capped;
+ *    - no action starts once deps.now() reaches deps.deadline; the rest count as capped
+ *      (decision R8).
  * 5. Log formatSummary; throw SyncFailedError if any write failed.
  * Read failures: log a "failed" summary line, then rethrow the original error.
  * Tokens must never appear in logs.
@@ -104,7 +134,7 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
     retryDelayMs: DEFAULT_RETRY_DELAY_MS,
     maxRetryAfterMs: DEFAULT_MAX_RETRY_AFTER_MS,
   });
-  const run: RunContext = { config, http, log, redact, sleep: deps.sleep };
+  const run: RunContext = { config, http, log, redact, sleep: deps.sleep, now: deps.now, deadline: deps.deadline };
   const inputs = await readInputs(run);
   const plan = planActions({
     youtrackIssues: inputs.youtrackIssues,
@@ -125,16 +155,17 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
 const SUMMARY_TAG = "yt-gh-sync";
 /** formatSummary's field order. */
 const SUMMARY_FIELDS = [
-  "dryRun",
   "scanned",
-  "filtered",
-  "unchanged",
   "created",
   "closed",
-  "labelsReAdded",
+  "skipped",
   "capped",
   "failed",
+  "filtered",
+  "unchanged",
+  "labelsReAdded",
   "fetches",
+  "dryRun",
 ] as const satisfies readonly (keyof RunSummary)[];
 const DRY_RUN_TAG = "[dry-run]";
 
@@ -145,6 +176,8 @@ type RunContext = {
   readonly log: Logger;
   readonly redact: Redact;
   readonly sleep: (ms: number) => Promise<void>;
+  readonly now: () => number;
+  readonly deadline: number;
 };
 
 type Inputs = { readonly mirrors: MirrorIndex; readonly youtrackIssues: readonly YouTrackIssue[] };
@@ -157,13 +190,14 @@ function toSummary(dryRun: boolean, counts: PlanCounts, tally: Tally, fetches: n
   return {
     dryRun,
     scanned: counts.scanned,
-    filtered: counts.filtered,
-    unchanged: counts.unchanged,
     created: tally.created,
     closed: tally.closed,
-    labelsReAdded: tally.labelsReAdded,
+    skipped: counts.filtered + counts.unchanged,
     capped: counts.capped + tally.capped,
     failed: tally.failures.length,
+    filtered: counts.filtered,
+    unchanged: counts.unchanged,
+    labelsReAdded: tally.labelsReAdded,
     fetches,
   };
 }
@@ -211,6 +245,8 @@ async function performActions(actions: readonly Action[], run: RunContext): Prom
     redact: run.redact,
     youtrackBaseUrl: run.config.youtrackBaseUrl,
     maxWrites: run.config.maxWritesPerRun,
+    now: run.now,
+    deadline: run.deadline,
   });
 }
 

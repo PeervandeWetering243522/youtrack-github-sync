@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { DEFAULT_RETRY_DELAY_MS, HttpError } from "../src/http.ts";
-import { formatSummary, runSync, SyncFailedError, WRITE_PAUSE_MS } from "../src/sync.ts";
+import { formatSummary, runSync, SyncFailedError } from "../src/sync.ts";
 import {
   config,
   ghIssue,
@@ -12,7 +12,6 @@ import {
   isCreate,
   ISSUES_PATH,
   json,
-  LABELS_PATH,
   lastLine,
   messages,
   MIXED_WORLD,
@@ -32,18 +31,50 @@ import type { Override, World } from "./sync-harness.ts";
 // ---------------------------------------------------------------------------
 
 describe("runSync write cap", () => {
-  it("stops at the first action that does not fit and never splits a create+close pair", async () => {
-    // Arrange: YT-1 create (1) fits; YT-2 create+close (2) would make 3; YT-3 comes after it.
-    const { deps, calls } = harness({ youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT }), ytRow(3)] });
+  it("sends only the create of a pair that no longer fits, then stops (R6)", async () => {
+    // Arrange: YT-1 create (1) fits; YT-2 create+close (2) would make 3, its create alone
+    // fits; YT-3 comes after it and waits.
+    const { deps, calls, lines } = harness({ youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT }), ytRow(3)] });
 
     // Act
     const result = await runSync(config({ maxWritesPerRun: 2 }), deps);
 
     // Assert
-    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
-    assert.equal(result.created, 1);
+    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [team] Task 1", "[YT-2] [team] Task 2"]);
+    assert.equal(result.created, 2);
+    assert.equal(result.closed, 0);
     assert.equal(result.capped, 2);
     assert.equal(result.failed, 0);
+    assert.deepEqual(messages(lines, "warn"), []);
+  });
+
+  it("makes progress with a cap of 1 when the oldest issue is resolved and has no mirror", async () => {
+    // Arrange
+    const { deps, calls } = harness({ youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)] });
+
+    // Act
+    const result = await runSync(config({ maxWritesPerRun: 1 }), deps);
+
+    // Assert
+    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
+    assert.deepEqual(result, summary({ scanned: 2, created: 1, capped: 2, fetches: 3 }));
+  });
+
+  it("closes that mirror on the next run with a cap of 1", async () => {
+    // Arrange: the previous run left #101 open for resolved YT-1.
+    const { deps, calls } = harness({
+      githubIssues: [ghIssue(101, "[YT-1] [team] Task 1")],
+      youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)],
+    });
+
+    // Act
+    const result = await runSync(config({ maxWritesPerRun: 1 }), deps);
+
+    // Assert
+    assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/101`]);
+    assert.equal(result.closed, 1);
+    assert.equal(result.capped, 1);
   });
 
   it("writes nothing with a cap of zero", async () => {
@@ -151,84 +182,6 @@ describe("runSync write failures", () => {
     assert.equal(result.closed, 1);
     assert.equal(result.failed, 0);
     assert.deepEqual(sleeps, [DEFAULT_RETRY_DELAY_MS]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// GitHub rate limits (docs/03)
-// ---------------------------------------------------------------------------
-
-describe("runSync GitHub rate limits", () => {
-  const exhausted = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1790276472" };
-  const rateLimited = (status: number): Response =>
-    json(status, { message: "API rate limit exceeded for user ID 1." }, exhausted);
-
-  // A plain 403 was never retried; the 429 would have been, after DEFAULT_RETRY_DELAY_MS.
-  for (const status of [403, 429]) {
-    it(`does not retry a close answered ${String(status)} with x-ratelimit-remaining 0, records it and throws`, async () => {
-      // Arrange
-      const { deps, calls, sleeps } = harness({
-        githubIssues: [ghIssue(12, "[YT-1] [team] Task 1"), ghIssue(13, "[YT-2] [team] Task 2")],
-        youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2, { resolved: RESOLVED_AT })],
-        override: (call) =>
-          call.method === "PATCH" && call.url.pathname.endsWith("/12") ? rateLimited(status) : undefined,
-      });
-
-      // Act
-      const error = await rejection(runSync(config(), deps));
-
-      // Assert
-      assert.ok(error instanceof SyncFailedError);
-      assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`, `PATCH ${ISSUES_PATH}/13`]);
-      const expected = new RegExp(`^close YT-1 #12 failed: PATCH .* -> HTTP ${String(status)}: .*API rate limit exceeded`);
-      assert.match(error.failures[0] ?? "", expected);
-      assert.deepEqual(error.summary, summary({ scanned: 2, closed: 1, failed: 1, fetches: 4 }));
-      assert.deepEqual(sleeps, [WRITE_PAUSE_MS]);
-    });
-  }
-
-  it("does not retry a label re-add answered 429 with x-ratelimit-remaining 0, and still closes", async () => {
-    // Arrange
-    const { deps, calls, sleeps } = harness({
-      youtrackRows: [ytRow(1, { resolved: RESOLVED_AT })],
-      createdLabels: [],
-      override: (call) => (LABELS_PATH.test(call.url.pathname) ? rateLimited(429) : undefined),
-    });
-
-    // Act
-    const error = await rejection(runSync(config(), deps));
-
-    // Assert
-    assert.ok(error instanceof SyncFailedError);
-    assert.deepEqual(writeCalls(calls), [
-      `POST ${ISSUES_PATH}`,
-      `POST ${ISSUES_PATH}/101/labels`,
-      `PATCH ${ISSUES_PATH}/101`,
-    ]);
-    assert.match(error.failures[0] ?? "", /^label YT-1 #101 failed: POST .* -> HTTP 429/);
-    assert.equal(error.summary.closed, 1);
-    assert.deepEqual(sleeps, [WRITE_PAUSE_MS, WRITE_PAUSE_MS]);
-  });
-
-  it("retries a rate-limited close once when retry-after is short enough to wait for", async () => {
-    // Arrange
-    const { deps, calls, sleeps } = harness({
-      githubIssues: [ghIssue(12, "[YT-1] [team] Task 1")],
-      youtrackRows: [ytRow(1, { resolved: RESOLVED_AT })],
-      override: (call, attempt) =>
-        call.method === "PATCH" && attempt === 0
-          ? json(403, { message: "secondary rate limit" }, { ...exhausted, "retry-after": "3" })
-          : undefined,
-    });
-
-    // Act
-    const result = await runSync(config(), deps);
-
-    // Assert
-    assert.equal(writeCalls(calls).length, 2);
-    assert.equal(result.closed, 1);
-    assert.equal(result.failed, 0);
-    assert.deepEqual(sleeps, [3_000]);
   });
 });
 

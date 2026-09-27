@@ -116,6 +116,8 @@ export type World = {
   /** Labels a create answers with; by default the requested ones ([] = silently dropped). */
   readonly createdLabels?: readonly string[];
   readonly override?: Override;
+  /** SyncDeps.deadline on the virtual clock; by default never reached. */
+  readonly deadline?: number;
 };
 
 export type LogLine = { readonly level: "info" | "warn" | "error"; readonly message: string };
@@ -231,11 +233,21 @@ export function harness(world: World = {}): Harness {
     const answer = world.override?.(call, attempt) ?? defaultAnswer(call, world, nextNumber);
     return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
   };
+  // Virtual clock: starts at 0 and moves only when the code under test sleeps.
+  let clock = 0;
   const sleep = (ms: number): Promise<void> => {
     sleeps.push(ms);
+    clock += ms;
     return Promise.resolve();
   };
-  return { deps: { fetch: fakeFetch, sleep, log: recordingLogger(lines) }, calls, lines, sleeps };
+  const deps: SyncDeps = {
+    fetch: fakeFetch,
+    sleep,
+    log: recordingLogger(lines),
+    now: () => clock,
+    deadline: world.deadline ?? Number.POSITIVE_INFINITY,
+  };
+  return { deps, calls, lines, sleeps };
 }
 
 // ---------------------------------------------------------------------------
@@ -287,17 +299,19 @@ export async function rejection(promise: Promise<RunSummary>): Promise<Error> {
   return assert.fail("expected runSync to reject");
 }
 
+/** A RunSummary with zeros for every field not given; `skipped` defaults to filtered + unchanged. */
 export function summary(fields: Partial<RunSummary>): RunSummary {
   return {
     dryRun: false,
     scanned: 0,
-    filtered: 0,
-    unchanged: 0,
     created: 0,
     closed: 0,
-    labelsReAdded: 0,
+    skipped: (fields.filtered ?? 0) + (fields.unchanged ?? 0),
     capped: 0,
     failed: 0,
+    filtered: 0,
+    unchanged: 0,
+    labelsReAdded: 0,
     fetches: 0,
     ...fields,
   };

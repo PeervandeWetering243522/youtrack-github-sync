@@ -4,34 +4,20 @@
  */
 
 import { parseConfig } from "./config.ts";
-import { runSync } from "./sync.ts";
-import type { Logger } from "./sync.ts";
-
-const consoleLogger: Logger = {
-  info: (message) => {
-    console.log(message);
-  },
-  warn: (message) => {
-    console.warn(message);
-  },
-  error: (message) => {
-    console.error(message);
-  },
-};
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
+import { consoleLogger, sleep } from "./runtime.ts";
+import { RUN_DEADLINE_MS, runSync } from "./sync.ts";
 
 export default {
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     await runSync(parseConfig(env), {
       // A wrapper, not the bare global: fetch called with a foreign `this` throws "Illegal invocation".
       fetch: (input, init) => fetch(input, init),
       sleep,
       log: consoleLogger,
+      // Workers advance Date.now() only across I/O, which is where the writes wait anyway.
+      now: () => Date.now(),
+      // Anchored to the scheduled time, so a late start still ends inside its slot (decision R8).
+      deadline: controller.scheduledTime + RUN_DEADLINE_MS,
     });
   },
 } satisfies ExportedHandler<Env>;

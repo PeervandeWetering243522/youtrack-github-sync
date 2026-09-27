@@ -235,6 +235,28 @@ describe("listAllIssues failures", () => {
     });
   }
 
+  it("does not echo the userinfo of a rejected next URL", async () => {
+    // Arrange
+    const fake = createFakeHttp([{ body: [], link: '<https://user:s3cr3t@api.github.com/p2>; rel="next"' }]);
+
+    // Act + Assert
+    await assert.rejects(
+      listAllIssues(fake.http, TARGET),
+      (error: Error) => error.message.includes('"https://***@api.github.com/p2"') && !error.message.includes("s3cr3t"),
+    );
+  });
+
+  it("throws instead of silently stopping when a Link header without next does not parse", async () => {
+    // Arrange: the unclosed quote swallows the rel="next" entry; stopping here would hide the
+    // mirrors on page 2, and every run would create duplicates of them.
+    const link = `<${FIRST_PAGE_URL}>; rel="prev, <${SECOND_PAGE_URL}>; rel="next"`;
+    const fake = createFakeHttp([{ body: [issueJson()], link }, { body: [] }]);
+
+    // Act + Assert
+    await assert.rejects(listAllIssues(fake.http, TARGET), schemaError(/Link header does not parse/));
+    assert.equal(fake.requests.length, 1);
+  });
+
   it("quotes at most 40 characters of a rejected next URL", async () => {
     // Arrange
     const longUrl = `https://evil.example.com/${"a".repeat(500)}`;

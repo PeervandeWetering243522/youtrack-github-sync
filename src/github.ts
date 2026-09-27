@@ -89,20 +89,38 @@ export function parseGitHubIssue(value: JsonValue): GitHubIssue {
 }
 
 /**
- * Extracts the rel="next" URL from a Link header, verbatim, or null. Accepts only URLs
- * spelled "https://api.github.com/..." that also parse to that origin without userinfo
- * (never follow a Link to another host with our token).
+ * The URL of the first rel="next" link in a Link header, verbatim; null (last page) only
+ * when there is none. listAllIssues calls this for every page. Throws GitHubSchemaError,
+ * because stopping would truncate the list, hide existing mirrors and create duplicates:
+ * - when the rel="next" URL is not spelled "https://api.github.com/..." or does not parse
+ *   to that origin without userinfo (never send our token to another host);
+ * - when there is no rel="next" link but the header does not parse as RFC 8288 (e.g. an
+ *   unclosed quote or <URL>, which can swallow the next entry).
+ * Error messages quote at most 40 characters, with anything that could be userinfo hidden.
  */
 export function nextPageUrl(linkHeader: string | null): string | null {
-  const next = findNextLink(linkHeader);
-  return next !== null && isTrustedUrl(next) ? next : null;
+  if (linkHeader === null) {
+    return null;
+  }
+  const { links, isWellFormed } = parseLinkHeader(linkHeader);
+  const next = links.find((link) => link.rels.includes("next"));
+  if (next === undefined) {
+    if (!isWellFormed) {
+      throw new GitHubSchemaError(`GitHub Link header does not parse and has no rel="next": ${quoteLink(linkHeader)}`);
+    }
+    return null;
+  }
+  if (!isTrustedUrl(next.url)) {
+    throw new GitHubSchemaError(`GitHub Link rel="next" points outside ${TRUSTED_LINK_PREFIX}: ${quoteLink(next.url)}`);
+  }
+  return next.url;
 }
 
 /**
  * GET /repos/{owner}/{repo}/issues?state=all&per_page=100 (no label filter, per
  * decision A5), following Link rel="next" verbatim. Includes PRs (flagged).
  * retry: "retry-once". Throws GitHubSchemaError for a page that is not an array of
- * issues, a rel="next" outside https://api.github.com/, or a page fetched twice.
+ * issues, a Link header nextPageUrl rejects, or a page fetched twice.
  */
 export async function listAllIssues(
   http: HttpClient,
@@ -118,7 +136,7 @@ export async function listAllIssues(
     visited.add(url);
     const response = await http.request(githubRequest(target, "GET", url, "retry-once"));
     pages.push(parseIssuePage(response.body));
-    url = followableNextUrl(response.headers.get("link"));
+    url = nextPageUrl(response.headers.get("link"));
   }
   // flat(), not push(...page): spreading a huge page as arguments overflows the stack.
   return pages.flat();
@@ -275,17 +293,12 @@ function quote(text: string): string {
 // RFC 8288 Link header
 
 type LinkValue = { readonly url: string; readonly rels: readonly string[] };
+type ParsedLinkHeader = { readonly links: readonly LinkValue[]; readonly isWellFormed: boolean };
+type ParsedLinkEntry = { readonly link: LinkValue | null; readonly isWellFormed: boolean };
 
-/** URL of the first link whose rel includes "next", whatever its host; null if there is none. */
-function findNextLink(linkHeader: string | null): string | null {
-  if (linkHeader === null) {
-    return null;
-  }
-  const next = splitLinkHeader(linkHeader, ",")
-    .map(parseLinkValue)
-    .find((link) => link?.rels.includes("next") === true);
-  return next?.url ?? null;
-}
+/** RFC 8288 link-param: token BWS [ "=" BWS ( token / quoted-string ) ], with optional whitespace around it. */
+const LINK_PARAM_PATTERN =
+  /^[ \t]*[!#$%&'*+.^_`|~0-9A-Za-z-]+[ \t]*(?:=[ \t]*(?:[!#$%&'*+.^_`|~0-9A-Za-z-]+|"(?:[^"\\]|\\.)*"))?[ \t]*$/s;
 
 /** Needs the exact prefix, and fetch()'s WHATWG parse must then give exactly the API origin with no userinfo. */
 function isTrustedUrl(url: string): boolean {
@@ -293,16 +306,38 @@ function isTrustedUrl(url: string): boolean {
   return parsed?.origin === GITHUB_API_BASE && parsed.username === "" && parsed.password === "";
 }
 
+/** quote() of Link text with anything that could be userinfo replaced first, so a cut cannot leave half a secret. */
+function quoteLink(text: string): string {
+  return quote(hideUserinfo(text));
+}
+
 /**
- * Like nextPageUrl, but a rel="next" link on a foreign host is an error rather than
- * "last page": silently stopping would hide existing mirrors and cause duplicates.
+ * Replaces everything before the last "@" of each run between "/", "?" and "#" with "***"
+ * (userinfo ends at the last "@" of the authority). Over-hides rather than under-hides. Linear time.
  */
-function followableNextUrl(linkHeader: string | null): string | null {
-  const next = findNextLink(linkHeader);
-  if (next === null || isTrustedUrl(next)) {
-    return next;
-  }
-  throw new GitHubSchemaError(`GitHub Link rel="next" points outside ${TRUSTED_LINK_PREFIX}: ${quote(next)}`);
+function hideUserinfo(text: string): string {
+  return text
+    .split(/([/?#])/)
+    .map((part) => {
+      const at = part.lastIndexOf("@");
+      return at < 0 ? part : `***${part.slice(at)}`;
+    })
+    .join("");
+}
+
+/** All entries that start with <URL>, and whether every non-empty entry is well-formed RFC 8288. */
+function parseLinkHeader(linkHeader: string): ParsedLinkHeader {
+  const entries = splitLinkHeader(linkHeader, ",")
+    .filter((entry) => !isBlank(entry))
+    .map(parseLinkEntry);
+  return {
+    links: entries.flatMap((entry) => (entry.link === null ? [] : [entry.link])),
+    isWellFormed: entries.every((entry) => entry.isWellFormed),
+  };
+}
+
+function isBlank(text: string): boolean {
+  return /^[ \t]*$/.test(text);
 }
 
 /**
@@ -365,22 +400,30 @@ function unquotedState(state: "start" | "value" | "plain", char: string): SplitS
   return isWhitespace && state !== "plain" ? state : "plain";
 }
 
-/** `<url>; rel="next last"; foo=bar` -> { url, rels: ["next", "last"] }, or null if malformed. */
-function parseLinkValue(text: string): LinkValue | null {
+/**
+ * `<url>; rel="next last"; foo=bar` -> { url, rels: ["next", "last"] }; link is null when the
+ * entry does not start with <URL>. Well-formed: nothing but whitespace between ">" and the
+ * first ";", and every param empty or matching LINK_PARAM_PATTERN.
+ */
+function parseLinkEntry(text: string): ParsedLinkEntry {
   const match = /^[ \t]*<([^>]*)>(.*)$/s.exec(text);
   if (match === null) {
-    return null;
+    return { link: null, isWellFormed: false };
   }
-  const [, url = "", params = ""] = match;
-  return { url: url.trim(), rels: parseRelTypes(params) };
+  const [, url = "", rest = ""] = match;
+  const [head = "", ...params] = splitLinkHeader(rest, ";");
+  return {
+    link: { url: url.trim(), rels: parseRelTypes([head, ...params]) },
+    isWellFormed: isBlank(head) && params.every((param) => isBlank(param) || LINK_PARAM_PATTERN.test(param)),
+  };
 }
 
 /**
  * Relation types of the first `rel` param, lowercased. RFC 8288: later ones are
  * ignored, even when the first has no value (`rel; rel="next"` has no relation types).
  */
-function parseRelTypes(params: string): readonly string[] {
-  for (const param of splitLinkHeader(params, ";")) {
+function parseRelTypes(params: readonly string[]): readonly string[] {
+  for (const param of params) {
     const equals = param.indexOf("=");
     const name = equals >= 0 ? param.slice(0, equals) : param;
     if (name.trim().toLowerCase() === "rel") {

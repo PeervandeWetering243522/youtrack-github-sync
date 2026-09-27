@@ -6,30 +6,15 @@
 
 import { ENV_KEYS, parseConfig } from "./config.ts";
 import type { EnvSource } from "./config.ts";
-import { runSync } from "./sync.ts";
-import type { Logger } from "./sync.ts";
+import { consoleLogger, sleep } from "./runtime.ts";
+import { RUN_DEADLINE_MS, runSync } from "./sync.ts";
 
-const consoleLogger: Logger = {
-  info: (message) => {
-    console.log(message);
-  },
-  warn: (message) => {
-    console.warn(message);
-  },
-  error: (message) => {
-    console.error(message);
-  },
-};
+/** Process start; systemd TimeoutStartSec is the hard backstop behind this deadline (decision R8). */
+const startedAt = Date.now();
 
 /** Only the keys the config knows; nothing else from the environment is read. */
 function readEnv(): EnvSource {
   return Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 try {
@@ -37,6 +22,8 @@ try {
     fetch: (input, init) => globalThis.fetch(input, init),
     sleep,
     log: consoleLogger,
+    now: () => Date.now(),
+    deadline: startedAt + RUN_DEADLINE_MS,
   });
 } catch (error) {
   console.error(error instanceof Error ? `${error.name}: ${error.message}` : "Sync failed with a non-Error value");
