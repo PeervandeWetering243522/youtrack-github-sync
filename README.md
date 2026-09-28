@@ -19,8 +19,11 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
 2. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
    `project: CUI sort by: {issue id} asc`, 100 per page). There is no lookback window. Every
    row must have `idReadable` = `<project>-<numberInProject>`, otherwise the run fails.
-3. **Filters** to issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
-   case-insensitive). Everything else counts as `filtered`.
+3. **Filters out** issues whose summary starts with `YOUTRACK_EXCLUDE_PREFIX` (default
+   `[individual]`, case-insensitive, leading whitespace ignored); they count as `filtered`.
+   Every other issue goes on to planning, whatever its prefix (decision F1). An issue that gets the
+   prefix after it was mirrored is ignored from then on: its mirror is left as it is, and is
+   not closed when the issue is resolved (decision F2).
 4. **Plans**, oldest first (ascending issue number):
    - no mirror and the YouTrack issue is unresolved: **create** `[YT-<n>] <summary>` with the
      `youtrack` label. The body is the description with `@mentions` and `#123`-style references
@@ -58,18 +61,20 @@ the run shows as failed in Cron Events (or as a failed systemd unit). Tokens are
 
 ## Configuration
 
-| Name                    | Kind   | Default  | Notes                                                                                                         |
-| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_TOKEN`          | secret | required | Classic PAT with the `repo` scope (decision B12).                                                             |
-| `YOUTRACK_TOKEN`        | secret | required | YouTrack permanent token.                                                                                     |
-| `GITHUB_REPO`           | var    | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                      |
-| `YOUTRACK_BASE_URL`     | var    | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
-| `YOUTRACK_PROJECT`      | var    | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                              |
-| `YOUTRACK_TITLE_PREFIX` | var    | `[team]` | Case-insensitive summary prefix that marks an issue for mirroring.                                            |
-| `MAX_WRITES_PER_RUN`    | var    | `30`     | Whole number from 0 to 40. A create = 1 write, a close = 1, a label re-add = 1.                               |
-| `DRY_RUN`               | var    | on       | Only `false` (any case, surrounding whitespace ignored) turns it off.                                         |
+| Name                      | Kind   | Default        | Notes                                                                                                         |
+| ------------------------- | ------ | -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN`            | secret | required       | Classic PAT with the `repo` scope (decision B12).                                                             |
+| `YOUTRACK_TOKEN`          | secret | required       | YouTrack permanent token.                                                                                     |
+| `GITHUB_REPO`             | var    | required       | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                      |
+| `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
+| `YOUTRACK_PROJECT`        | var    | required       | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                              |
+| `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` | Case-insensitive summary prefix that keeps an issue out of the mirror. Must not be blank when set.            |
+| `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. A create = 1 write, a close = 1, a label re-add = 1.                               |
+| `DRY_RUN`                 | var    | on             | Only `false` (any case, surrounding whitespace ignored) turns it off.                                         |
 
 Invalid config fails the run before any request is made, listing every problem at once.
+`YOUTRACK_TITLE_PREFIX` (the old `[team]` inclusion filter) is no longer read: if an older
+`.env` or `config.env` still sets it, it is ignored and can be removed.
 
 Where the values come from:
 
@@ -227,7 +232,7 @@ inline comments):
 GITHUB_REPO=BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI
 YOUTRACK_BASE_URL=https://youtrack.ai.buas.nl
 YOUTRACK_PROJECT=CUI
-YOUTRACK_TITLE_PREFIX=[team]
+YOUTRACK_EXCLUDE_PREFIX=[individual]
 MAX_WRITES_PER_RUN=30
 DRY_RUN=true
 ```

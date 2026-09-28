@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 
 import {
   ConfigError,
+  DEFAULT_EXCLUDE_PREFIX,
   DEFAULT_MAX_WRITES_PER_RUN,
-  DEFAULT_TITLE_PREFIX,
   ENV_KEYS,
   parseConfig,
   type EnvSource,
@@ -104,13 +104,13 @@ describe("parseConfig: valid environment", () => {
       YOUTRACK_PROJECT: VALID_ENV.YOUTRACK_PROJECT,
     };
     const explicitUndefined = envWith({
-      YOUTRACK_TITLE_PREFIX: undefined,
+      YOUTRACK_EXCLUDE_PREFIX: undefined,
       MAX_WRITES_PER_RUN: undefined,
       DRY_RUN: undefined,
     });
     const expected = {
       ...EXPECTED_CONFIG,
-      titlePrefix: DEFAULT_TITLE_PREFIX,
+      excludePrefix: DEFAULT_EXCLUDE_PREFIX,
       maxWritesPerRun: DEFAULT_MAX_WRITES_PER_RUN,
     };
 
@@ -166,7 +166,7 @@ describe("parseConfig: tokens", () => {
       envWith({ YOUTRACK_BASE_URL: `http://${marker}:${marker}@example.com/${marker}?${marker}#${marker}` }),
       envWith({ YOUTRACK_PROJECT: `${marker} OR project: X` }),
       envWith({ YOUTRACK_PROJECT: `-${marker}` }),
-      envWith({ YOUTRACK_TITLE_PREFIX: " ", MAX_WRITES_PER_RUN: marker }),
+      envWith({ YOUTRACK_EXCLUDE_PREFIX: " ", MAX_WRITES_PER_RUN: marker }),
     ];
 
     for (const env of leakyEnvs) {
@@ -279,7 +279,7 @@ describe("parseConfig: collecting problems", () => {
       YOUTRACK_BASE_URL: "http://example.com",
       YOUTRACK_TOKEN: undefined,
       YOUTRACK_PROJECT: "C U I",
-      YOUTRACK_TITLE_PREFIX: "",
+      YOUTRACK_EXCLUDE_PREFIX: "",
       MAX_WRITES_PER_RUN: "41",
       DRY_RUN: "false",
     };
@@ -308,7 +308,7 @@ describe("parseConfig: collecting problems", () => {
       YOUTRACK_BASE_URL: "http://user:pw@example.com/?q=1#x",
       YOUTRACK_TOKEN: NBSP,
       YOUTRACK_PROJECT: "C U I",
-      YOUTRACK_TITLE_PREFIX: "\t",
+      YOUTRACK_EXCLUDE_PREFIX: "\t",
       MAX_WRITES_PER_RUN: "-1",
       DRY_RUN: "false",
     };

@@ -69,7 +69,7 @@ export type RunSummary = {
    */
   readonly capped: number;
   readonly failed: number;
-  /** Issues whose summary lacks YOUTRACK_TITLE_PREFIX. */
+  /** Issues whose summary starts with YOUTRACK_EXCLUDE_PREFIX, so they are not mirrored (decision F1). */
   readonly filtered: number;
   /**
    * Eligible issues that need no write: the mirror is already in the right state, or the
@@ -142,7 +142,7 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
   const plan = planActions({
     youtrackIssues: inputs.youtrackIssues,
     mirrors: inputs.mirrors,
-    titlePrefix: config.titlePrefix,
+    excludePrefix: config.excludePrefix,
     maxWrites: config.maxWritesPerRun,
   });
   const tally = await performActions(plan.actions, run);

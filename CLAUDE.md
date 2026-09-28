@@ -41,9 +41,11 @@ enables YouTrack's Webhook Triggers app.
 ## Config
 
 Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_URL`,
-`YOUTRACK_PROJECT` (CUI), `YOUTRACK_TITLE_PREFIX` (`[team]`), `MAX_WRITES_PER_RUN` (30), `DRY_RUN`
-(on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the Worker,
-`.env` for `npm run sync`). Full project scan every run; no lookback. Only unresolved issues get
+`YOUTRACK_PROJECT` (CUI), `YOUTRACK_EXCLUDE_PREFIX` (`[individual]`), `MAX_WRITES_PER_RUN` (30),
+`DRY_RUN` (on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the
+Worker, `.env` for `npm run sync`). Full project scan every run; no lookback. Every issue is
+mirrored except summaries starting with the exclude prefix (case-insensitive, F1); one that gains
+it after mirroring is ignored entirely, mirror left as it is (F2). Only unresolved issues get
 a mirror; an already-resolved issue without one is never mirrored (R9). Plan (implemented, see its
 "As built" section): `docs/09-implementation-plan.md`.
 

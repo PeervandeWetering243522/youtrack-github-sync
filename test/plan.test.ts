@@ -11,7 +11,7 @@ import type { YouTrackIssue } from "../src/youtrack.ts";
 // ---------------------------------------------------------------------------
 
 const LABEL = "youtrack";
-const PREFIX = "[team]";
+const EXCLUDE_PREFIX = "[individual]";
 const RESOLVED_AT = 1_758_000_000_000;
 
 function ghIssue(issueNumber: number, title: string, overrides: Partial<GitHubIssue> = {}): GitHubIssue {
@@ -27,7 +27,7 @@ function ytIssue(numberInProject: number, overrides: Partial<YouTrackIssue> = {}
   return Object.freeze({
     idReadable: `CUI-${String(numberInProject)}`,
     numberInProject,
-    summary: `${PREFIX} Issue ${String(numberInProject)}`,
+    summary: `Issue ${String(numberInProject)}`,
     description: null,
     resolved: null,
     updated: 0,
@@ -55,12 +55,12 @@ const NO_MIRRORS: MirrorIndex = lockedMap<number, MirrorRef>([]);
 
 function plan(
   youtrackIssues: readonly YouTrackIssue[],
-  options: { readonly mirrors?: MirrorIndex; readonly maxWrites?: number; readonly titlePrefix?: string } = {},
+  options: { readonly mirrors?: MirrorIndex; readonly maxWrites?: number; readonly excludePrefix?: string } = {},
 ): Plan {
   return planActions({
     youtrackIssues: Object.freeze([...youtrackIssues]),
     mirrors: options.mirrors ?? NO_MIRRORS,
-    titlePrefix: options.titlePrefix ?? PREFIX,
+    excludePrefix: options.excludePrefix ?? EXCLUDE_PREFIX,
     maxWrites: options.maxWrites ?? 30,
   });
 }
@@ -467,39 +467,72 @@ describe("planActions: decisions", () => {
   });
 });
 
-describe("planActions: title prefix filter", () => {
-  it("skips issues whose summary lacks the prefix, even without a mirror", () => {
-    const issues = [ytIssue(1, { summary: "Fix [team] later" }), resolvedIssue(2, { summary: "Unrelated" })];
+describe("planActions: exclude prefix filter (F1)", () => {
+  it("mirrors an issue whose summary has no prefix, including an empty summary", () => {
+    const issues = [ytIssue(1, { summary: "Plain summary" }), ytIssue(2, { summary: "" })];
 
     const result = plan(issues);
 
-    assert.deepEqual(result, { actions: [], scanned: 2, filtered: 2, unchanged: 0, capped: 0 });
-  });
-
-  it("matches the prefix case-insensitively and after leading whitespace", () => {
-    const issues = [
-      ytIssue(1, { summary: "[TEAM] Upper" }),
-      ytIssue(2, { summary: "  [Team] Mixed" }),
-      ytIssue(3, { summary: "[team]no space" }),
-    ];
-
-    const result = plan(issues, { titlePrefix: "[Team]" });
-
-    assert.deepEqual(describeActions(result.actions), ["create 1", "create 2", "create 3"]);
+    assert.deepEqual(describeActions(result.actions), ["create 1", "create 2"]);
     assert.equal(result.filtered, 0);
   });
 
-  it("uses the configured prefix", () => {
-    const issues = [ytIssue(1, { summary: "[ops] Deploy" }), ytIssue(2, { summary: "[team] Other" })];
+  it('mirrors a "[team]" issue: the old inclusion prefix is an ordinary summary now', () => {
+    const issues = [ytIssue(1, { summary: "[team] Shared work" }), ytIssue(2, { summary: "[TEAM] Upper" })];
 
-    const result = plan(issues, { titlePrefix: "[ops]" });
+    const result = plan(issues);
 
-    assert.deepEqual(describeActions(result.actions), ["create 1"]);
-    assert.equal(result.filtered, 1);
+    assert.deepEqual(describeActions(result.actions), ["create 1", "create 2"]);
+    assert.equal(result.filtered, 0);
   });
 
-  it("filters an issue that lost its prefix, even with an open mirror to close", () => {
-    const issues = [resolvedIssue(5, { summary: "Renamed" }), ytIssue(6, { summary: "" })];
+  it("skips summaries starting with the exclude prefix, in any case and after leading whitespace", () => {
+    const issues = [
+      ytIssue(1, { summary: "[individual] Solo work" }),
+      ytIssue(2, { summary: "[INDIVIDUAL] Upper" }),
+      ytIssue(3, { summary: "  [Individual] x" }),
+      ytIssue(4, { summary: "\t[individual]no space" }),
+      resolvedIssue(5, { summary: "[individual] Done" }),
+    ];
+
+    const result = plan(issues);
+
+    assert.deepEqual(result, { actions: [], scanned: 5, filtered: 5, unchanged: 0, capped: 0 });
+  });
+
+  it("mirrors summaries that only resemble the exclude prefix, such as the typo [invididual]", () => {
+    const issues = [
+      ytIssue(1, { summary: "[invididual] Data Structures & Algorithms" }),
+      ytIssue(2, { summary: "Fix [individual] later" }),
+      ytIssue(3, { summary: "[individua] cut short" }),
+      ytIssue(4, { summary: "individual without brackets" }),
+    ];
+
+    const result = plan(issues);
+
+    assert.deepEqual(describeActions(result.actions), ["create 1", "create 2", "create 3", "create 4"]);
+    assert.equal(result.filtered, 0);
+  });
+
+  it("uses the configured exclude prefix instead of the default, whatever the case of either", () => {
+    const issues = [
+      ytIssue(1, { summary: "[SOLO] Mine" }),
+      ytIssue(2, { summary: "[individual] Not excluded here" }),
+      ytIssue(3, { summary: "Plain" }),
+      ytIssue(4, { summary: "  [solo] lower" }),
+    ];
+
+    const result = plan(issues, { excludePrefix: "[Solo]" });
+
+    assert.deepEqual(describeActions(result.actions), ["create 2", "create 3"]);
+    assert.equal(result.filtered, 2);
+  });
+
+  it("ignores an issue that gained the exclude prefix after mirroring, leaving its mirror alone (F2)", () => {
+    const issues = [
+      resolvedIssue(5, { summary: "[individual] Renamed" }),
+      ytIssue(6, { summary: "[Individual] Moved" }),
+    ];
     const mirrors = lockedMap([
       [5, mirror(12, "open")],
       [6, mirror(13, "open")],
@@ -511,7 +544,12 @@ describe("planActions: title prefix filter", () => {
   });
 
   it("counts filtered issues outside the cap, never as capped", () => {
-    const issues = [ytIssue(1, { summary: "Other" }), ytIssue(2), ytIssue(3, { summary: "Other" }), ytIssue(4)];
+    const issues = [
+      ytIssue(1, { summary: "[individual] Other" }),
+      ytIssue(2),
+      ytIssue(3, { summary: "[individual] Other" }),
+      ytIssue(4),
+    ];
 
     const result = plan(issues, { maxWrites: 1 });
 
@@ -533,13 +571,13 @@ describe("planActions: order and counts", () => {
 
   it("adds up scanned = filtered + unchanged + actions + capped on a mixed project", () => {
     const issues = [
-      ytIssue(1, { summary: "No prefix" }),
+      ytIssue(1, { summary: "[individual] Solo" }),
       ytIssue(2),
       resolvedIssue(3),
       resolvedIssue(4),
       ytIssue(5),
       resolvedIssue(6),
-      ytIssue(7, { summary: "Other" }),
+      ytIssue(7, { summary: "[individual] Other" }),
     ];
     const mirrors = lockedMap([
       [4, mirror(10, "open")],
@@ -600,7 +638,7 @@ describe("planActions: write cap", () => {
   });
 
   it("plans nothing and caps every action when maxWrites is 0", () => {
-    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3, { summary: "Other" })];
+    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3, { summary: "[individual] Other" })];
 
     const result = plan(issues, { mirrors: lockedMap([[2, mirror(20)]]), maxWrites: 0 });
 
@@ -685,7 +723,7 @@ describe("planActions: immutability", () => {
     const issuesBefore = structuredClone(issues);
     const mirrorsBefore = structuredClone([...mirrors.entries()]);
 
-    const result = planActions({ youtrackIssues: issues, mirrors, titlePrefix: PREFIX, maxWrites: 30 });
+    const result = planActions({ youtrackIssues: issues, mirrors, excludePrefix: EXCLUDE_PREFIX, maxWrites: 30 });
 
     assert.deepEqual(issues, issuesBefore);
     assert.deepEqual([...mirrors.entries()], mirrorsBefore);

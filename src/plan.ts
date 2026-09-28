@@ -29,7 +29,7 @@ export type Plan = {
   readonly actions: readonly Action[];
   /** YouTrack issues scanned. */
   readonly scanned: number;
-  /** Issues whose summary lacks the title prefix. */
+  /** Issues whose summary starts with the exclude prefix (decision F1). */
   readonly filtered: number;
   /**
    * Eligible issues that need no action: a mirror already in the right state, a closed
@@ -82,7 +82,9 @@ export function writeCost(action: Action): number {
 }
 
 /**
- * - skip issues without the title prefix (filtered);
+ * - every issue is eligible unless its summary starts with `excludePrefix` (case-insensitive,
+ *   leading whitespace ignored, decision F1). An excluded issue is filtered, even when it has
+ *   a mirror: that mirror is left as it is (decision F2);
  * - no mirror && unresolved -> create;
  * - no mirror && resolved -> unchanged: already-resolved issues are never mirrored (decision R9);
  * - mirror open && resolved -> close;
@@ -94,7 +96,7 @@ export function writeCost(action: Action): number {
 export function planActions(input: {
   readonly youtrackIssues: readonly YouTrackIssue[];
   readonly mirrors: MirrorIndex;
-  readonly titlePrefix: string;
+  readonly excludePrefix: string;
   readonly maxWrites: number;
 }): Plan {
   const ordered = uniqueAscending(input.youtrackIssues);
@@ -102,9 +104,9 @@ export function planActions(input: {
   let filtered = 0;
   let unchanged = 0;
   for (const issue of ordered) {
-    const outcome = hasTitlePrefix(issue.summary, input.titlePrefix)
-      ? actionFor(issue, input.mirrors.get(issue.numberInProject))
-      : "filtered";
+    const outcome = hasTitlePrefix(issue.summary, input.excludePrefix)
+      ? "filtered"
+      : actionFor(issue, input.mirrors.get(issue.numberInProject));
     if (outcome === "filtered") filtered += 1;
     else if (outcome === "unchanged") unchanged += 1;
     else needed.push(outcome);

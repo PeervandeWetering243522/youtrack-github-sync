@@ -14,7 +14,8 @@
 | Epic CUI-33 "[invididual] Data Structures & Algorithms" | `youtrack` label, one mirror so far (#21, [YT-15], closed)    |
 | `Relates` link CUI-11 <-> CUI-30                        | No "related" relation in REST or GraphQL (only "blocked by")  |
 
-Neither epic has the `[team]` prefix, so under H2 neither becomes a milestone until renamed.
+Neither epic starts with `[individual]` (CUI-33's `[invididual]` is a typo), so under F1 both get a
+milestone unless already resolved (R9).
 
 ## Mapping (H1)
 
@@ -37,7 +38,7 @@ Neither epic has the `[team]` prefix, so under H2 neither becomes a milestone un
 
 ## Eligibility (unchanged rules, now for every type)
 
-- Prefix filter (A8/R2): only summaries starting with `[team]`, for epics too (H2).
+- Prefix filter (F1/F2): every summary except those starting with `[individual]`, for epics too (H2).
 - Never create for something already resolved (R9): no issue for a resolved story/bug/task, no
   milestone for a resolved epic.
 - Close on resolution: open issue mirror -> close (A7, `completed`); open milestone -> close.

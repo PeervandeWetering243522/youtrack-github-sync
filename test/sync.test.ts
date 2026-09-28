@@ -59,7 +59,7 @@ describe("formatSummary", () => {
 
 describe("runSync summary", () => {
   it("counts skipped as filtered plus unchanged", async () => {
-    // Arrange: MIXED_WORLD has one issue without the prefix and three that need nothing
+    // Arrange: MIXED_WORLD has one "[individual]" issue and three that need nothing
     // (YT-2 is resolved without a mirror, decision R9).
     const { deps } = harness(MIXED_WORLD);
 
@@ -258,7 +258,7 @@ describe("runSync with writes enabled", () => {
 
   it("scans every YouTrack page until a short one", async () => {
     // Arrange: 101 rows = a full page of 100 plus a page of 1.
-    const rows = Array.from({ length: 101 }, (_, index) => ytRow(index + 1, { summary: "no prefix" }));
+    const rows = Array.from({ length: 101 }, (_, index) => ytRow(index + 1, { summary: "[individual] row" }));
     const { deps, calls } = harness({ youtrackRows: rows });
 
     // Act
@@ -291,24 +291,42 @@ describe("runSync with writes enabled", () => {
     assert.match(warnings[0] ?? "", /YT-1: #20 matched by title only/);
   });
 
-  it("mirrors only summaries starting with the configured prefix, ignoring case", async () => {
+  it("mirrors every summary except those starting with the configured exclude prefix, ignoring case", async () => {
     // Arrange
     const { deps, calls } = harness({
       youtrackRows: [
         ytRow(1, { summary: "[OPS] Deploy" }),
-        ytRow(2, { summary: "[team] Not ours" }),
+        ytRow(2, { summary: "[individual] Not excluded here" }),
         ytRow(3, { summary: "ops: missing brackets" }),
         ytRow(4, { summary: "  [ops] leading spaces" }),
       ],
     });
 
     // Act
-    const result = await runSync(config({ titlePrefix: "[ops]" }), deps);
+    const result = await runSync(config({ excludePrefix: "[ops]" }), deps);
 
     // Assert
-    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [OPS] Deploy", "[YT-4] [ops] leading spaces"]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), [
+      "[YT-2] [individual] Not excluded here",
+      "[YT-3] ops: missing brackets",
+    ]);
     assert.equal(result.filtered, 2);
     assert.equal(result.created, 2);
+  });
+
+  it("leaves the open mirror of an issue that gained the exclude prefix alone (F2)", async () => {
+    // Arrange: YT-1 was mirrored as #12, then renamed to "[individual] ..." and resolved.
+    const { deps, calls } = harness({
+      githubIssues: [ghIssue(12, "[YT-1] [team] Task 1")],
+      youtrackRows: [ytRow(1, { summary: "[individual] Task 1", resolved: RESOLVED_AT })],
+    });
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(writeCalls(calls), []);
+    assert.deepEqual(result, summary({ scanned: 1, filtered: 1, fetches: 2 }));
   });
 });
 

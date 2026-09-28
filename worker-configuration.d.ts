@@ -5,7 +5,7 @@ interface __BaseEnv_Env {
 	GITHUB_REPO: "BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI";
 	YOUTRACK_BASE_URL: "https://youtrack.ai.buas.nl";
 	YOUTRACK_PROJECT: "CUI";
-	YOUTRACK_TITLE_PREFIX: "[team]";
+	YOUTRACK_EXCLUDE_PREFIX: "[individual]";
 	MAX_WRITES_PER_RUN: "30";
 	DRY_RUN: "true";
 	YOUTRACK_TOKEN: string;
@@ -19,7 +19,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "GITHUB_REPO" | "YOUTRACK_BASE_URL" | "YOUTRACK_PROJECT" | "YOUTRACK_TITLE_PREFIX" | "MAX_WRITES_PER_RUN" | "DRY_RUN" | "YOUTRACK_TOKEN" | "GITHUB_TOKEN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "GITHUB_REPO" | "YOUTRACK_BASE_URL" | "YOUTRACK_PROJECT" | "YOUTRACK_EXCLUDE_PREFIX" | "MAX_WRITES_PER_RUN" | "DRY_RUN" | "YOUTRACK_TOKEN" | "GITHUB_TOKEN">> {}
 }
 
 // Begin runtime types

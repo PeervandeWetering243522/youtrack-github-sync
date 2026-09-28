@@ -18,7 +18,7 @@ export const VALID_ENV: EnvSource = {
   YOUTRACK_BASE_URL: "https://youtrack.ai.buas.nl",
   YOUTRACK_TOKEN,
   YOUTRACK_PROJECT: "CUI",
-  YOUTRACK_TITLE_PREFIX: "[team]",
+  YOUTRACK_EXCLUDE_PREFIX: "[individual]",
   MAX_WRITES_PER_RUN: "30",
   DRY_RUN: "true",
 };
@@ -30,7 +30,7 @@ export const EXPECTED_CONFIG: Config = {
   youtrackBaseUrl: "https://youtrack.ai.buas.nl",
   youtrackToken: YOUTRACK_TOKEN,
   youtrackProject: "CUI",
-  titlePrefix: "[team]",
+  excludePrefix: "[individual]",
   maxWritesPerRun: 30,
   dryRun: true,
 };
@@ -58,7 +58,7 @@ export const URL_QUERY_PROBLEM = "YOUTRACK_BASE_URL must not contain a query str
 export const URL_CREDENTIALS_PROBLEM = "YOUTRACK_BASE_URL must not contain credentials";
 export const PROJECT_PROBLEM =
   'YOUTRACK_PROJECT must start with a letter or digit and contain only letters, digits, "_" or "-"';
-export const PREFIX_PROBLEM = "YOUTRACK_TITLE_PREFIX must not be empty when set";
+export const PREFIX_PROBLEM = "YOUTRACK_EXCLUDE_PREFIX must not be empty when set";
 export const MAX_WRITES_PROBLEM = `MAX_WRITES_PER_RUN must be a whole number from 0 to ${String(MAX_WRITES_LIMIT)}`;
 
 /** One character from its code point, so every odd character in these tests is named, not invisible. */

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseConfig } from "../src/config.ts";
+import { DEFAULT_EXCLUDE_PREFIX, ENV_KEYS, parseConfig } from "../src/config.ts";
 import {
   ALL_TRIMMED_WHITESPACE,
   ARABIC_INDIC_ONE,
   BOM,
+  EXPECTED_CONFIG,
   NBSP,
   OWNER_PROBLEM,
   PREFIX_PROBLEM,
@@ -16,6 +17,7 @@ import {
   URL_HTTPS_PROBLEM,
   URL_INVALID_PROBLEM,
   URL_QUERY_PROBLEM,
+  VALID_ENV,
   ZERO_WIDTH_SPACE,
   captureConfigError,
   char,
@@ -275,31 +277,50 @@ describe("parseConfig: YOUTRACK_PROJECT", () => {
   });
 });
 
-describe("parseConfig: YOUTRACK_TITLE_PREFIX", () => {
-  it("uses a custom prefix, trimmed", () => {
-    const config = parseConfig(envWith({ YOUTRACK_TITLE_PREFIX: "  [ops] " }));
+describe("parseConfig: YOUTRACK_EXCLUDE_PREFIX (decision F1)", () => {
+  it('defaults to "[individual]" when unset', () => {
+    const config = parseConfig(envWith({ YOUTRACK_EXCLUDE_PREFIX: undefined }));
 
-    assert.equal(config.titlePrefix, "[ops]");
+    assert.equal(DEFAULT_EXCLUDE_PREFIX, "[individual]");
+    assert.equal(config.excludePrefix, "[individual]");
+  });
+
+  it("uses a custom prefix, trimmed", () => {
+    const config = parseConfig(envWith({ YOUTRACK_EXCLUDE_PREFIX: "  [solo] " }));
+
+    assert.equal(config.excludePrefix, "[solo]");
   });
 
   it("keeps the prefix's case, inner whitespace and non-ASCII characters (surrogate pairs intact)", () => {
     for (const prefix of [
-      "[My Team]",
-      "[team]  x",
-      `${char(0x1f680)} [team]`,
+      "[My Own]",
+      "[Individual]  x",
+      `${char(0x1f680)} [individual]`,
       `[${char(0x00e9)}quipe]${char(0x1f600)}`,
     ]) {
-      const config = parseConfig(envWith({ YOUTRACK_TITLE_PREFIX: `${NBSP}${prefix}\t` }));
+      const config = parseConfig(envWith({ YOUTRACK_EXCLUDE_PREFIX: `${NBSP}${prefix}\t` }));
 
-      assert.equal(config.titlePrefix, prefix, visible(prefix));
+      assert.equal(config.excludePrefix, prefix, visible(prefix));
     }
   });
 
-  it("rejects a prefix that is set but empty or whitespace-only", () => {
+  it("rejects a prefix that is set but empty or whitespace-only (it would exclude every issue)", () => {
     for (const value of ["", "   ", `${NBSP}${BOM}`, ALL_TRIMMED_WHITESPACE]) {
-      const problems = problemsFor(envWith({ YOUTRACK_TITLE_PREFIX: value }));
+      const problems = problemsFor(envWith({ YOUTRACK_EXCLUDE_PREFIX: value }));
 
       assert.deepEqual(problems, [PREFIX_PROBLEM], visible(value));
     }
+  });
+
+  it("ignores the retired YOUTRACK_TITLE_PREFIX, whatever its value", () => {
+    const knownKeys: readonly string[] = ENV_KEYS;
+    for (const value of ["[team]", "", " "]) {
+      const legacy = { ...VALID_ENV, YOUTRACK_EXCLUDE_PREFIX: undefined, YOUTRACK_TITLE_PREFIX: value };
+
+      const config = parseConfig(legacy);
+
+      assert.deepEqual(config, { ...EXPECTED_CONFIG, excludePrefix: DEFAULT_EXCLUDE_PREFIX }, visible(value));
+    }
+    assert.equal(knownKeys.includes("YOUTRACK_TITLE_PREFIX"), false);
   });
 });

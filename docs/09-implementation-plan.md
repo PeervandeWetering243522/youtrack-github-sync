@@ -9,7 +9,7 @@
 
 - **Summary line (R5).** `yt-gh-sync <ok|failed> scanned= created= closed= skipped= capped=
 failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` = `filtered`
-  (no title prefix) + `unchanged` (mirror already in the right state, or resolved with no
+  (exclude prefix, F1) + `unchanged` (mirror already in the right state, or resolved with no
   mirror, R9). A failed read logs the
   same line with outcome `failed` before the error is rethrown; a failed write logs it at the
   end, then `SyncFailedError` is thrown.
@@ -18,6 +18,9 @@ failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` =
   no create+close pair: every action (create or close) costs 1 write. The write cap takes
   actions in order while they fit and stops at the first that does not; nothing later jumps
   ahead. Open mirrors are still closed on resolution, closed mirrors are never reopened.
+- **Title filter (F1, F2; supersedes step 3 and A8).** Every issue is mirrored except summaries
+  starting with `YOUTRACK_EXCLUDE_PREFIX` (default `[individual]`, case-insensitive), which count
+  as `filtered`; one that gains the prefix after mirroring is ignored, its mirror left as it is.
 - **GitHub rate limit (R7).** A write that fails with a rate limit (403/429 with
   `x-ratelimit-remaining: 0`, with `retry-after`, or whose body names the secondary rate limit)
   is recorded as failed and stops the write phase; the remaining actions count as `capped`.
@@ -36,7 +39,7 @@ failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` =
   rate limit without a usable `retry-after`. Creates are never retried.
 - **Config.** `GITHUB_REPO`, `YOUTRACK_BASE_URL` and `YOUTRACK_PROJECT` are **required** with no
   defaults in code (`wrangler.jsonc` sets them for the Worker, `.env` for Node). Only
-  `YOUTRACK_TITLE_PREFIX`, `MAX_WRITES_PER_RUN` (0-40) and `DRY_RUN` have defaults.
+  `YOUTRACK_EXCLUDE_PREFIX`, `MAX_WRITES_PER_RUN` (0-40) and `DRY_RUN` have defaults.
 - **Types.** `unknown` is banned by lint. JSON enters only through `parseJson()` in
   `src/json.ts` as `JsonValue` and is narrowed with type guards. GitHub types derive from
   `@octokit/openapi-types`.

@@ -16,7 +16,7 @@
 | `Task`                | task      | sub-issue, or top-level (H3) | `Task`     |
 | missing / other value | issue     | top-level issue              | none (D3)  |
 
-Eligibility is unchanged for every kind: summary starts with `[team]` (A8), and nothing is created
+Eligibility is unchanged for every kind: summary does not start with `[individual]` (F1), and nothing is created
 for an issue or epic that is already resolved (R9).
 
 ### 1.2 Desired GitHub state (pure)
@@ -169,7 +169,8 @@ docs/10 (final rules), `.env.example` unchanged (no new config).
 
 1. `npm run check` + coverage (>= current 99.9% lines).
 2. Live dry run on CUI (GET only): expected today: `[dry-run] would update YT-15 #21` (type
-   `Task`), nothing else, because neither epic has `[team]` and all `[team]` issues are resolved.
+   `Task`), plus (F1) a create, issue or milestone, for every unresolved issue or epic whose
+   summary does not start with `[individual]`.
 3. **V1/V2, needs your OK (real writes):** run once with `DRY_RUN=false` against a scratch
    GitHub repo you own (`GITHUB_REPO=<you>/yt-gh-scratch`, same YouTrack project) to confirm on a
    real API: milestone with a long description (V1), issue types `Feature/Bug/Task` accepted by
