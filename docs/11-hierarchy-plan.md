@@ -1,7 +1,7 @@
 # Hierarchy mirroring: implementation plan
 
 > Drafted 2026-09-28 from [10-hierarchy-design.md](10-hierarchy-design.md) and decisions H1-H10 in
-> [08-decisions.md](08-decisions.md). Detail rules D1-D8 below are **proposed** until confirmed.
+> [08-decisions.md](08-decisions.md). Detail rules D1-D8 were accepted on 2026-09-28.
 > Nothing here changes the live Worker until it is deployed.
 
 ## 1. Behaviour, precisely
