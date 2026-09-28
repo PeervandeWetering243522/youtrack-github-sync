@@ -17,3 +17,4 @@ source. Claims carry status tags: `[verified]`, `[live]`, `[partial]`, `[undocum
 | [08-decisions.md](08-decisions.md)                         | Answers to the open questions (decided / pending)                                    |
 | [09-implementation-plan.md](09-implementation-plan.md)     | Implementation plan (implemented), with an "As built" section where the code differs |
 | [10-hierarchy-design.md](10-hierarchy-design.md)           | Design for mirroring epics, stories, bugs and tasks as milestones and sub-issues     |
+| [11-hierarchy-plan.md](11-hierarchy-plan.md)               | Implementation plan for the hierarchy mirroring                                      |

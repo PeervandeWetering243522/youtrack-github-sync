@@ -25,8 +25,10 @@ Neither epic has the `[team]` prefix, so under H2 neither becomes a milestone un
 | Bug        | Issue                                                                   | Bug             |
 | Task       | Sub-issue of its parent's mirror; top-level issue if there is none (H3) | Task            |
 
-- **Milestone of an issue (H4):** the nearest Epic among its YouTrack ancestors that has a
-  milestone. Tasks inherit it too, so a milestone's progress bar counts every level.
+- **Milestone of an issue (H4, D1):** the milestone of its nearest Epic ancestor, if that epic has
+  one (higher epics are not searched). Tasks inherit it too, so a milestone's progress bar counts
+  every level. The milestone's description is the epic's description plus the link, formatted like
+  an issue body (H10).
 - **GitHub parent of a Task (H3):** the mirror of its nearest non-epic YouTrack ancestor. If there is
   none (parent is an epic, no parent, parent filtered by the prefix or never mirrored because it was
   resolved first, R9), the task is a top-level issue. When a mirrored parent appears later, the task
