@@ -37,6 +37,6 @@
     "YOUTRACK_PROJECT": "CUI",
     "YOUTRACK_TITLE_PREFIX": "[team]",
     "MAX_WRITES_PER_RUN": "30",
-    "DRY_RUN": "true",
+    "DRY_RUN": "false",
   },
 }
