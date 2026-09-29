@@ -49,7 +49,7 @@ const BASE_CONFIG: Config = {
   youtrackBaseUrl: YOUTRACK_BASE_URL,
   youtrackToken: YOUTRACK_TOKEN,
   youtrackProject: "CUI",
-  titlePrefix: "[team]",
+  excludePrefix: "[individual]",
   maxWritesPerRun: 30,
   dryRun: false,
 };
@@ -123,7 +123,7 @@ export function ghMilestone(milestoneNumber: number, title: string, state: "open
   return { number: milestoneNumber, title, state, description: null, open_issues: 0, closed_issues: 0 };
 }
 
-/** Open milestones #1.. of resolved "[team]" epics YT-1..: each one needs a closeMilestone. */
+/** Open milestones #1.. of resolved epics YT-1..: each one needs a closeMilestone. */
 export function openMilestonesOfResolvedEpics(count: number): {
   readonly milestones: JsonObject[];
   readonly youtrackRows: JsonObject[];
@@ -196,7 +196,7 @@ export type Harness = {
  * YT-1 unresolved, no mirror       -> create
  * YT-2 resolved, no mirror         -> unchanged (never mirrored, decision R9)
  * YT-3 resolved, open mirror #12   -> close
- * YT-4 not "[team]"                -> filtered
+ * YT-4 "[individual]"              -> filtered (decision F1)
  * YT-5 unresolved, open mirror #13 -> unchanged
  * YT-6 resolved, closed mirror #14 -> unchanged
  * PR #15 is titled "[YT-1]" but is not a mirror.

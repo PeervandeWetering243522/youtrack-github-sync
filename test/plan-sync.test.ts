@@ -96,7 +96,8 @@ describe("planActions: milestone sync (H4, H5, D2)", () => {
   });
 
   it("clears a milestone from a higher epic: only the nearest epic counts (D1)", () => {
-    const issues = [epic(1), epic(6, { ...under(1), ...FILTERED }), ytIssue(5, under(6))];
+    // Epic YT-6 was resolved before it got a milestone (R9), so it never gets one.
+    const issues = [epic(1), epic(6, { ...under(1), ...RESOLVED }), ytIssue(5, under(6))];
 
     const result = plan(issues, { mirrors: mirrors([5, mirror(12, { milestoneNumber: 3 })]), milestones: MILESTONES });
 
@@ -346,7 +347,7 @@ describe("planActions: closed mirrors are synced too (D8)", () => {
     assert.deepEqual(counts(result), { scanned: 3, filtered: 0, unchanged: 2, capped: 0 });
   });
 
-  it("never syncs the mirror of a filtered issue (R2)", () => {
+  it("never syncs the mirror of an excluded issue (F2)", () => {
     const issues = [epic(1), story(2), task(5, { ...under(2), ...FILTERED })];
     const index = mirrors([2, mirror(21, { typeName: "Feature" })], [5, mirror(12)]);
 

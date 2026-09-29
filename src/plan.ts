@@ -1,14 +1,15 @@
 /**
  * Pure decision logic (docs/11 §1.2-1.4): YouTrack issues + GitHub mirrors and milestones
  * -> ordered, capped actions. No I/O. The indexes are built in src/plan/mirrors.ts and
- * src/plan/milestones.ts; the desired-state rules live in src/plan/desired.ts.
+ * src/plan/milestones.ts; the exclude filter lives in src/plan/exclude.ts and the
+ * desired-state rules in src/plan/desired.ts.
  */
 
 import type { GitHubTypeName, Hierarchy, IssueKind } from "./hierarchy.ts";
 import { buildHierarchy, classify, depth, hierarchyWarnings } from "./hierarchy.ts";
-import { hasTitlePrefix } from "./mirror.ts";
 import { desiredMilestoneEpic, desiredParent, parentChange, updateFields } from "./plan/desired.ts";
 import type { ParentChange, PlanContext, UpdateFields } from "./plan/desired.ts";
+import { isExcluded } from "./plan/exclude.ts";
 import type { MilestoneIndexResult, MilestoneRef } from "./plan/milestones.ts";
 import { mirrorNumbers } from "./plan/mirrors.ts";
 import type { MirrorIndex, MirrorRef } from "./plan/mirrors.ts";
@@ -58,7 +59,8 @@ export type PlanInput = {
   readonly mirrors: MirrorIndex;
   /** buildMilestoneIndex of every GitHub milestone; its warnings are passed on in Plan.warnings. */
   readonly milestones: MilestoneIndexResult;
-  readonly titlePrefix: string;
+  /** YOUTRACK_EXCLUDE_PREFIX: an issue whose summary, or an ancestor's, starts with it is filtered (F1, F3). */
+  readonly excludePrefix: string;
   readonly maxWrites: number;
 };
 
@@ -72,7 +74,10 @@ export type Plan = {
   readonly actions: readonly Action[];
   /** YouTrack issues scanned (one per numberInProject). */
   readonly scanned: number;
-  /** Issues and epics whose summary lacks the title prefix (ignored entirely, R2). */
+  /**
+   * Issues and epics excluded by the exclude prefix, their own (F1) or an ancestor's (F3);
+   * ignored entirely, existing mirror or milestone included (F2).
+   */
   readonly filtered: number;
   /**
    * Eligible issues and epics that need no write: a mirror or milestone already as desired,
@@ -101,7 +106,10 @@ export function writeCost(action: Action): number {
 }
 
 /**
- * - skip issues and epics without the title prefix (filtered, R2);
+ * - skip excluded issues and epics (filtered, src/plan/exclude.ts): the summary of the
+ *   issue (F1) or of any YouTrack ancestor (F3) starts with `excludePrefix`. Nothing is
+ *   planned for them, not even for an existing mirror or milestone (F2), and none of them is
+ *   ever used as a milestone or parent;
  * - epics (H1): no milestone && unresolved -> createMilestone; open milestone && resolved ->
  *   closeMilestone; milestones are never reopened or renamed (D7);
  * - other issues: no mirror && unresolved -> create, with type, milestone epic and (tasks
@@ -117,13 +125,12 @@ export function writeCost(action: Action): number {
  */
 export function planActions(input: PlanInput): Plan {
   const ordered = uniqueAscending(input.youtrackIssues);
-  const isEligible = (issue: YouTrackIssue): boolean => hasTitlePrefix(issue.summary, input.titlePrefix);
-  const context = planContext(input, ordered, isEligible);
+  const context = planContext(input, ordered);
   const needed: Action[] = [];
   let filtered = 0;
   let unchanged = 0;
   for (const issue of ordered) {
-    const actions = isEligible(issue) ? actionsFor(context, issue) : null;
+    const actions = context.excluded.has(issue.numberInProject) ? null : actionsFor(context, issue);
     if (actions === null) filtered += 1;
     else if (actions.length === 0) unchanged += 1;
     else needed.push(...actions);
@@ -152,17 +159,21 @@ function isEpic(issue: YouTrackIssue): boolean {
   return classify(issue.type).kind === "milestone";
 }
 
-/** The hierarchy of `issues` and what this run creates: eligible, unresolved and not yet mirrored. */
-function planContext(
-  input: PlanInput,
-  issues: readonly YouTrackIssue[],
-  isEligible: (issue: YouTrackIssue) => boolean,
-): PlanContext {
-  const creatable = issues.filter((issue) => isEligible(issue) && issue.resolved === null);
-  const numbers = (list: readonly YouTrackIssue[]): ReadonlySet<number> =>
-    new Set(list.map(({ numberInProject }) => numberInProject));
+function numbers(issues: readonly YouTrackIssue[]): ReadonlySet<number> {
+  return new Set(issues.map(({ numberInProject }) => numberInProject));
+}
+
+/**
+ * The hierarchy of `issues`, which of them are excluded (F1, F3), and what this run
+ * creates: issues and epics that are not excluded, unresolved and not yet mirrored.
+ */
+function planContext(input: PlanInput, issues: readonly YouTrackIssue[]): PlanContext {
+  const hierarchy = buildHierarchy(issues);
+  const excluded = numbers(issues.filter((issue) => isExcluded(hierarchy, issue, input.excludePrefix)));
+  const creatable = issues.filter((issue) => !excluded.has(issue.numberInProject) && issue.resolved === null);
   return {
-    hierarchy: buildHierarchy(issues),
+    hierarchy,
+    excluded,
     mirrors: input.mirrors,
     mirrorOf: mirrorNumbers(input.mirrors),
     milestones: input.milestones,
@@ -173,7 +184,7 @@ function planContext(
   };
 }
 
-/** The actions an eligible issue or epic needs, in the order they run; none: unchanged. */
+/** The actions an issue or epic that is not excluded needs, in the order they run; none: unchanged. */
 function actionsFor(context: PlanContext, issue: YouTrackIssue): readonly Action[] {
   const { kind, githubType } = classify(issue.type);
   if (kind === "milestone") return epicActions(context, issue);

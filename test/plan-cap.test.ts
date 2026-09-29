@@ -5,6 +5,7 @@ import { writeCost } from "../src/plan.ts";
 import {
   assertCountsAddUp,
   describeActions,
+  FILTERED,
   lockedMap,
   mirror,
   plan,
@@ -63,7 +64,7 @@ describe("planActions: write cap", () => {
   });
 
   it("plans nothing and caps every action when maxWrites is 0", () => {
-    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3, { summary: "Other" })];
+    const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3, FILTERED)];
 
     const result = plan(issues, { mirrors: lockedMap([[2, mirror(20)]]), maxWrites: 0 });
 

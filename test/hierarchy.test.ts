@@ -175,14 +175,14 @@ describe("nearestEpic", () => {
   });
 
   it("uses filtered and resolved ancestors too (docs/11 §1.2)", () => {
-    const epic = yt(1, EPIC, null, { summary: "No prefix epic", resolved: 1_758_000_000_000 });
+    const epic = yt(1, EPIC, null, { summary: "[individual] Excluded epic", resolved: 1_758_000_000_000 });
     const task = yt(2, TASK, 1);
     assert.equal(nearestEpic(build(epic, task), task), epic);
   });
 
   it("stops at a filtered or resolved inner epic, never searching the epic above it (D1)", () => {
     const outer = yt(1, EPIC);
-    const inner = yt(2, EPIC, 1, { summary: "No prefix epic", resolved: 1_758_000_000_000 });
+    const inner = yt(2, EPIC, 1, { summary: "[individual] Excluded epic", resolved: 1_758_000_000_000 });
     const story = yt(3, STORY, 2);
     const task = yt(4, TASK, 3);
     const hierarchy = build(outer, inner, story, task);

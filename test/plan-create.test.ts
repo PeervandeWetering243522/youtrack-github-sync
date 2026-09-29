@@ -84,29 +84,40 @@ describe("planActions: create carries the milestone of the nearest epic (H4, D1,
     assert.deepEqual(describeActions(result.actions), ["createMilestone 1", "create 2 type=Bug milestone=YT-1"]);
   });
 
-  it("gives no milestone when the nearest epic has none and gets none (resolved or filtered)", () => {
-    const issues = [epic(1, RESOLVED), story(2, under(1)), epic(3, FILTERED), story(4, under(3))];
+  it("gives no milestone when the nearest epic has none and gets none (resolved, R9)", () => {
+    const issues = [epic(1, RESOLVED), story(2, under(1)), epic(3, RESOLVED), story(4, under(3))];
 
     const result = plan(issues);
 
     assert.deepEqual(describeActions(result.actions), ["create 2 type=Feature", "create 4 type=Feature"]);
   });
 
+  it("plans nothing under an excluded epic: its issues are excluded too (F3)", () => {
+    const issues = [epic(3, FILTERED), story(4, under(3))];
+
+    const result = plan(issues);
+
+    assert.deepEqual(describeActions(result.actions), []);
+    assert.equal(result.filtered, 2);
+  });
+
   it("never searches past the nearest epic, even when a higher one has a milestone (D1)", () => {
-    const issues = [epic(1), epic(2, { ...under(1), ...FILTERED }), story(3, under(2))];
+    const issues = [epic(1), epic(2, { ...under(1), ...RESOLVED }), story(3, under(2))];
 
     const result = plan(issues, { milestones: EPIC_1_MILESTONE });
 
     assert.deepEqual(describeActions(result.actions), ["create 3 type=Feature"]);
   });
 
-  it("uses an existing milestone of a filtered or resolved epic", () => {
+  it("uses an existing milestone of a resolved epic, even a closed one", () => {
     const milestones = milestoneIndex(ghMilestone(3, "[YT-1] Epic", "closed"), ghMilestone(4, "[YT-5] Epic"));
-    const issues = [epic(1, RESOLVED), story(2, under(1)), epic(5, FILTERED), story(6, under(5))];
+    const issues = [epic(1, RESOLVED), story(2, under(1)), epic(5, RESOLVED), story(6, under(5))];
 
     const result = plan(issues, { milestones });
 
+    // Epic YT-5's open milestone is closed in the same run; the story still gets it.
     assert.deepEqual(describeActions(result.actions), [
+      "closeMilestone 5 -> m4",
       "create 2 type=Feature milestone=YT-1",
       "create 6 type=Feature milestone=YT-5",
     ]);
@@ -149,24 +160,22 @@ describe("planActions: a task's GitHub parent (H3, H9)", () => {
     ]);
   });
 
-  it("skips ancestors that are never mirrored (resolved without a mirror, R9, or filtered)", () => {
-    const issues = [story(1), task(2, { ...under(1), ...RESOLVED }), task(3, { ...under(2), ...FILTERED })];
+  it("skips ancestors that are never mirrored (resolved without a mirror, R9)", () => {
+    const issues = [story(1), task(2, { ...under(1), ...RESOLVED }), task(3, { ...under(2), ...RESOLVED })];
 
     const result = plan([...issues, task(4, under(3))], { mirrors: STORY_1_MIRRORED });
 
     assert.deepEqual(describeActions(result.actions), ["create 4 type=Task parent=YT-1"]);
+    assert.equal(result.unchanged, 3);
   });
 
-  it("counts a mirror of a filtered or resolved ancestor as mirrored", () => {
-    const issues = [story(1, FILTERED), task(2, under(1)), story(3, RESOLVED), task(4, under(3))];
-    const index = mirrors([1, mirror(11)], [3, mirror(13, { state: "closed", typeName: "Feature" })]);
+  it("counts the mirror of a resolved ancestor as mirrored, even a closed one", () => {
+    const issues = [story(3, RESOLVED), task(4, under(3))];
+    const index = mirrors([3, mirror(13, { state: "closed", typeName: "Feature" })]);
 
     const result = plan(issues, { mirrors: index });
 
-    assert.deepEqual(describeActions(result.actions), [
-      "create 2 type=Task parent=YT-1",
-      "create 4 type=Task parent=YT-3",
-    ]);
+    assert.deepEqual(describeActions(result.actions), ["create 4 type=Task parent=YT-3"]);
   });
 
   it("stops at the first epic: a task directly under an epic is top-level", () => {

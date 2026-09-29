@@ -8,15 +8,29 @@
 
 ## As built
 
+- **Exclude filter (F1-F3).** `isExcluded` in `src/plan/exclude.ts`: the issue's summary or
+  the summary of any ancestor (`linkedAncestors` in `hierarchy.ts`: every Type, epics included,
+  any state, ending at a parent outside the scan) starts with `YOUTRACK_EXCLUDE_PREFIX`. Unlike
+  the milestone, parent and order walks, it follows the links on a parent cycle, once around:
+  every member of a cycle is an ancestor of the others, so one member with the prefix excludes
+  the whole cycle and everything below it. Excluded issues and epics count as `filtered` and
+  get no action at all, not even a sync or a close of an existing mirror or milestone (F2).
 - **Desired milestone (§1.2).** An epic's milestone counts when it exists in the milestone index
-  (whatever the epic's prefix or state) or is created in this run. So a mirror under a resolved
-  epic gets that epic's closed milestone, on create and on update (V4).
-- **Desired parent (§1.2).** The nearest non-epic ancestor that has a mirror (whatever its prefix
-  or state) or gets one in this run. Unmirrored ancestors are skipped; the walk ends at the
-  first epic, at a parent outside the scan (D5) or on a cycle.
+  (whatever the epic's state) or is created in this run, and never when the epic is excluded.
+  So a mirror under a resolved epic gets that epic's closed milestone, on create and on update
+  (V4).
+- **Desired parent (§1.2).** The nearest non-epic ancestor that is not excluded and has a mirror
+  (whatever its state) or gets one in this run. Unmirrored ancestors are skipped; the walk ends
+  at the first epic, at a parent outside the scan (D5) or on a cycle. Under F3 an excluded
+  ancestor excludes the issue itself, so the "not excluded" checks only guard inconsistent input.
+- **Leaving an excluded parent.** A mirror that is not excluded but still sits under the mirror of
+  an excluded issue, or in the milestone of an excluded epic, is synced like any other: it is
+  moved or detached, and its milestone replaced or cleared, when YouTrack has it elsewhere (D2
+  treats both as mirror-owned).
 - **Parent lookup and cycles.** Parents are looked up among all scanned issues by `idReadable`,
-  compared ASCII-case-insensitively. Every parent link on a cycle is ignored, so each issue on it
-  acts as a root, and one warning per cycle is logged:
+  compared ASCII-case-insensitively. For milestones, parents and order every parent link on a
+  cycle is ignored, so each issue on it acts as a root (the exclude filter still follows those
+  links, see above), and one warning per cycle is logged:
   `YT-<n>: parent chain loops back to YT-<m>` (`m` is the cycle's lowest number).
 - **Ownership (§1.3, D2).** An `update` clears the milestone only when the current one is a
   mirror milestone, and a `removeParent` only detaches from a parent that is a mirror in this
@@ -42,10 +56,12 @@
   the row. A `parent_issue_url` in this repo that is not `.../issues/{n}` fails the GitHub read.
 - **Modules (§2).** `src/github.ts` is gone. Imports use the modules in `src/github/`:
   `client.ts`, `link.ts`, `pages.ts`, `issues.ts`, `milestones.ts` and `sub-issues.ts`.
-  `hierarchy.ts` exports `classify`, `buildHierarchy`, `nearestEpic`, `parentChain`, `depth` and
-  `hierarchyWarnings`; there is no `DesiredState` type. The desired state is computed in
-  `src/plan/desired.ts` and the indexes are built in `src/plan/mirrors.ts` and
-  `src/plan/milestones.ts`, while `src/plan.ts` keeps the actions, order and cap. Execution is
+  `hierarchy.ts` exports `classify`, `buildHierarchy`, `ancestors`, `linkedAncestors`,
+  `nearestEpic`, `parentChain`, `depth` and `hierarchyWarnings`; there is no `DesiredState`
+  type. The exclude
+  filter is `src/plan/exclude.ts`, the desired state is computed in `src/plan/desired.ts` and
+  the indexes are built in `src/plan/mirrors.ts` and `src/plan/milestones.ts`, while
+  `src/plan.ts` keeps the actions, order and cap. Execution is
   split over `src/sync/`: `execute.ts`, `execute-write.ts`, `execute-issues.ts`,
   `execute-hierarchy.ts`, `resolved.ts`, `preview.ts` and `describe.ts`. `HttpMethod` gains
   `DELETE`.
@@ -70,8 +86,10 @@
 | `Task`                | task      | sub-issue, or top-level (H3) | `Task`     |
 | missing / other value | issue     | top-level issue              | none (D3)  |
 
-Eligibility is unchanged for every kind: summary starts with `[team]` (A8), and nothing is created
-for an issue or epic that is already resolved (R9).
+Eligibility is the same for every kind: neither the summary nor the summary of any YouTrack
+ancestor (epics included) starts with the exclude prefix, default `[individual]` (F1, F3), and
+nothing is created for an issue or epic that is already resolved (R9). An excluded issue is
+ignored entirely, existing mirror or milestone included (F2).
 
 ### 1.2 Desired GitHub state (pure)
 
@@ -231,22 +249,26 @@ docs/10 (final rules), `.env.example` comments only (no new config).
 ## 4. Verification and rollout
 
 1. `npm run check` + coverage (>= current 99.9% lines).
-2. Live dry run on CUI (GET only). Expected with the 2026-09-28 data:
-   `[dry-run] would update YT-15 #21: set type Task` and nothing else, because neither epic has
-   `[team]` and all `[team]` issues are resolved.
+2. Live dry run on CUI (GET only). Expected under F1 and F3 (not re-checked against live data
+   here): an update of YT-15 #21 (`set type Task`), a `create milestone` for every unresolved
+   epic that is not excluded, and a `create` for every unresolved story, bug, task or untyped
+   issue that is not excluded, with its type, milestone and parent. Nothing for an excluded
+   epic or anything below it, such as CUI-32 "[Individual] Data Structures and Algorithms" and
+   its tasks CUI-46 and CUI-47: they count as `filtered`.
 3. **V1-V4, needs your OK (real writes):** run once with `DRY_RUN=false` against a **private**
    scratch repo in the BredaUniversityADSAI org (issue types are defined per organization, so a
    personal repo cannot check V2), for example
    `GITHUB_REPO=BredaUniversityADSAI/yt-gh-scratch`, with the same YouTrack project. It needs the
-   `youtrack` label (G1). An empty repo gets no writes from today's CUI data (R9), so V1-V4 need a
-   few unresolved test issues in YouTrack, made by hand (this tool never writes YouTrack): an
-   epic, a story under it and a task under the story. **Do not give them the `[team]` prefix:**
-   the live Worker (`DRY_RUN=false`, prefix `[team]`) scans the same project and would mirror
-   them into the real repo within 10 minutes, as plain issues (the deployed version predates
-   the hierarchy). Use another prefix, for example `[yt-test]`, with
-   `YOUTRACK_TITLE_PREFIX=[yt-test]` for the scratch run only, or deploy the Worker with
-   `DRY_RUN=true` first. Test issues in CUI are visible to everyone in the project. Things to
-   confirm on the real API:
+   `youtrack` label (G1). Under F1 the scratch run mirrors every unresolved CUI issue that is
+   not excluded, at most 30 writes per run (later runs finish the rest). V1-V4 need an
+   unresolved epic with a story under it and a task under the story; if CUI has none, make a
+   few test issues in YouTrack by hand (this tool never writes YouTrack). **Mind the live
+   Worker:** the deployed version (`DRY_RUN=false`, `[team]` inclusion filter, no hierarchy)
+   scans the same project and mirrors every `[team]` issue into the real repo within 10
+   minutes, so do not give test issues the `[team]` prefix. Once this version is deployed with
+   writes on, it mirrors every test issue without the exclude prefix, so resolve them before
+   that (R9), or deploy with `DRY_RUN=true` first. Test issues in CUI are visible to everyone
+   in the project. Things to confirm on the real API:
    - V1: a milestone with a long description;
    - V2: issue types `Feature`, `Bug` and `Task` accepted by name, and `type.name` returned with
      the same case (otherwise every run sends an update and warns);

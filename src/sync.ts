@@ -91,7 +91,10 @@ export type RunSummary = {
    */
   readonly capped: number;
   readonly failed: number;
-  /** Issues and epics whose summary lacks YOUTRACK_TITLE_PREFIX. */
+  /**
+   * Issues and epics that are not mirrored because their summary, or an ancestor's, starts
+   * with YOUTRACK_EXCLUDE_PREFIX (decisions F1, F3).
+   */
   readonly filtered: number;
   /**
    * Eligible issues and epics that need no write: the mirror or milestone is already as
@@ -172,7 +175,7 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
     youtrackIssues: inputs.youtrackIssues,
     mirrors: inputs.mirrors,
     milestones: inputs.milestones,
-    titlePrefix: config.titlePrefix,
+    excludePrefix: config.excludePrefix,
     maxWrites: config.maxWritesPerRun,
   });
   for (const warning of plan.warnings) log.warn(warning);

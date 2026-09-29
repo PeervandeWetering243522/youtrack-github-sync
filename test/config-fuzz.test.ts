@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { ConfigError, DEFAULT_TITLE_PREFIX, ENV_KEYS, MAX_WRITES_LIMIT } from "../src/config.ts";
+import { ConfigError, DEFAULT_EXCLUDE_PREFIX, ENV_KEYS, MAX_WRITES_LIMIT } from "../src/config.ts";
 import type { Config, EnvSource } from "../src/config.ts";
 import {
   BOM,
@@ -50,7 +50,7 @@ const KNOWN_PROBLEMS: ReadonlySet<string> = new Set([
 const FUZZ_FRAGMENTS: readonly string[] = [
   ...["", " ", "/", "//", "\\", "?", "#", "@", ":", ".", "..", "-", "_", "%2F", "%40", ",", "{", "}"],
   ...["https://", "http://", "HTTPS:", "example.com", "[::1]", ":443", "user:pw@"],
-  ...["false", "FALSE", "true", "0", "40", "41", "-1", "007", "[team]", "a", "Z", "9", "CUI"],
+  ...["false", "FALSE", "true", "0", "40", "41", "-1", "007", "[individual]", "a", "Z", "9", "CUI"],
   ...[NBSP, BOM, ZERO_WIDTH_SPACE, LINE_SEPARATOR, "\n", "\t", char(0), char(0xd800), char(0x1f600)],
   ...[char(0x017f), char(0xff0f), fullwidth("CUI"), GITHUB_TOKEN, YOUTRACK_TOKEN],
 ];
@@ -97,8 +97,8 @@ function assertAcceptedConfig(env: EnvSource, config: Config, context: string): 
   assert.equal(config.youtrackProject, env.YOUTRACK_PROJECT?.trim(), context);
   assert.match(config.youtrackProject, /^[A-Za-z0-9_-]+$/, context);
   assert.doesNotMatch(config.youtrackProject, /^[-_]/, context);
-  assert.equal(config.titlePrefix, env.YOUTRACK_TITLE_PREFIX?.trim() ?? DEFAULT_TITLE_PREFIX, context);
-  assert.notEqual(config.titlePrefix, "", context);
+  assert.equal(config.excludePrefix, env.YOUTRACK_EXCLUDE_PREFIX?.trim() ?? DEFAULT_EXCLUDE_PREFIX, context);
+  assert.notEqual(config.excludePrefix, "", context);
   assert.ok(Number.isSafeInteger(config.maxWritesPerRun), context);
   assert.ok(config.maxWritesPerRun >= 0 && config.maxWritesPerRun <= MAX_WRITES_LIMIT, context);
   // Independent oracle: a regex `i` flag without `u` folds ASCII only, so U+017F never matches "s".

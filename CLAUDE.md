@@ -31,8 +31,9 @@ enables YouTrack's Webhook Triggers app.
   share, `sync/tally.ts` counts, and `sync/log.ts` redacts every log line.
 - `src/plan.ts` + `src/plan/`, `src/hierarchy.ts`, `src/mirror.ts`, `src/utils/`: pure decision
   and formatting logic, no I/O. `hierarchy.ts` classifies `Type` values and walks parent links
-  (cycle-safe). `plan/desired.ts` works out each mirror's desired milestone, type and parent
-  and how it differs. `plan/mirrors.ts` and `plan/milestones.ts` build the `[YT-n]` indexes,
+  (cycle-safe). `plan/exclude.ts` decides which issues are excluded (F1, F3).
+  `plan/desired.ts` works out each mirror's desired milestone, type and parent and how it
+  differs. `plan/mirrors.ts` and `plan/milestones.ts` build the `[YT-n]` indexes,
   and `plan.ts` builds the actions, their order and the cap. New decision logic goes in
   `plan.ts` or `plan/`, not `sync.ts`.
 - `src/http.ts` + `src/http/`: fetch wrapper (User-Agent, timeout, 45-fetch guard, retry-once,
@@ -54,11 +55,16 @@ enables YouTrack's Webhook Triggers app.
 ## Config
 
 Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_URL`,
-`YOUTRACK_PROJECT` (CUI), `YOUTRACK_TITLE_PREFIX` (`[team]`), `MAX_WRITES_PER_RUN` (30), `DRY_RUN`
-(on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the Worker,
-`.env` for `npm run sync`). Full project scan every run; no lookback. Only unresolved issues get
-a mirror; an already-resolved issue without one is never mirrored (R9). Plan (implemented, see its
-"As built" section): `docs/09-implementation-plan.md`.
+`YOUTRACK_PROJECT` (CUI), `YOUTRACK_EXCLUDE_PREFIX` (`[individual]`), `MAX_WRITES_PER_RUN` (30),
+`DRY_RUN` (on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the
+Worker, `.env` for `npm run sync`). Full project scan every run; no lookback. Every issue and
+epic is mirrored except summaries starting with the exclude prefix (case-insensitive, F1) and
+everything below such an issue: any YouTrack ancestor with the prefix, epics included, excludes
+it too (F3; the walk follows parent cycles too). An excluded issue counts as `filtered` and is
+ignored entirely, existing mirror or milestone left as it is (F2); `isExcluded` in
+`src/plan/exclude.ts` is the rule. Only unresolved issues get a mirror; an already-resolved
+issue without one is never mirrored (R9). Plan (implemented, see its "As built" section):
+`docs/09-implementation-plan.md`.
 
 ## Hierarchy (H1-H10, D1-D8; docs/10 and docs/11)
 
@@ -66,7 +72,8 @@ Epic -> milestone `[YT-n] <summary>`. User Story -> issue with type Feature, Bug
 type Bug, any other type -> issue with no type; these are always top-level (H9). Task -> issue
 with type Task, as a sub-issue of the mirror of its nearest non-epic ancestor that has one, or
 top-level if there is none. Every mirror gets the milestone of its nearest epic, if that epic
-has one (D1). Epics use the same `[team]` filter and the same R9 rule as issues. Every run
+has one (D1). Epics use the same exclude filter (F1, F3) and the same R9 rule as issues, and an
+excluded issue's mirror or milestone is never used as a parent or milestone. Every run
 syncs milestone, type and parent on all mirrors, open or closed (D8). Titles, bodies and
 milestone descriptions never change after creation, and nothing is reopened (D7). Only
 mirror-owned links are changed (D2) and a type is never cleared (D3). A child whose parent

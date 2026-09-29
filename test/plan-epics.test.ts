@@ -35,7 +35,7 @@ describe("planActions: epics become milestones (H1, H2, R9)", () => {
     assert.deepEqual(counts(result), { scanned: 1, filtered: 0, unchanged: 1, capped: 0 });
   });
 
-  it("filters an epic without the title prefix, with or without a milestone (H2, R2)", () => {
+  it("filters an epic with the exclude prefix, with or without a milestone (F1, F2)", () => {
     const milestones = milestoneIndex(ghMilestone(3, "[YT-9] Old"));
 
     const result = plan([epic(9, { ...FILTERED, ...RESOLVED }), epic(10, FILTERED)], { milestones });
@@ -78,7 +78,7 @@ describe("planActions: epics become milestones (H1, H2, R9)", () => {
   it("never renames a milestone whose epic summary changed (D7)", () => {
     const milestones = milestoneIndex(ghMilestone(3, "[YT-9] Old name"));
 
-    const result = plan([epic(9, { summary: "[team] A completely new name" })], { milestones });
+    const result = plan([epic(9, { summary: "A completely new name" })], { milestones });
 
     assert.deepEqual(result.actions, []);
     assert.equal(result.unchanged, 1);

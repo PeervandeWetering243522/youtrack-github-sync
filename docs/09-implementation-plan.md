@@ -16,7 +16,7 @@
   `milestonesCreated` and `milestonesClosed` after `closed`. §5 below shows the current layout.
 - **Summary line (R5).** `yt-gh-sync <ok|failed> scanned= created= closed= skipped= capped=
 failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` = `filtered`
-  (no title prefix) + `unchanged` (mirror already in the right state, or resolved with no
+  (exclude prefix, F1) + `unchanged` (mirror already in the right state, or resolved with no
   mirror, R9). A failed read logs the
   same line with outcome `failed` before the error is rethrown; a failed write logs it at the
   end, then `SyncFailedError` is thrown.
@@ -25,6 +25,12 @@ failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` =
   no create+close pair: every action (create or close; since docs/11 every kind) costs 1 write. The write cap takes
   actions in order while they fit and stops at the first that does not; nothing later jumps
   ahead. Open mirrors are still closed on resolution, closed mirrors are never reopened.
+- **Title filter (F1-F3; supersedes step 3 and A8).** Every issue and epic is mirrored except
+  summaries starting with `YOUTRACK_EXCLUDE_PREFIX` (default `[individual]`, case-insensitive,
+  leading whitespace ignored) and every issue with such an ancestor, of any Type and state
+  (F3, `isExcluded` in `src/plan/exclude.ts`, cycle-safe). Excluded issues count as `filtered`;
+  one excluded after mirroring is ignored, its mirror or milestone left as it is (F2).
+  `YOUTRACK_TITLE_PREFIX` is no longer read.
 - **GitHub rate limit (R7).** A write that fails with a rate limit (403/429 with
   `x-ratelimit-remaining: 0`, with `retry-after`, or whose body names the secondary rate limit)
   is recorded as failed and stops the write phase; the remaining actions count as `capped`.
@@ -45,7 +51,7 @@ failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` =
   never retried.
 - **Config.** `GITHUB_REPO`, `YOUTRACK_BASE_URL` and `YOUTRACK_PROJECT` are **required** with no
   defaults in code (`wrangler.jsonc` sets them for the Worker, `.env` for Node). Only
-  `YOUTRACK_TITLE_PREFIX`, `MAX_WRITES_PER_RUN` (0-40) and `DRY_RUN` have defaults.
+  `YOUTRACK_EXCLUDE_PREFIX`, `MAX_WRITES_PER_RUN` (0-40) and `DRY_RUN` have defaults.
 - **Types.** `unknown` is banned by lint. JSON enters only through `parseJson()` in
   `src/json.ts` as `JsonValue` and is narrowed with type guards. GitHub types derive from
   `@octokit/openapi-types`.
@@ -158,6 +164,7 @@ src/
   hierarchy.ts            # pure: Type classification, parent walks, cycle guard (docs/11)
   plan.ts                 # pure: indexes + hierarchy -> ordered, capped actions (R9, docs/11)
   plan/
+    exclude.ts            # exclude filter: own or ancestor's prefix (F1, F3)
     mirrors.ts            # mirror index (A5, A6)
     milestones.ts         # milestone index (H7)
     desired.ts            # desired milestone, type and parent, and the differences (D1-D3)
@@ -226,16 +233,16 @@ test/                     # node:test; sync tested with a fake fetch
 
 ## 7. Config
 
-| Name                    | Kind   | Default                                                                                                |
-| ----------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN`          | secret | (classic PAT with `repo` scope for now, B12)                                                           |
-| `YOUTRACK_TOKEN`        | secret |                                                                                                        |
-| `GITHUB_REPO`           | var    | required (`wrangler.jsonc` and `.env.example` set `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`) |
-| `YOUTRACK_BASE_URL`     | var    | required (`wrangler.jsonc` and `.env.example` set `https://youtrack.ai.buas.nl`)                       |
-| `YOUTRACK_PROJECT`      | var    | required (`wrangler.jsonc` and `.env.example` set `CUI`)                                               |
-| `YOUTRACK_TITLE_PREFIX` | var    | `[team]`                                                                                               |
-| `MAX_WRITES_PER_RUN`    | var    | `30` (0-40)                                                                                            |
-| `DRY_RUN`               | var    | `true` (only `false`, any case and trimmed, disables it; anything else keeps dry-run on)               |
+| Name                      | Kind   | Default                                                                                                |
+| ------------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN`            | secret | (classic PAT with `repo` scope for now, B12)                                                           |
+| `YOUTRACK_TOKEN`          | secret |                                                                                                        |
+| `GITHUB_REPO`             | var    | required (`wrangler.jsonc` and `.env.example` set `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`) |
+| `YOUTRACK_BASE_URL`       | var    | required (`wrangler.jsonc` and `.env.example` set `https://youtrack.ai.buas.nl`)                       |
+| `YOUTRACK_PROJECT`        | var    | required (`wrangler.jsonc` and `.env.example` set `CUI`)                                               |
+| `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` (F1-F3; replaces `YOUTRACK_TITLE_PREFIX`, which is no longer read)                      |
+| `MAX_WRITES_PER_RUN`      | var    | `30` (0-40)                                                                                            |
+| `DRY_RUN`                 | var    | `true` (only `false`, any case and trimmed, disables it; anything else keeps dry-run on)               |
 
 The Worker gets `vars` in `wrangler.jsonc` and `wrangler secret put` for secrets. Local runs use the
 project `.env` (Node `--env-file-if-exists`, and wrangler reads it too); `npm run sync` does not

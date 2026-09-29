@@ -14,10 +14,15 @@ import type { YouTrackIssue } from "../youtrack.ts";
 import type { MilestoneIndexResult } from "./milestones.ts";
 import type { MirrorIndex, MirrorRef } from "./mirrors.ts";
 
-/** What planning one run knows: the scan's hierarchy, both indexes and what this run creates. */
+/**
+ * What planning one run knows: the scan's hierarchy, which issues are excluded, both
+ * indexes and what this run creates. "Eligible" means not excluded.
+ */
 export type PlanContext = {
   /** buildHierarchy of every scanned issue, filtered and resolved ones included. */
   readonly hierarchy: Hierarchy;
+  /** numberInProject of every excluded scanned issue (isExcluded, F1/F3): never planned for, never a milestone or parent. */
+  readonly excluded: ReadonlySet<number>;
   readonly mirrors: MirrorIndex;
   /** GitHub issue number -> YouTrack numberInProject of every mirror (mirrorNumbers). */
   readonly mirrorOf: ReadonlyMap<number, number>;
@@ -47,12 +52,13 @@ export type ParentChange =
 
 /**
  * The epic whose milestone `issue` belongs in (H4, D1): its nearest Epic ancestor, when that
- * epic has a milestone (whatever the epic's prefix or state) or gets one in this run.
- * Otherwise null; higher epics are never searched.
+ * epic is not excluded and has a milestone (whatever the epic's state) or gets one in this
+ * run. Otherwise null; higher epics are never searched. An excluded epic's issues are
+ * excluded themselves (F3), so the check only matters for inconsistent input.
  */
 export function desiredMilestoneEpic(context: PlanContext, issue: YouTrackIssue): number | null {
   const epic = nearestEpic(context.hierarchy, issue);
-  if (epic === null) return null;
+  if (epic === null || context.excluded.has(epic.numberInProject)) return null;
   const { numberInProject } = epic;
   const isMirrored = context.milestones.index.has(numberInProject) || context.newMilestones.has(numberInProject);
   return isMirrored ? numberInProject : null;
@@ -60,14 +66,15 @@ export function desiredMilestoneEpic(context: PlanContext, issue: YouTrackIssue)
 
 /**
  * The YouTrack issue whose mirror should be the GitHub parent of task `issue` (H3): the
- * nearest non-epic ancestor that has a mirror (whatever its prefix or state) or gets one in
- * this run. The walk ends at the first epic, at a parent outside the scan (D5) and on a
- * cycle. null: top-level.
+ * nearest non-epic ancestor that is not excluded and has a mirror (whatever its state) or
+ * gets one in this run. The walk ends at the first epic, at a parent outside the scan (D5)
+ * and on a cycle. null: top-level. An excluded ancestor's mirror is never used; its
+ * descendants are excluded themselves (F3), so that only matters for inconsistent input.
  */
 export function desiredParent(context: PlanContext, issue: YouTrackIssue): number | null {
-  const parent = parentChain(context.hierarchy, issue).find(
-    ({ numberInProject }) => context.mirrors.has(numberInProject) || context.newIssues.has(numberInProject),
-  );
+  const isCandidate = (n: number): boolean =>
+    !context.excluded.has(n) && (context.mirrors.has(n) || context.newIssues.has(n));
+  const parent = parentChain(context.hierarchy, issue).find(({ numberInProject }) => isCandidate(numberInProject));
   return parent?.numberInProject ?? null;
 }
 

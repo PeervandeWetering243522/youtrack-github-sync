@@ -25,9 +25,15 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
    and its Subtask parent. There is no lookback window. The run fails on any row whose
    `idReadable` is not `<project>-<numberInProject>`, and on any row with two parents or two
    `Type` fields.
-4. **Filters** to issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
-   case-insensitive). Epics are filtered the same way. Everything else counts as `filtered` and
-   gets no write, even if it already has a mirror.
+4. **Filters out** every issue or epic whose summary starts with `YOUTRACK_EXCLUDE_PREFIX`
+   (default `[individual]`, case-insensitive, leading whitespace ignored), and everything below
+   it in YouTrack: an issue is also excluded when any ancestor (parent, grandparent and so on,
+   epics included, resolved or not) starts with the prefix (decisions F1, F3). Excluded issues
+   count as `filtered` and get no write at all, even if they already have a mirror or
+   milestone: one that gets the prefix, or moves under an issue that has it, after it was
+   mirrored keeps its mirror or milestone as it is, which is no longer synced or closed
+   (decision F2). Every other issue goes on to planning, whatever its prefix (`[team]` is an
+   ordinary summary now).
 5. **Plans**, using the [hierarchy mapping](#hierarchy) below:
    - no mirror (for an epic: no milestone) and unresolved in YouTrack: **create** it. An issue
      is `[YT-<n>] <summary>` with the `youtrack` label, and its issue type, milestone and (tasks
@@ -80,15 +86,20 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
 
 - **Milestone:** every mirror gets the milestone of its nearest Epic ancestor, if that epic
   has one. Higher epics are not searched. An existing milestone still counts after its epic
-  loses the prefix or is resolved.
+  is resolved.
 - **Parent:** only tasks become sub-issues. A task goes under the mirror of its nearest
   non-epic ancestor that has one, skipping ancestors without a mirror. The walk stops at the
   first epic. With no such ancestor the task is top-level, and it is moved once a parent
   mirror exists. Stories, bugs and other issues are always top-level, so one that sits under
   another mirror is detached.
 - **Parent links** come from YouTrack's Subtask link. A parent in another project ends the
-  walk. A parent cycle, which YouTrack should never hold, is ignored and logged as
-  `YT-<n>: parent chain loops back to YT-<m>`.
+  walk. A parent cycle, which YouTrack should never hold, is ignored for milestones and
+  parents and logged as `YT-<n>: parent chain loops back to YT-<m>`. The exclude filter still
+  follows it: if any issue on a cycle has the exclude prefix, the whole cycle and everything
+  below it is excluded.
+- **Excluded issues** are never used as a milestone or parent: everything below one is
+  excluded too. A mirror that still sits under an excluded issue's mirror, or in an excluded
+  epic's milestone, is moved or detached like any other once YouTrack has it elsewhere.
 - **Hand-made links stay:** a milestone or parent that is not a mirror is left alone unless
   YouTrack wants a mirrored one there. A type is never cleared, so a mirror whose YouTrack type
   has no mapping keeps whatever type it has on GitHub.
@@ -111,27 +122,29 @@ lines end with the title. A milestone or mirror that the run would create earlie
 `(new)`:
 
 ```text
-[dry-run] would create milestone YT-40: [YT-40] [team] Data pipeline
-[dry-run] would create YT-41 with type Feature, milestone YT-40 (new): [YT-41] [team] Ingest the data
-[dry-run] would create YT-42 with type Task, milestone YT-40 (new), parent YT-41 (new): [YT-42] [team] Clean the data
+[dry-run] would create milestone YT-40: [YT-40] Data pipeline
+[dry-run] would create YT-41 with type Feature, milestone YT-40 (new): [YT-41] Ingest the data
+[dry-run] would create YT-42 with type Task, milestone YT-40 (new), parent YT-41 (new): [YT-42] Clean the data
 [dry-run] would update YT-15 #21: set type Task
 [dry-run] would close YT-3 #12
 ```
 
 ## Configuration
 
-| Name                    | Kind   | Default  | Notes                                                                                                                          |
-| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN`          | secret | required | Classic PAT with the `repo` scope (decision B12).                                                                              |
-| `YOUTRACK_TOKEN`        | secret | required | YouTrack permanent token.                                                                                                      |
-| `GITHUB_REPO`           | var    | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                                       |
-| `YOUTRACK_BASE_URL`     | var    | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`.                  |
-| `YOUTRACK_PROJECT`      | var    | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                                               |
-| `YOUTRACK_TITLE_PREFIX` | var    | `[team]` | Case-insensitive summary prefix that marks an issue or epic for mirroring.                                                     |
-| `MAX_WRITES_PER_RUN`    | var    | `30`     | Whole number from 0 to 40. Every write counts 1: create, close, update, move, detach, milestone create or close, label re-add. |
-| `DRY_RUN`               | var    | on       | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                          |
+| Name                      | Kind   | Default        | Notes                                                                                                                          |
+| ------------------------- | ------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN`            | secret | required       | Classic PAT with the `repo` scope (decision B12).                                                                              |
+| `YOUTRACK_TOKEN`          | secret | required       | YouTrack permanent token.                                                                                                      |
+| `GITHUB_REPO`             | var    | required       | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                                       |
+| `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`.                  |
+| `YOUTRACK_PROJECT`        | var    | required       | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                                               |
+| `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` | Case-insensitive summary prefix that keeps an issue or epic, and everything below it, out of the mirror. Not blank when set.   |
+| `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. Every write counts 1: create, close, update, move, detach, milestone create or close, label re-add. |
+| `DRY_RUN`                 | var    | on             | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                          |
 
 Invalid config fails the run before any request is made, listing every problem at once.
+`YOUTRACK_TITLE_PREFIX` (the old `[team]` inclusion filter) is no longer read: if an older
+`.env` or `config.env` still sets it, it is ignored and can be removed.
 
 Where the values come from:
 
@@ -293,7 +306,7 @@ inline comments):
 GITHUB_REPO=BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI
 YOUTRACK_BASE_URL=https://youtrack.ai.buas.nl
 YOUTRACK_PROJECT=CUI
-YOUTRACK_TITLE_PREFIX=[team]
+YOUTRACK_EXCLUDE_PREFIX=[individual]
 MAX_WRITES_PER_RUN=30
 DRY_RUN=true
 ```

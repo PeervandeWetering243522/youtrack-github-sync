@@ -185,7 +185,8 @@ describe("planActions: warnings", () => {
     const result = plan(issues);
 
     assert.deepEqual(result.warnings, ["YT-2: parent chain loops back to YT-1"]);
-    assert.equal(result.filtered, 1);
+    // YT-2's parent is the excluded YT-1, so it is excluded too (F3 follows cycle links).
+    assert.equal(result.filtered, 2);
   });
 });
 

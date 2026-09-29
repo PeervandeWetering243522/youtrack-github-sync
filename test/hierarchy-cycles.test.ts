@@ -1,7 +1,8 @@
 /**
- * Tests for src/hierarchy.ts on broken data: parent cycles (every link on a cycle is
- * ignored, one warning per cycle), prototype-like ids, and a seeded fuzz of random scans
- * checked against an independent cycle oracle and the recursive definitions of the walks.
+ * Tests for src/hierarchy.ts on broken data: parent cycles (the forest walks ignore every
+ * link on a cycle, one warning per cycle), prototype-like ids, and a seeded fuzz of random
+ * scans checked against an independent cycle oracle, the recursive definitions of the
+ * walks and an independent walk for linkedAncestors (which follows cycle links).
  */
 
 import assert from "node:assert/strict";
@@ -9,10 +10,12 @@ import { describe, it } from "node:test";
 
 import {
   YOUTRACK_TYPES,
+  ancestors,
   buildHierarchy,
   classify,
   depth,
   hierarchyWarnings,
+  linkedAncestors,
   nearestEpic,
   parentChain,
 } from "../src/hierarchy.ts";
@@ -66,6 +69,7 @@ function loopWarning(closer: number, lowest: number): string {
 /** Asserts that `issue` behaves as a root: no ancestors at all. */
 function assertRoot(hierarchy: Hierarchy, issue: YouTrackIssue): void {
   const label = issue.idReadable;
+  assert.deepEqual(ancestors(hierarchy, issue), [], label);
   assert.equal(nearestEpic(hierarchy, issue), null, label);
   assert.deepEqual(parentChain(hierarchy, issue), [], label);
   assert.equal(depth(hierarchy, issue), 0, label);
@@ -328,6 +332,17 @@ function oracleWarnings(issues: readonly YouTrackIssue[]): readonly string[] {
   });
 }
 
+/** Independent oracle for linkedAncestors: follow parents from `issue` until none, `issue` or a repeat. */
+function oracleLinked(issues: readonly YouTrackIssue[], issue: YouTrackIssue): readonly YouTrackIssue[] {
+  const found: YouTrackIssue[] = [];
+  let current = oracleParent(issues, issue);
+  while (current !== undefined && current !== issue && !found.includes(current)) {
+    found.push(current);
+    current = oracleParent(issues, current);
+  }
+  return found;
+}
+
 /** Checks the walks of `issue` against their recursive definitions (links on a cycle ignored). */
 function assertWalks(issues: readonly YouTrackIssue[], hierarchy: Hierarchy, issue: YouTrackIssue): void {
   const label = `${issue.idReadable} (parent ${String(issue.parentId)})`;
@@ -337,6 +352,7 @@ function assertWalks(issues: readonly YouTrackIssue[], hierarchy: Hierarchy, iss
     return;
   }
   const parentIsEpic = classify(parent.type).kind === "milestone";
+  assert.deepEqual(ancestors(hierarchy, issue), [parent, ...ancestors(hierarchy, parent)], label);
   assert.equal(depth(hierarchy, issue), depth(hierarchy, parent) + 1, label);
   assert.equal(nearestEpic(hierarchy, issue), parentIsEpic ? parent : nearestEpic(hierarchy, parent), label);
   const expectedChain = parentIsEpic ? [] : [parent, ...parentChain(hierarchy, parent)];
@@ -350,7 +366,10 @@ describe("fuzz: random scans", () => {
     for (let scan = 0; scan < FUZZ_SCANS; scan += 1) {
       const issues = Object.freeze(fuzzScan(random));
       const hierarchy = buildHierarchy(issues);
-      for (const issue of issues) assertWalks(issues, hierarchy, issue);
+      for (const issue of issues) {
+        assertWalks(issues, hierarchy, issue);
+        assert.deepEqual(linkedAncestors(hierarchy, issue), oracleLinked(issues, issue), issue.idReadable);
+      }
       const warnings = hierarchyWarnings(hierarchy);
       assert.deepEqual(warnings, oracleWarnings(issues), `scan ${String(scan)}`);
       cyclesSeen += warnings.length;

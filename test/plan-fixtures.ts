@@ -18,7 +18,7 @@ import type { MirrorIndex, MirrorRef } from "../src/plan/mirrors.ts";
 import type { YouTrackIssue } from "../src/youtrack.ts";
 
 export const LABEL = "youtrack";
-export const PREFIX = "[team]";
+export const EXCLUDE_PREFIX = "[individual]";
 export const RESOLVED_AT = 1_758_000_000_000;
 
 // ---------------------------------------------------------------------------
@@ -106,12 +106,12 @@ export const NO_MILESTONES: MilestoneIndexResult = milestoneIndex();
 // ---------------------------------------------------------------------------
 // YouTrack
 
-/** An unresolved "[team]" issue CUI-<n> with no Type and no parent. */
+/** An unresolved issue CUI-<n> with no Type, no parent and no exclude prefix. */
 export function ytIssue(numberInProject: number, overrides: Partial<YouTrackIssue> = {}): YouTrackIssue {
   return Object.freeze({
     idReadable: `CUI-${String(numberInProject)}`,
     numberInProject,
-    summary: `${PREFIX} Issue ${String(numberInProject)}`,
+    summary: `Issue ${String(numberInProject)}`,
     description: null,
     resolved: null,
     updated: 0,
@@ -146,8 +146,8 @@ export function under(parent: number): Partial<YouTrackIssue> {
   return { parentId: `CUI-${String(parent)}` };
 }
 
-/** Overrides for a summary without the title prefix (the issue is filtered). */
-export const FILTERED: Partial<YouTrackIssue> = Object.freeze({ summary: "Not for the team" });
+/** Overrides for a summary with the exclude prefix (the issue and its descendants are filtered, F1/F3). */
+export const FILTERED: Partial<YouTrackIssue> = Object.freeze({ summary: `${EXCLUDE_PREFIX} Not for the team` });
 
 // ---------------------------------------------------------------------------
 // Planning
@@ -156,7 +156,7 @@ export type PlanOptions = {
   readonly mirrors?: MirrorIndex;
   readonly milestones?: MilestoneIndexResult;
   readonly maxWrites?: number;
-  readonly titlePrefix?: string;
+  readonly excludePrefix?: string;
 };
 
 export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOptions = {}): Plan {
@@ -164,7 +164,7 @@ export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOpti
     youtrackIssues: Object.freeze([...youtrackIssues]),
     mirrors: options.mirrors ?? NO_MIRRORS,
     milestones: options.milestones ?? NO_MILESTONES,
-    titlePrefix: options.titlePrefix ?? PREFIX,
+    excludePrefix: options.excludePrefix ?? EXCLUDE_PREFIX,
     maxWrites: options.maxWrites ?? 30,
   });
 }

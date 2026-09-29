@@ -9,7 +9,7 @@ export const ENV_KEYS = [
   "YOUTRACK_BASE_URL",
   "YOUTRACK_TOKEN",
   "YOUTRACK_PROJECT",
-  "YOUTRACK_TITLE_PREFIX",
+  "YOUTRACK_EXCLUDE_PREFIX",
   "MAX_WRITES_PER_RUN",
   "DRY_RUN",
 ] as const;
@@ -28,13 +28,16 @@ export type Config = {
   readonly youtrackToken: string;
   /** Project shortName, e.g. "CUI". */
   readonly youtrackProject: string;
-  /** Case-insensitive summary prefix that marks an issue for mirroring, e.g. "[team]". */
-  readonly titlePrefix: string;
+  /**
+   * Case-insensitive summary prefix that keeps an issue out of the mirror, e.g. "[individual]".
+   * Every other issue is mirrored (decision F1).
+   */
+  readonly excludePrefix: string;
   readonly maxWritesPerRun: number;
   readonly dryRun: boolean;
 };
 
-export const DEFAULT_TITLE_PREFIX = "[team]";
+export const DEFAULT_EXCLUDE_PREFIX = "[individual]";
 export const DEFAULT_MAX_WRITES_PER_RUN = 30;
 /** Upper bound for MAX_WRITES_PER_RUN so reads always fit under the fetch guard. */
 export const MAX_WRITES_LIMIT = 40;
@@ -58,9 +61,11 @@ export class ConfigError extends Error {
  * - YOUTRACK_BASE_URL: required, absolute https URL; trailing slashes removed.
  * - YOUTRACK_PROJECT: required, /^[A-Za-z0-9][A-Za-z0-9_-]*$/. It is interpolated into a
  *   search query, and a leading "-" is YouTrack's minus (exclusion) operator (docs/01).
- * - YOUTRACK_TITLE_PREFIX: optional, default DEFAULT_TITLE_PREFIX; must be non-empty if set.
+ * - YOUTRACK_EXCLUDE_PREFIX: optional, default DEFAULT_EXCLUDE_PREFIX; must be non-empty after
+ *   trim if set.
  * - MAX_WRITES_PER_RUN: optional, default DEFAULT_MAX_WRITES_PER_RUN; integer 0..MAX_WRITES_LIMIT.
  * - DRY_RUN: optional; only the exact string "false" (case-insensitive, trimmed) disables it.
+ * Keys outside ENV_KEYS, such as the retired YOUTRACK_TITLE_PREFIX, are ignored.
  */
 export function parseConfig(env: EnvSource): Config {
   const githubToken = requireToken("GITHUB_TOKEN", env.GITHUB_TOKEN);
@@ -68,7 +73,7 @@ export function parseConfig(env: EnvSource): Config {
   const baseUrl = andThen(requireValue("YOUTRACK_BASE_URL", env.YOUTRACK_BASE_URL), parseBaseUrl);
   const youtrackToken = requireToken("YOUTRACK_TOKEN", env.YOUTRACK_TOKEN);
   const project = andThen(requireValue("YOUTRACK_PROJECT", env.YOUTRACK_PROJECT), parseProject);
-  const titlePrefix = optionalValue(env.YOUTRACK_TITLE_PREFIX, DEFAULT_TITLE_PREFIX, parseTitlePrefix);
+  const excludePrefix = optionalValue(env.YOUTRACK_EXCLUDE_PREFIX, DEFAULT_EXCLUDE_PREFIX, parseExcludePrefix);
   const maxWrites = optionalValue(env.MAX_WRITES_PER_RUN, DEFAULT_MAX_WRITES_PER_RUN, parseMaxWrites);
 
   if (
@@ -77,10 +82,10 @@ export function parseConfig(env: EnvSource): Config {
     !baseUrl.ok ||
     !youtrackToken.ok ||
     !project.ok ||
-    !titlePrefix.ok ||
+    !excludePrefix.ok ||
     !maxWrites.ok
   ) {
-    const results = [githubToken, repository, baseUrl, youtrackToken, project, titlePrefix, maxWrites];
+    const results = [githubToken, repository, baseUrl, youtrackToken, project, excludePrefix, maxWrites];
     throw new ConfigError(results.flatMap((result) => (result.ok ? [] : result.problems)));
   }
 
@@ -91,7 +96,7 @@ export function parseConfig(env: EnvSource): Config {
     youtrackBaseUrl: baseUrl.value,
     youtrackToken: youtrackToken.value,
     youtrackProject: project.value,
-    titlePrefix: titlePrefix.value,
+    excludePrefix: excludePrefix.value,
     maxWritesPerRun: maxWrites.value,
     dryRun: parseDryRun(env.DRY_RUN),
   });
@@ -209,8 +214,9 @@ function parseProject(value: string): FieldResult<string> {
     : invalid('YOUTRACK_PROJECT must start with a letter or digit and contain only letters, digits, "_" or "-"');
 }
 
-function parseTitlePrefix(value: string): FieldResult<string> {
-  return value === "" ? invalid("YOUTRACK_TITLE_PREFIX must not be empty when set") : valid(value);
+/** An empty prefix would match every summary and so keep every issue out of the mirror. */
+function parseExcludePrefix(value: string): FieldResult<string> {
+  return value === "" ? invalid("YOUTRACK_EXCLUDE_PREFIX must not be empty when set") : valid(value);
 }
 
 function parseMaxWrites(value: string): FieldResult<number> {
