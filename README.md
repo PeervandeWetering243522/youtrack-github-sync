@@ -204,7 +204,7 @@ has no public URL. The cron is `*/10 * * * *` (UTC).
 
 ```bash
 npx wrangler login
-npx wrangler deploy                      # DRY_RUN is "true" in wrangler.jsonc
+npx wrangler deploy                      # check "DRY_RUN" in wrangler.jsonc first
 npx wrangler secret put GITHUB_TOKEN     # prompts for the value
 npx wrangler secret put YOUTRACK_TOKEN
 npx wrangler tail                        # live logs; add --status error to see failures only
