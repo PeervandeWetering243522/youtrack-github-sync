@@ -37,6 +37,6 @@
     "YOUTRACK_PROJECT": "CUI",
     "YOUTRACK_EXCLUDE_PREFIX": "[individual]",
     "MAX_WRITES_PER_RUN": "30",
-    "DRY_RUN": "false",
+    "DRY_RUN": "true",
   },
 }
