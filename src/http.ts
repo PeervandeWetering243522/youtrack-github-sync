@@ -10,7 +10,8 @@ import { parseRetryAfterMs } from "./http/retry-after.ts";
 import { parseJson, type JsonValue } from "./json.ts";
 import { redactedExcerpt } from "./utils/redact.ts";
 
-export type HttpMethod = "GET" | "POST" | "PATCH";
+/** DELETE carries a JSON body like POST and PATCH do (GitHub's remove-sub-issue needs one). */
+export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 /**
  * "retry-once": on a network error, timeout, 5xx, 429 or a 403 carrying retry-after

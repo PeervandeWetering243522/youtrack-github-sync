@@ -2,7 +2,61 @@
 
 > Drafted 2026-09-28 from [10-hierarchy-design.md](10-hierarchy-design.md) and decisions H1-H10 in
 > [08-decisions.md](08-decisions.md). Detail rules D1-D8 were accepted on 2026-09-28.
-> Nothing here changes the live Worker until it is deployed.
+> **Status: steps 1-8 implemented, not yet deployed** (step 9 below is still open). The
+> "As built" section lists where the code refines this plan and supersedes the sections it
+> names. Where this plan and the code still differ, `README.md` and `src/` are authoritative.
+
+## As built
+
+- **Desired milestone (§1.2).** An epic's milestone counts when it exists in the milestone index
+  (whatever the epic's prefix or state) or is created in this run. So a mirror under a resolved
+  epic gets that epic's closed milestone, on create and on update (V4).
+- **Desired parent (§1.2).** The nearest non-epic ancestor that has a mirror (whatever its prefix
+  or state) or gets one in this run. Unmirrored ancestors are skipped; the walk ends at the
+  first epic, at a parent outside the scan (D5) or on a cycle.
+- **Parent lookup and cycles.** Parents are looked up among all scanned issues by `idReadable`,
+  compared ASCII-case-insensitively. Every parent link on a cycle is ignored, so each issue on it
+  acts as a root, and one warning per cycle is logged:
+  `YT-<n>: parent chain loops back to YT-<m>` (`m` is the cycle's lowest number).
+- **Ownership (§1.3, D2).** An `update` clears the milestone only when the current one is a
+  mirror milestone, and a `removeParent` only detaches from a parent that is a mirror in this
+  repo. A hand-made milestone, a hand-made parent or a parent in another repo is replaced only
+  when YouTrack wants a mirrored one. Every non-task mirror (story, bug, unknown type) that sits
+  under a mirror is detached (H9). GitHub type names are compared exactly (V2).
+- **Order (§1.4).** Task creates are sorted by YouTrack depth, which counts epic ancestors too.
+  The sort is stable, so an issue's `update` runs before its `setParent`/`removeParent`.
+- **Cap during execution.** Before each action, if the writes sent so far plus its cost would
+  exceed `MAX_WRITES_PER_RUN`, it and the rest are capped (no warning). This catches the label
+  re-adds the planner cannot foresee.
+- **Waits (D4).** An action whose milestone or parent mirror is missing from the run-local map
+  is capped with `<action> capped: the mirror of YT-<n> was not created in this run` (or
+  `the milestone of YT-<n>`). It sends nothing, takes no pause, and the run goes on. A waiting
+  `update` is capped whole, type change included, so a milestone create that keeps failing
+  blocks every create and update under that epic on every run.
+- **Dropped fields (§1.6).** The create answer is checked for milestone, type and parent
+  (`parent_issue_url`, V3), the update answer for milestone and type. Each drop is one warning,
+  e.g. `YT-40 #101: GitHub dropped type Task on create; the next run's sync repairs this`. No
+  extra write is sent.
+- **Reads (§2.1).** `YouTrackIssue.type` is the `Type` value name (null: no Type field or an
+  empty value); `parentId` is the parent's `idReadable`. Two parents or two `Type` entries fail
+  the row. A `parent_issue_url` in this repo that is not `.../issues/{n}` fails the GitHub read.
+- **Modules (§2).** `src/github.ts` is gone. Imports use the modules in `src/github/`:
+  `client.ts`, `link.ts`, `pages.ts`, `issues.ts`, `milestones.ts` and `sub-issues.ts`.
+  `hierarchy.ts` exports `classify`, `buildHierarchy`, `nearestEpic`, `parentChain`, `depth` and
+  `hierarchyWarnings`; there is no `DesiredState` type. The desired state is computed in
+  `src/plan/desired.ts` and the indexes are built in `src/plan/mirrors.ts` and
+  `src/plan/milestones.ts`, while `src/plan.ts` keeps the actions, order and cap. Execution is
+  split over `src/sync/`: `execute.ts`, `execute-write.ts`, `execute-issues.ts`,
+  `execute-hierarchy.ts`, `resolved.ts`, `preview.ts` and `describe.ts`. `HttpMethod` gains
+  `DELETE`.
+- **Retries.** Issue and milestone creates are never retried; every other write is retried once.
+- **Known limitation: swapping two task mirrors.** Task A sits under task B on GitHub and
+  YouTrack now has B under A. When B has the lower number, B's `setParent` runs before A's
+  `removeParent` (or `setParent`, when A has a new mirrored parent), and GitHub is expected to
+  refuse the cycle (unverified), so that write fails the run. A still leaves B in the same run
+  and the next run moves B. Ordering the parent changes so that A leaves B first would avoid
+  this (running every `removeParent` first covers only the detach case); that change needs a
+  decision.
 
 ## 1. Behaviour, precisely
 
@@ -40,7 +94,7 @@ issue including filtered and resolved ones:
 | Epic resolved, milestone open                            | `closeMilestone`  | `PATCH /milestones/{n}` `state: closed`        |
 | Eligible unresolved issue/task, no mirror                | `create`          | `POST /issues` + milestone, type, parent       |
 | Resolved, mirror open                                    | `close`           | `PATCH /issues/{n}` (unchanged, A7)            |
-| Mirror's milestone or type differs from desired (D2, D3) | `update`          | one `PATCH /issues/{n}` with both fields       |
+| Mirror's milestone or type differs from desired (D2, D3) | `update`          | one `PATCH /issues/{n}`, milestone and/or type |
 | Task mirror should sit under another mirror              | `setParent`       | `POST /issues/{p}/sub_issues` `replace_parent` |
 | Mirror sits under a mirror but should be top-level       | `removeParent`    | `DELETE /issues/{old}/sub_issue`               |
 
@@ -113,8 +167,8 @@ unchanged labelsReAdded fetches dryRun`, where `updated` counts `update` + `setP
     `removeSubIssue(parentNumber, childId)`.
   - `github/milestones.ts`: `GitHubMilestone` (number, title, state), `listAllMilestones`,
     `createMilestone`, `closeMilestone`.
-  - `src/github.ts` stays as a barrel re-export so existing imports keep working, or imports are
-    updated in the same change (preferred; no barrel).
+  - `github/pages.ts` (added): the paged list read shared by issues and milestones.
+  - `src/github.ts` is removed and every import updated in the same change (no barrel).
   - Types from `@octokit/openapi-types` (`milestone`, `issue-type`, operations for sub-issues,
     milestones, issues/update).
   - `parent_issue_url` -> `parentNumber` only when it is this repo's
@@ -146,14 +200,23 @@ unchanged labelsReAdded fetches dryRun`, where `updated` counts `update` + `setP
     A10. `replace_parent: true` makes `setParent` idempotent.
 - **`src/sync/tally.ts`**: counters `updated`, `milestonesCreated`, `milestonesClosed`.
 - **`src/sync.ts`**: reads milestones, builds both indexes, passes hierarchy to the planner,
-  previews the new actions in dry run (`[dry-run] would create milestone YT-33: ...`,
-  `would set milestone of YT-15 #21 to YT-33`, `would move YT-40 #25 under YT-35 #24`, ...),
-  extends the summary.
+  previews the new actions in dry run and extends the summary. Preview lines as built (numbers
+  only; the two create lines end with the title; a same-run dependency shows as `(new)`):
+  - `[dry-run] would create milestone YT-34: [YT-34] <summary>`
+  - `[dry-run] would close milestone YT-33 #7`
+  - `[dry-run] would create YT-40 with type Task, milestone YT-34 (new), parent YT-35 (new): [YT-40] <summary>`
+  - `[dry-run] would update YT-15 #21: set milestone YT-33 #7, set type Task` (or `clear milestone`)
+  - `[dry-run] would move YT-41 #25 under YT-36 #22`
+  - `[dry-run] would detach YT-42 #26 from parent YT-36 #22`
+  - `[dry-run] would close YT-44 #28`
+
+  A real run logs the same text without `[dry-run] would`. Creates end with ` -> #<number>`
+  instead of the title, and their dependencies show resolved numbers.
 
 ### 2.4 Docs
 
 README (behaviour, summary line, budget), CLAUDE.md (layout, hierarchy rule), docs/09 "As built",
-docs/10 (final rules), `.env.example` unchanged (no new config).
+docs/10 (final rules), `.env.example` comments only (no new config).
 
 ## 3. Tests (TDD: written first, per module)
 
@@ -168,36 +231,58 @@ docs/10 (final rules), `.env.example` unchanged (no new config).
 ## 4. Verification and rollout
 
 1. `npm run check` + coverage (>= current 99.9% lines).
-2. Live dry run on CUI (GET only): expected today: `[dry-run] would update YT-15 #21` (type
-   `Task`), nothing else, because neither epic has `[team]` and all `[team]` issues are resolved.
-3. **V1/V2, needs your OK (real writes):** run once with `DRY_RUN=false` against a scratch
-   GitHub repo you own (`GITHUB_REPO=<you>/yt-gh-scratch`, same YouTrack project) to confirm on a
-   real API: milestone with a long description (V1), issue types `Feature/Bug/Task` accepted by
-   name (V2), `parent_issue_id` on create and `replace_parent` moves (V3). Alternative: a few
-   `[team]` test issues in YouTrack against the real repo.
+2. Live dry run on CUI (GET only). Expected with the 2026-09-28 data:
+   `[dry-run] would update YT-15 #21: set type Task` and nothing else, because neither epic has
+   `[team]` and all `[team]` issues are resolved.
+3. **V1-V4, needs your OK (real writes):** run once with `DRY_RUN=false` against a **private**
+   scratch repo in the BredaUniversityADSAI org (issue types are defined per organization, so a
+   personal repo cannot check V2), for example
+   `GITHUB_REPO=BredaUniversityADSAI/yt-gh-scratch`, with the same YouTrack project. It needs the
+   `youtrack` label (G1). An empty repo gets no writes from today's CUI data (R9), so V1-V4 need a
+   few unresolved test issues in YouTrack, made by hand (this tool never writes YouTrack): an
+   epic, a story under it and a task under the story. **Do not give them the `[team]` prefix:**
+   the live Worker (`DRY_RUN=false`, prefix `[team]`) scans the same project and would mirror
+   them into the real repo within 10 minutes, as plain issues (the deployed version predates
+   the hierarchy). Use another prefix, for example `[yt-test]`, with
+   `YOUTRACK_TITLE_PREFIX=[yt-test]` for the scratch run only, or deploy the Worker with
+   `DRY_RUN=true` first. Test issues in CUI are visible to everyone in the project. Things to
+   confirm on the real API:
+   - V1: a milestone with a long description;
+   - V2: issue types `Feature`, `Bug` and `Task` accepted by name, and `type.name` returned with
+     the same case (otherwise every run sends an update and warns);
+   - V3: `parent_issue_id` on create (with `parent_issue_url` in the 201 answer, otherwise every
+     task created with a parent logs a false "dropped parent" warning), `replace_parent` moves,
+     and adding a closed issue as a sub-issue;
+   - V4: an issue created or updated with a closed milestone (a mirror under a resolved epic).
+     If GitHub refuses it, that create or update fails on every run.
 4. Deploy with `DRY_RUN=true`, check one `wrangler tail` run, then `DRY_RUN=false`.
 
 ## 5. Work breakdown
 
-| Step | Work                                                                    | Depends on |
-| ---- | ----------------------------------------------------------------------- | ---------- |
-| 1    | Record H6/H9/H10 and D1-D8; update docs/10                              | -          |
-| 2    | `youtrack.ts`: Type + parent (+ tests)                                  | 1          |
-| 3    | Split `github.ts` into `src/github/` with no behaviour change           | 1          |
-| 4    | `github/milestones.ts`, `github/sub-issues.ts`, issue fields (+ tests)  | 3          |
-| 5    | `hierarchy.ts` (+ tests)                                                | 2          |
-| 6    | `plan.ts` actions, ordering, deferral (+ tests)                         | 4, 5       |
-| 7    | `sync/execute.ts`, `tally.ts`, `sync.ts`, dry-run preview (+ e2e tests) | 6          |
-| 8    | Docs, README, CLAUDE.md                                                 | 7          |
-| 9    | Review (code + security), live dry run, V1-V3 with your OK              | 8          |
+| Step | Work                                                                    | Depends on | Status |
+| ---- | ----------------------------------------------------------------------- | ---------- | ------ |
+| 1    | Record H6/H9/H10 and D1-D8; update docs/10                              | -          | done   |
+| 2    | `youtrack.ts`: Type + parent (+ tests)                                  | 1          | done   |
+| 3    | Split `github.ts` into `src/github/` with no behaviour change           | 1          | done   |
+| 4    | `github/milestones.ts`, `github/sub-issues.ts`, issue fields (+ tests)  | 3          | done   |
+| 5    | `hierarchy.ts` (+ tests)                                                | 2          | done   |
+| 6    | `plan.ts` actions, ordering, deferral (+ tests)                         | 4, 5       | done   |
+| 7    | `sync/execute.ts`, `tally.ts`, `sync.ts`, dry-run preview (+ e2e tests) | 6          | done   |
+| 8    | Docs, README, CLAUDE.md                                                 | 7          | done   |
+| 9    | Review (code + security), live dry run, V1-V4 with your OK              | 8          | open   |
 
 Steps 2, 3 and 5 can run in parallel; 4 after 3; the rest in order.
 
 ## 6. Risks
 
-- **Undocumented behaviour** (V1-V3): milestone description limit, invalid type names, adding a
-  closed issue as a sub-issue. Mitigation: scratch-repo run before going live; failures are
-  recorded per write and never block other actions.
+- **Undocumented behaviour** (V1-V4): milestone description limit, invalid type names, adding a
+  closed issue as a sub-issue, a closed milestone on an issue. Mitigation: scratch-repo run
+  before going live; failures are recorded per write and block only the actions that wait for
+  them (D4).
+- **Blocked epics:** a milestone create that always fails (for example on the unknown
+  description limit, V1) caps every create and update under that epic on every run, and the
+  failure is logged on every run.
+- **Swapping two task mirrors** fails one run (see "As built").
 - **Churn from hand edits on GitHub:** a teammate moving a mirrored task under another issue is
   moved back every run (only when the new parent is also a mirror, D2).
 - **Budget:** a large reorganisation in YouTrack (many tasks moved) is spread over several runs by

@@ -7,6 +7,13 @@
 
 ## As built
 
+- **Hierarchy (H1-H10, D1-D8).** Epics, stories, bugs and tasks are mirrored as milestones,
+  issue types and sub-issues, as designed in [10-hierarchy-design.md](10-hierarchy-design.md)
+  and implemented per [11-hierarchy-plan.md](11-hierarchy-plan.md) (see its "As built"
+  section). That work supersedes this plan's §1 (a milestones read, and new actions for
+  milestones, updates, moves and detaches), §3 (3 reads per run today), §4 (every write except
+  the two creates is retried once) and the summary line below, which gains `updated`,
+  `milestonesCreated` and `milestonesClosed` after `closed`. §5 below shows the current layout.
 - **Summary line (R5).** `yt-gh-sync <ok|failed> scanned= created= closed= skipped= capped=
 failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` = `filtered`
   (no title prefix) + `unchanged` (mirror already in the right state, or resolved with no
@@ -15,7 +22,7 @@ failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` =
   end, then `SyncFailedError` is thrown.
 - **Already-resolved issues (R9, supersedes R6).** An issue that is resolved and has no mirror
   gets no mirror; it counts as `unchanged`. Only unresolved issues are created, so there is
-  no create+close pair: every action (create or close) costs 1 write. The write cap takes
+  no create+close pair: every action (create or close; since docs/11 every kind) costs 1 write. The write cap takes
   actions in order while they fit and stops at the first that does not; nothing later jumps
   ahead. Open mirrors are still closed on resolution, closed mirrors are never reopened.
 - **GitHub rate limit (R7).** A write that fails with a rate limit (403/429 with
@@ -30,10 +37,12 @@ failed= filtered= unchanged= labelsReAdded= fetches= dryRun=`, where `skipped` =
 - **Fetch guard and retries.** The guard refuses the 46th fetch. When it refuses a write
   (nothing sent), that action and the rest count as `capped`. A write that was sent and failed
   but whose retry the guard cannot pay for counts as `failed` (A10). "Retry once" applies to
-  GETs, closes and label re-adds on a network error, timeout, 5xx, 429, or a 403 carrying
+  GETs and every write except a create (closes and label re-adds; since docs/11 also updates,
+  moves, detaches and milestone closes) on a network error, timeout, 5xx, 429, or a 403 carrying
   `retry-after`. The retry waits `retry-after` when it is ≤ 10 s and 2 s when the header is
   missing or unreadable; there is no retry when `retry-after` is over 10 s, or on a primary
-  rate limit without a usable `retry-after`. Creates are never retried.
+  rate limit without a usable `retry-after`. Creates (issues, and since docs/11 milestones) are
+  never retried.
 - **Config.** `GITHUB_REPO`, `YOUTRACK_BASE_URL` and `YOUTRACK_PROJECT` are **required** with no
   defaults in code (`wrangler.jsonc` sets them for the Worker, `.env` for Node). Only
   `YOUTRACK_TITLE_PREFIX`, `MAX_WRITES_PER_RUN` (0-40) and `DRY_RUN` have defaults.
@@ -137,14 +146,32 @@ src/
     rate-limit.ts         # GitHub primary/secondary rate-limit detection (R7)
     redact.ts             # credential headers out of error text
     retry-after.ts        # strict retry-after parsing (delta-seconds, HTTP-date)
-  youtrack.ts             # derived YouTrackIssue type, field list, guard, R4 check, paged full scan
-  github.ts               # list (Link paging), create, close, add labels; types from @octokit/openapi-types
+  youtrack.ts             # derived YouTrackIssue type (+ Type, parent), field list, guard, R4 check, paged full scan
+  github/                 # types from @octokit/openapi-types
+    client.ts             # target, headers, URL and request builders, GitHubSchemaError
+    link.ts               # Link header parsing (nextPageUrl, GitHub origin only)
+    pages.ts              # paged list reads
+    issues.ts             # issue shape (id, milestone, type, parent), list, create, update, close, add label
+    milestones.ts         # milestone shape, list, create, close
+    sub-issues.ts         # add (replace_parent) and remove a sub-issue
   mirror.ts               # pure: parse/format title, body layout, truncation, prefix filter
-  plan.ts                 # pure: mirror map + YouTrack issues -> ordered, capped actions (R9)
+  hierarchy.ts            # pure: Type classification, parent walks, cycle guard (docs/11)
+  plan.ts                 # pure: indexes + hierarchy -> ordered, capped actions (R9, docs/11)
+  plan/
+    mirrors.ts            # mirror index (A5, A6)
+    milestones.ts         # milestone index (H7)
+    desired.ts            # desired milestone, type and parent, and the differences (D1-D3)
+    candidates.ts         # duplicate grouping shared by both indexes
   utils/                  # pure (R1): markdown-{blocks,inline,render,cut,escapes}.ts, text.ts, redact.ts
-  sync.ts                 # orchestration only (uses fetch via http.ts); dry-run preview; returns RunSummary
+  sync.ts                 # orchestration only (uses fetch via http.ts): reads, plan, write or preview; returns RunSummary
   sync/
-    execute.ts            # the only GitHub write path: cap, fetch guard, rate-limit stop (R7), deadline (R8)
+    execute.ts            # write loop: cap, fetch guard, rate-limit stop (R7), deadline (R8)
+    execute-write.ts      # the only GitHub writer, write outcomes, D4 waits
+    execute-issues.ts     # create (milestone, type, parent), label re-add, close
+    execute-hierarchy.ts  # milestone create and close, update, move, detach
+    resolved.ts           # run-local YouTrack number -> GitHub number and id
+    preview.ts            # dry-run lines
+    describe.ts           # log wording shared by the preview and the writes
     tally.ts              # run counters and how log lines name an issue
     log.ts                # logger that redacts every line
   runtime.ts              # console logger + sleep for the entrypoints (not imported by the sync core)

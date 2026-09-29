@@ -16,8 +16,9 @@ import {
 import type { World } from "./sync-harness.ts";
 
 // The harness clock starts at 0 and moves only by what the run sleeps. In DEADLINE_WORLD the
-// YT-1 create starts at 0, the YT-3 close at 0 (its write sent at 1 s, after the pause) and the
-// YT-7 create at 1 s (decision R8: no action starts at or after the deadline).
+// YT-1 create starts at 0, the YT-7 create at 0 (its write sent at 1 s, after the pause) and the
+// YT-3 close at 1 s, since creates run before closes (docs/11 §1.4; decision R8: no action
+// starts at or after the deadline).
 const DEADLINE_WORLD: World = { ...MIXED_WORLD, youtrackRows: [...(MIXED_WORLD.youtrackRows ?? []), ytRow(7)] };
 
 const deadlineWarning = (count: number): string => `run deadline reached; ${String(count)} more action(s) capped`;
@@ -35,18 +36,15 @@ describe("runSync run deadline", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
-    assert.deepEqual(
-      result,
-      summary({ scanned: 7, filtered: 1, unchanged: 3, created: 1, closed: 1, capped: 1, fetches: 4 }),
-    );
+    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`]);
+    assert.deepEqual(result, summary({ scanned: 7, filtered: 1, unchanged: 3, created: 2, capped: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), [deadlineWarning(1)]);
     assert.equal(lastLine(lines).level, "info");
   });
 
   it("finishes an action that started before the deadline, including its label re-add", async () => {
     // Arrange: the YT-1 create starts at 0 and its re-add is sent at 1 s, past the deadline;
-    // the YT-3 close and YT-7 create would start at 1 s and are capped.
+    // the YT-7 create and YT-3 close would start at 1 s and are capped.
     const { deps, calls, lines } = harness({ ...DEADLINE_WORLD, createdLabels: [], deadline: 1 });
 
     // Act

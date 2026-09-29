@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { MIRROR_LABEL } from "../src/github.ts";
+import { MIRROR_LABEL } from "../src/github/client.ts";
 import { USER_AGENT } from "../src/http.ts";
 import { formatSummary, runSync, SyncFailedError, WRITE_PAUSE_MS } from "../src/sync.ts";
 import {
@@ -17,6 +17,7 @@ import {
   LABELS_PATH,
   lastLine,
   messages,
+  MILESTONES_PATH,
   MIXED_WORLD,
   rejection,
   RESOLVED_AT,
@@ -33,16 +34,28 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("formatSummary", () => {
-  const sample = summary({ dryRun: true, scanned: 29, filtered: 19, unchanged: 4, created: 5, closed: 3, fetches: 2 });
+  const sample = summary({
+    dryRun: true,
+    scanned: 29,
+    filtered: 19,
+    unchanged: 4,
+    created: 5,
+    closed: 3,
+    updated: 6,
+    milestonesCreated: 2,
+    milestonesClosed: 1,
+    labelsReAdded: 7,
+    fetches: 8,
+  });
 
-  it("prints the headline counts, then the breakdown, then dryRun (decision R5)", () => {
+  it("prints the headline counts, then the breakdown, then dryRun (decision R5, docs/11 §1.7)", () => {
     // Act
     const line = formatSummary(sample, "ok");
 
     // Assert
     assert.equal(
       line,
-      "yt-gh-sync ok scanned=29 created=5 closed=3 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=2 dryRun=true",
+      "yt-gh-sync ok scanned=29 created=5 closed=3 updated=6 milestonesCreated=2 milestonesClosed=1 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=7 fetches=8 dryRun=true",
     );
   });
 
@@ -88,9 +101,10 @@ describe("runSync in dry run", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), []);
     assert.ok(calls.every((call) => call.method === "GET"));
+    // Three reads: GitHub issues, GitHub milestones, the YouTrack scan.
     assert.deepEqual(
       result,
-      summary({ dryRun: true, scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 2 }),
+      summary({ dryRun: true, scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 3 }),
     );
   });
 
@@ -152,7 +166,27 @@ describe("runSync with writes enabled", () => {
     // Assert: YT-2 (resolved, no mirror) gets no mirror (decision R9).
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [team] Task 1"]);
-    assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 5 }));
+  });
+
+  it("reads GitHub issues, then GitHub milestones, then YouTrack, before any write", async () => {
+    // Arrange
+    const { deps, calls } = harness(MIXED_WORLD);
+
+    // Act
+    await runSync(config(), deps);
+
+    // Assert
+    const reads = calls.slice(0, 3).map((call) => `${call.method} ${call.url.origin}${call.url.pathname}`);
+    assert.deepEqual(reads, [
+      `GET ${GITHUB_ORIGIN}${ISSUES_PATH}`,
+      `GET ${GITHUB_ORIGIN}${MILESTONES_PATH}`,
+      `GET ${YOUTRACK_BASE_URL}/api/issues`,
+    ]);
+    const milestones = calls[1];
+    assert.ok(milestones, "expected the milestones read");
+    assert.equal(milestones.url.searchParams.get("state"), "all");
+    assert.equal(milestones.url.searchParams.get("per_page"), "100");
   });
 
   it("never creates a mirror for an issue that is already resolved (R9)", async () => {

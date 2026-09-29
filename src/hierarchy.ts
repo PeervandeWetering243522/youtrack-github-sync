@@ -1,0 +1,264 @@
+/**
+ * Pure YouTrack hierarchy logic (docs/11 §1.1-1.2), no I/O: classify an issue by its
+ * Type value (H1, H6, D3) and walk Subtask parent links for its nearest epic (the
+ * milestone source, H4/D1), its non-epic ancestors (task parents, H3/H9) and its depth.
+ *
+ * Parents are looked up among the scanned issues only, by idReadable compared
+ * ASCII-case-insensitively (as parseProjectIssue compares it, R4). A parent outside
+ * the scan, such as one in another project, ends the walk (D5).
+ *
+ * YouTrack should never hold a parent cycle. If it does, every parent link ON the
+ * cycle is ignored, so each issue on it acts as a root, and hierarchyWarnings names
+ * the cycle; an issue that merely points into a cycle keeps that parent. The walks
+ * are therefore total and form a forest: every ancestor has a smaller depth than
+ * its descendants, so a parent-before-child order always exists.
+ *
+ * buildHierarchy resolves every parent link once, so a walk costs one map lookup per
+ * ancestor (the planner walks every issue each run, within the Workers CPU budget).
+ */
+
+import type { YouTrackIssue } from "./youtrack.ts";
+
+/** What an issue becomes on GitHub: a milestone, a top-level issue, or a task (sub-issue or top-level). */
+export type IssueKind = "milestone" | "issue" | "task";
+
+/** The GitHub issue types the mirror sets (H6). */
+export type GitHubTypeName = "Feature" | "Bug" | "Task";
+
+/** The YouTrack `Type` value names that have a mapping (H1). Matched exactly and case-sensitively. */
+export const YOUTRACK_TYPES = { epic: "Epic", userStory: "User Story", bug: "Bug", task: "Task" } as const;
+
+/** One parent cycle: `closer`'s parent link returns to `lowest`, the cycle's lowest numberInProject. */
+type CycleLink = { readonly closer: number; readonly lowest: number };
+
+/**
+ * The scanned issues indexed for parent walks. Build it with buildHierarchy and read
+ * it only through the functions of this module.
+ */
+export type Hierarchy = {
+  /** Scanned issues by idKey(idReadable); the first listed copy of an id wins. */
+  readonly byId: ReadonlyMap<string, YouTrackIssue>;
+  /** Each indexed issue's indexed parent; no entry for a root, a parent outside the scan or a link on a cycle. */
+  readonly parents: ReadonlyMap<YouTrackIssue, YouTrackIssue>;
+  /** The indexed issues on a parent cycle, whose own parent links are ignored. */
+  readonly onCycle: ReadonlySet<YouTrackIssue>;
+  /** One entry per cycle, ascending `lowest`. */
+  readonly cycles: readonly CycleLink[];
+};
+
+/**
+ * Kind and GitHub issue type of a YouTrack `Type` value (docs/11 §1.1): Epic -> milestone,
+ * User Story -> issue/Feature, Bug -> issue/Bug, Task -> task/Task. Any other value,
+ * including null and case variants, -> issue without a GitHub type (D3).
+ */
+export function classify(type: string | null): {
+  readonly kind: IssueKind;
+  readonly githubType: GitHubTypeName | null;
+} {
+  switch (type) {
+    case YOUTRACK_TYPES.epic:
+      return { kind: "milestone", githubType: null };
+    case YOUTRACK_TYPES.userStory:
+      return { kind: "issue", githubType: "Feature" };
+    case YOUTRACK_TYPES.bug:
+      return { kind: "issue", githubType: "Bug" };
+    case YOUTRACK_TYPES.task:
+      return { kind: "task", githubType: "Task" };
+    case null:
+    default:
+      return { kind: "issue", githubType: null };
+  }
+}
+
+/**
+ * Indexes `issues` (every scanned issue, filtered and resolved ones included) by
+ * idReadable, keeping the first listed copy of a repeated id, resolves each one's parent
+ * and finds every parent cycle among them. Does not modify `issues`.
+ */
+export function buildHierarchy(issues: readonly YouTrackIssue[]): Hierarchy {
+  const byId = indexById(issues);
+  const links = parentLinks(byId);
+  const cycles = findCycles(byId, links);
+  const onCycle = new Set(cycles.flatMap((cycle) => cycle.members));
+  const parents = new Map([...links].filter(([child]) => !onCycle.has(child)));
+  return { byId, parents, onCycle, cycles: cycles.map(({ closer, lowest }) => ({ closer, lowest })) };
+}
+
+/**
+ * The first ancestor of `issue` whose Type is Epic (D1: higher epics are not searched),
+ * or null when the walk ends first: no parent, a parent outside the scan (D5), or a
+ * link on a cycle. `issue` need not be in the hierarchy; its own parentId starts the
+ * walk, unless its idReadable is on a cycle (then it has no ancestors).
+ */
+export function nearestEpic(hierarchy: Hierarchy, issue: YouTrackIssue): YouTrackIssue | null {
+  return ancestors(hierarchy, issue).find(isEpic) ?? null;
+}
+
+/**
+ * The non-epic ancestors of `issue`, nearest first, ending before the first epic, at a
+ * parent outside the scan (D5) or at a link on a cycle. The planner takes the first one
+ * that is (or becomes) mirrored as a task's GitHub parent (H3, H9).
+ */
+export function parentChain(hierarchy: Hierarchy, issue: YouTrackIssue): readonly YouTrackIssue[] {
+  const all = ancestors(hierarchy, issue);
+  const epicAt = all.findIndex(isEpic);
+  return epicAt === -1 ? all : all.slice(0, epicAt);
+}
+
+/**
+ * How many ancestors `issue` has in the scan, epics included (0: a root, a parent outside
+ * the scan, or an issue on a cycle). Every ancestor has a smaller depth than `issue`, so
+ * ascending depth orders creates parent before child.
+ */
+export function depth(hierarchy: Hierarchy, issue: YouTrackIssue): number {
+  return ancestors(hierarchy, issue).length;
+}
+
+/**
+ * One warning per parent cycle, ascending by its lowest issue number:
+ * "YT-<n>: parent chain loops back to YT-<m>", where YT-<m> is the lowest-numbered issue
+ * on the cycle and YT-<n> the issue whose parent link returns to it (the same issue for a
+ * self-parent). Numbers only, never issue text.
+ */
+export function hierarchyWarnings(hierarchy: Hierarchy): readonly string[] {
+  return hierarchy.cycles.map(
+    ({ closer, lowest }) => `YT-${String(closer)}: parent chain loops back to YT-${String(lowest)}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Index and walks
+
+/** Lower-cases A-Z only, so no Unicode case mapping (e.g. U+212A KELVIN SIGN -> "k") can forge a match. */
+function idKey(idReadable: string): string {
+  return idReadable.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+}
+
+function isEpic(issue: YouTrackIssue): boolean {
+  return classify(issue.type).kind === "milestone";
+}
+
+/** `issues` by idKey(idReadable), keeping the first listed copy of a repeated id. */
+function indexById(issues: readonly YouTrackIssue[]): ReadonlyMap<string, YouTrackIssue> {
+  const byId = new Map<string, YouTrackIssue>();
+  for (const issue of issues) {
+    const key = idKey(issue.idReadable);
+    if (!byId.has(key)) byId.set(key, issue);
+  }
+  return byId;
+}
+
+/** The indexed parent of `issue`, or undefined (no parent, or one outside the scan). */
+function parentOf(byId: ReadonlyMap<string, YouTrackIssue>, issue: YouTrackIssue): YouTrackIssue | undefined {
+  const { parentId } = issue;
+  return parentId === null ? undefined : byId.get(idKey(parentId));
+}
+
+/** Every indexed issue's indexed parent, cycle links included (no entry: no parent, or one outside the scan). */
+function parentLinks(byId: ReadonlyMap<string, YouTrackIssue>): ReadonlyMap<YouTrackIssue, YouTrackIssue> {
+  const links = new Map<YouTrackIssue, YouTrackIssue>();
+  for (const issue of byId.values()) {
+    const parent = parentOf(byId, issue);
+    if (parent !== undefined) links.set(issue, parent);
+  }
+  return links;
+}
+
+/**
+ * The parent the walk from `issue` starts at: its resolved link when `issue` is the
+ * indexed copy, none when its idReadable is on a cycle, otherwise its own parentId.
+ */
+function firstParent(
+  hierarchy: Hierarchy,
+  issue: YouTrackIssue,
+  self: YouTrackIssue | undefined,
+): YouTrackIssue | undefined {
+  if (self === issue) return hierarchy.parents.get(issue);
+  if (self !== undefined && hierarchy.onCycle.has(self)) return undefined;
+  return parentOf(hierarchy.byId, issue);
+}
+
+/**
+ * The ancestors of `issue` in the scan, nearest first: firstParent, then the resolved
+ * links. The visited set (seeded with `issue` and the indexed copy of its id) ends the
+ * walk at any repeat; buildHierarchy leaves no cycle in `parents`, so only an `issue`
+ * that is not the indexed copy can reach one (by walking back to its own id).
+ */
+function ancestors(hierarchy: Hierarchy, issue: YouTrackIssue): readonly YouTrackIssue[] {
+  const self = hierarchy.byId.get(idKey(issue.idReadable));
+  const visited = new Set([issue]);
+  if (self !== undefined) visited.add(self);
+  const found: YouTrackIssue[] = [];
+  let next = firstParent(hierarchy, issue, self);
+  while (next !== undefined && !visited.has(next)) {
+    visited.add(next);
+    found.push(next);
+    next = hierarchy.parents.get(next);
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// Cycle detection (each issue has at most one parent, so cycles are disjoint)
+
+type Cycle = CycleLink & { readonly members: readonly YouTrackIssue[] };
+
+/** The issues one walk newly covered, and the cycle it closed (if any). */
+type Walk = { readonly path: readonly YouTrackIssue[]; readonly cycle: Cycle | null };
+
+/** Every parent cycle among the indexed issues, each found once, ascending by lowest numberInProject. */
+function findCycles(
+  byId: ReadonlyMap<string, YouTrackIssue>,
+  links: ReadonlyMap<YouTrackIssue, YouTrackIssue>,
+): readonly Cycle[] {
+  const done = new Set<YouTrackIssue>();
+  const cycles: Cycle[] = [];
+  for (const start of byId.values()) {
+    const { path, cycle } = walkUnvisited(links, start, done);
+    for (const issue of path) done.add(issue);
+    if (cycle !== null) cycles.push(cycle);
+  }
+  return cycles.sort((a, b) => a.lowest - b.lowest);
+}
+
+/**
+ * Follows `links` from `start` until a missing parent, an issue an earlier walk covered
+ * (in `done`), or an issue this walk already passed, which closes a new cycle.
+ */
+function walkUnvisited(
+  links: ReadonlyMap<YouTrackIssue, YouTrackIssue>,
+  start: YouTrackIssue,
+  done: ReadonlySet<YouTrackIssue>,
+): Walk {
+  const path: YouTrackIssue[] = [];
+  const position = new Map<YouTrackIssue, number>();
+  let last = start;
+  let current: YouTrackIssue | undefined = start;
+  while (current !== undefined && !done.has(current)) {
+    const seenAt = position.get(current);
+    if (seenAt !== undefined) return { path, cycle: toCycle(path.slice(seenAt), current, last) };
+    position.set(current, path.length);
+    path.push(current);
+    last = current;
+    current = links.get(current);
+  }
+  return { path, cycle: null };
+}
+
+/**
+ * The cycle of `members` in parent order (each member's parent is the next one), from
+ * `entry` (the first member) to `last` (whose parent is `entry`).
+ */
+function toCycle(members: readonly YouTrackIssue[], entry: YouTrackIssue, last: YouTrackIssue): Cycle {
+  let low = entry;
+  let closer = last;
+  let previous = last;
+  for (const issue of members) {
+    if (issue.numberInProject < low.numberInProject) {
+      low = issue;
+      closer = previous;
+    }
+    previous = issue;
+  }
+  return { members, closer: closer.numberInProject, lowest: low.numberInProject };
+}

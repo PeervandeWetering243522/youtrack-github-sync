@@ -7,14 +7,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { JsonObject } from "../src/json.ts";
+import { YouTrackSchemaError, fetchProjectIssues, parseProjectIssue, parseYouTrackIssue } from "../src/youtrack.ts";
 import {
-  ISSUE_FIELDS,
-  YouTrackSchemaError,
-  fetchProjectIssues,
-  parseProjectIssue,
-  parseYouTrackIssue,
-} from "../src/youtrack.ts";
-import {
+  ISSUE_KEYS,
   NULL_DESCRIPTION_ROW,
   RESOLVED_ROW,
   SOURCE,
@@ -51,16 +46,16 @@ describe("parseProjectIssue: matching rows", () => {
     }
   });
 
-  it("returns a new object with exactly the ISSUE_FIELDS keys, without writing to a frozen row", () => {
+  it("returns a new object with exactly the YouTrackIssue keys, without writing to a frozen row", () => {
     // Arrange
-    const row = deepFreeze(issueRow(8, { customFields: [{ name: "State" }] }));
+    const row = deepFreeze(issueRow(8, { customFields: [{ name: "State" }], project: { shortName: "CUI" } }));
 
     // Act
     const issue = parseProjectIssue(row, "CUI");
 
     // Assert
     assert.notEqual(issue, row);
-    assert.deepEqual(Object.keys(issue), [...ISSUE_FIELDS]);
+    assert.deepEqual(Object.keys(issue), [...ISSUE_KEYS]);
   });
 
   const caseVariants: readonly (readonly [string, string])[] = [

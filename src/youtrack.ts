@@ -7,16 +7,25 @@
  * optional; live responses return `null` for `resolved` (unresolved) and
  * `description` (empty) -- see docs/00-live-verification.md. The derived type
  * below encodes exactly that.
+ *
+ * Hierarchy (docs/11): every row also carries its Subtask parent link
+ * (`parent(issues(idReadable))`) and the "Type" custom field
+ * (`customFields(name,value(name))`, limited to Type by `customFields=Type`).
  */
 
-import type { components } from "./generated/youtrack.ts";
+import type { components, paths } from "./generated/youtrack.ts";
 import type { HttpClient } from "./http.ts";
 import { isInteger, isJsonArray, isJsonObject, isString } from "./json.ts";
 import type { JsonObject, JsonValue } from "./json.ts";
 
 type IssueSchema = components["schemas"]["Issue"];
+type IssueLinkSchema = components["schemas"]["IssueLink"];
+type ParentIssueSchema = NonNullable<IssueLinkSchema["issues"]>[number];
+type IssueCustomFieldSchema = components["schemas"]["IssueCustomField"];
+type EnumValueSchema = components["schemas"]["EnumBundleElement"];
+type IssuesQueryParam = keyof NonNullable<paths["/issues"]["get"]["parameters"]["query"]>;
 
-/** The only fields requested. A typo here is a compile error (keyof IssueSchema). */
+/** The flat fields requested. A typo here is a compile error (keyof IssueSchema). */
 export const ISSUE_FIELDS = [
   "idReadable",
   "numberInProject",
@@ -26,21 +35,47 @@ export const ISSUE_FIELDS = [
   "updated",
 ] as const satisfies readonly (keyof IssueSchema)[];
 
+/** The custom field whose value name becomes YouTrackIssue.type. */
+export const YOUTRACK_TYPE_FIELD = "Type";
+
+// Nested field names, each checked against the generated schema like ISSUE_FIELDS.
+const PARENT = "parent" satisfies keyof IssueSchema;
+const LINK_ISSUES = "issues" satisfies keyof IssueLinkSchema;
+const PARENT_ID = "idReadable" satisfies keyof ParentIssueSchema;
+const CUSTOM_FIELDS = "customFields" satisfies keyof IssueSchema;
+const FIELD_NAME = "name" satisfies keyof IssueCustomFieldSchema;
+const FIELD_VALUE = "value" satisfies keyof IssueCustomFieldSchema;
+const VALUE_NAME = "name" satisfies keyof EnumValueSchema;
+
+/** Every key a row must carry: the flat fields, then the two nested ones. */
+const REQUIRED_KEYS: readonly string[] = [...ISSUE_FIELDS, PARENT, CUSTOM_FIELDS];
+
 type RequiredField = "idReadable" | "numberInProject" | "summary" | "updated";
 type NullableField = "description" | "resolved";
 
+/**
+ * One validated row. `type` is the value name of the YOUTRACK_TYPE_FIELD custom field
+ * (null: no such field on the row, or an empty value). `parentId` is the idReadable of
+ * the Subtask parent, `Issue.parent.issues[0]` (null: no parent); it may name an issue
+ * of another project.
+ */
 export type YouTrackIssue = Readonly<
   { [K in RequiredField]-?: NonNullable<IssueSchema[K]> } & {
     [K in NullableField]-?: NonNullable<IssueSchema[K]> | null;
+  } & {
+    type: NonNullable<EnumValueSchema["name"]> | null;
+    parentId: NonNullable<ParentIssueSchema["idReadable"]> | null;
   }
 >;
 
+/** What to scan: the instance base URL, a permanent token and the project shortName. */
 export type YouTrackSource = {
   readonly baseUrl: string;
   readonly token: string;
   readonly project: string;
 };
 
+/** `$top` of every page request; a shorter page ends the scan. */
 export const YOUTRACK_PAGE_SIZE = 100;
 
 /** A row that does not match YouTrackIssue. The run must fail rather than guess. */
@@ -54,9 +89,18 @@ export class YouTrackSchemaError extends Error {
 type IssueField = (typeof ISSUE_FIELDS)[number];
 type JsonGuard<T extends JsonValue> = (value: JsonValue | undefined) => value is T;
 
-/** `fields=` parameter value built from ISSUE_FIELDS. */
+/** A nested `fields=` spec: `name(sub1,sub2)`. */
+function nested(name: string, subfields: readonly string[]): string {
+  return `${name}(${subfields.join(",")})`;
+}
+
+/** `fields=` value: ISSUE_FIELDS, then `parent(issues(idReadable))` and `customFields(name,value(name))`. */
 export function issueFieldsParam(): string {
-  return ISSUE_FIELDS.join(",");
+  return [
+    ...ISSUE_FIELDS,
+    nested(PARENT, [nested(LINK_ISSUES, [PARENT_ID])]),
+    nested(CUSTOM_FIELDS, [FIELD_NAME, nested(FIELD_VALUE, [VALUE_NAME])]),
+  ].join(",");
 }
 
 /** `project: <project> sort by: {issue id} asc` (stable under concurrent edits). */
@@ -90,7 +134,7 @@ function rowLabel(row: JsonObject): string {
 
 /** A field missing from the response was dropped or misspelled in `fields=`. */
 function assertAllFieldsPresent(row: JsonObject): void {
-  const missing = ISSUE_FIELDS.filter((field) => !(field in row));
+  const missing = REQUIRED_KEYS.filter((field) => !(field in row));
   if (missing.length > 0) {
     const names = missing.map((field) => `"${field}"`).join(", ");
     throw new YouTrackSchemaError(`${rowLabel(row)} is missing field(s) ${names}`);
@@ -105,6 +149,10 @@ function isIntegerOrNull(value: JsonValue | undefined): value is number | null {
   return value === null || isInteger(value);
 }
 
+function isJsonObjectOrNull(value: JsonValue | undefined): value is JsonObject | null {
+  return value === null || isJsonObject(value);
+}
+
 /**
  * The mirror identity is `[YT-<numberInProject>]`, and parseMirrorTitle (mirror.ts)
  * reads back positive integers only. A 0 or negative number would give a mirror
@@ -114,7 +162,25 @@ function isPositiveInteger(value: JsonValue | undefined): value is number {
   return isInteger(value) && value > 0;
 }
 
-/** Reads one field, throwing YouTrackSchemaError (with `describe(value)`) when `guard` rejects it. */
+/** The error for a `path` of `row` that breaks "must <requirement>": names `path` and `got` (a kind or count), no value. */
+function fieldError(row: JsonObject, path: string, requirement: string, got: string): YouTrackSchemaError {
+  return new YouTrackSchemaError(`${rowLabel(row)}: field "${path}" must ${requirement}, got ${got}`);
+}
+
+/** `value` (at `path` in `row`) if `guard` accepts it; otherwise throws, naming `describe(value)`. */
+function narrow<T extends JsonValue>(
+  row: JsonObject,
+  path: string,
+  value: JsonValue | undefined,
+  guard: JsonGuard<T>,
+  expected: string,
+  describe: (value: JsonValue | undefined) => string = jsonKind,
+): T {
+  if (guard(value)) return value;
+  throw fieldError(row, path, `be ${expected}`, describe(value));
+}
+
+/** Reads one flat field, throwing YouTrackSchemaError (with `describe(value)`) when `guard` rejects it. */
 function readField<T extends JsonValue>(
   row: JsonObject,
   field: IssueField,
@@ -122,15 +188,58 @@ function readField<T extends JsonValue>(
   expected: string,
   describe: (value: JsonValue | undefined) => string = jsonKind,
 ): T {
-  const value = row[field];
-  if (guard(value)) return value;
-  throw new YouTrackSchemaError(`${rowLabel(row)}: field "${field}" must be ${expected}, got ${describe(value)}`);
+  return narrow(row, field, row[field], guard, expected, describe);
 }
 
 /**
- * Validates one row. Requires every ISSUE_FIELDS key to be present (a silently
- * dropped field must fail loudly), types exact, `resolved`/`description` may be null,
- * `numberInProject` positive (see isPositiveInteger).
+ * `parent(issues(idReadable))` -> the parent's idReadable, or null when `issues` is empty.
+ * A Subtask link has at most one parent, so two or more issues fail the row.
+ */
+function readParentId(row: JsonObject): string | null {
+  const link = narrow(row, PARENT, row[PARENT], isJsonObject, "an object");
+  const path = `${PARENT}.${LINK_ISSUES}`;
+  const issues = narrow(row, path, link[LINK_ISSUES], isJsonArray, "an array");
+  if (issues.length > 1) throw fieldError(row, path, "hold at most one issue", String(issues.length));
+  const [first] = issues;
+  if (first === undefined) return null;
+  const parent = narrow(row, `${path}[0]`, first, isJsonObject, "an object");
+  return narrow(row, `${path}[0].${PARENT_ID}`, parent[PARENT_ID], isString, "a string");
+}
+
+type CustomFieldEntry = { readonly path: string; readonly entry: JsonObject };
+
+/** The `customFields` entries named exactly YOUTRACK_TYPE_FIELD. Every entry must be an object with a string name. */
+function typeEntries(row: JsonObject): readonly CustomFieldEntry[] {
+  const fields = narrow(row, CUSTOM_FIELDS, row[CUSTOM_FIELDS], isJsonArray, "an array");
+  return fields.flatMap((field, index): readonly CustomFieldEntry[] => {
+    const path = `${CUSTOM_FIELDS}[${String(index)}]`;
+    const entry = narrow(row, path, field, isJsonObject, "an object");
+    const name = narrow(row, `${path}.${FIELD_NAME}`, entry[FIELD_NAME], isString, "a string");
+    return name === YOUTRACK_TYPE_FIELD ? [{ path, entry }] : [];
+  });
+}
+
+/**
+ * `customFields(name,value(name))` -> the Type value name, or null when there is no Type
+ * entry or its value is null. Two Type entries, or a value without a string name, fail the row.
+ */
+function readType(row: JsonObject): string | null {
+  const matches = typeEntries(row);
+  if (matches.length > 1) {
+    throw fieldError(row, CUSTOM_FIELDS, `hold at most one "${YOUTRACK_TYPE_FIELD}" entry`, String(matches.length));
+  }
+  const [match] = matches;
+  if (match === undefined) return null;
+  const path = `${match.path}.${FIELD_VALUE}`;
+  const value = narrow(row, path, match.entry[FIELD_VALUE], isJsonObjectOrNull, "null or an object");
+  return value === null ? null : narrow(row, `${path}.${VALUE_NAME}`, value[VALUE_NAME], isString, "a string");
+}
+
+/**
+ * Validates one row. Requires every ISSUE_FIELDS key plus `parent` and `customFields`
+ * to be present (a silently dropped field must fail loudly), types exact,
+ * `resolved`/`description` may be null, `numberInProject` positive (see
+ * isPositiveInteger), then reads `type` (readType) and `parentId` (readParentId).
  * Returns a new object with exactly the YouTrackIssue keys (no `$type`).
  */
 export function parseYouTrackIssue(row: JsonValue): YouTrackIssue {
@@ -151,6 +260,8 @@ export function parseYouTrackIssue(row: JsonValue): YouTrackIssue {
     description: readField(row, "description", isStringOrNull, "a string or null"),
     resolved: readField(row, "resolved", isIntegerOrNull, "a safe integer or null"),
     updated: readField(row, "updated", isInteger, "a safe integer"),
+    type: readType(row),
+    parentId: readParentId(row),
   };
 }
 
@@ -175,15 +286,20 @@ export function parseProjectIssue(row: JsonValue, project: string): YouTrackIssu
   );
 }
 
-/** `{baseUrl}/api/issues` with the query, fields and paging parameters of one page. */
+/**
+ * `{baseUrl}/api/issues` with the query, fields, customFields (only YOUTRACK_TYPE_FIELD) and
+ * paging parameters of one page. Every GET /api/issues parameter is set, each name checked
+ * against the generated spec.
+ */
 function issuesPageUrl(source: YouTrackSource, skip: number): string {
-  const params = new URLSearchParams({
+  const params: Readonly<Record<IssuesQueryParam, string>> = {
     query: projectQuery(source.project),
     fields: issueFieldsParam(),
+    customFields: YOUTRACK_TYPE_FIELD,
     $top: String(YOUTRACK_PAGE_SIZE),
     $skip: String(skip),
-  });
-  return `${source.baseUrl}/api/issues?${params.toString()}`;
+  };
+  return `${source.baseUrl}/api/issues?${new URLSearchParams(params).toString()}`;
 }
 
 /** GETs and validates one page. The body must be a JSON array of `source.project` issue rows. */
@@ -217,7 +333,7 @@ function dedupeByNumberInProject(issues: readonly YouTrackIssue[]): readonly You
 }
 
 /**
- * Full project scan: GET {baseUrl}/api/issues?query=...&fields=...&$top=100&$skip=n,
+ * Full project scan: GET {baseUrl}/api/issues?query=...&fields=...&customFields=Type&$top=100&$skip=n,
  * paging until a page shorter than $top. Headers: Authorization: Bearer <token>,
  * Accept: application/json. retry: "retry-once". Every row goes through
  * parseProjectIssue (decision R4), then the result is deduplicated by numberInProject.

@@ -26,6 +26,8 @@ const PAGE_URL_PREFIX =
   `${BASE_URL}/api/issues` +
   "?query=project%3A+CUI+sort+by%3A+%7Bissue+id%7D+asc" +
   "&fields=idReadable%2CnumberInProject%2Csummary%2Cdescription%2Cresolved%2Cupdated" +
+  "%2Cparent%28issues%28idReadable%29%29%2CcustomFields%28name%2Cvalue%28name%29%29" +
+  "&customFields=Type" +
   "&%24top=100&%24skip=";
 export const FIRST_PAGE_URL = `${PAGE_URL_PREFIX}0`;
 
@@ -39,6 +41,38 @@ export function expectedPageRequest(skip: number): HttpRequest {
   };
 }
 
+/** The keys of a parsed YouTrackIssue, in order, spelled out independently of the implementation. */
+export const ISSUE_KEYS = [
+  "idReadable",
+  "numberInProject",
+  "summary",
+  "description",
+  "resolved",
+  "updated",
+  "type",
+  "parentId",
+] as const;
+
+/** The hierarchy keys of a row with no parent and no Type entry, as JSON text for hand-written rows. */
+export const HIERARCHY_JSON = '"parent":{"issues":[]},"customFields":[]';
+
+/** `Issue.parent` shaped like a live `parent(issues(idReadable))` answer, with one issue per id. */
+export function parentLink(...ids: readonly string[]): JsonObject {
+  return { issues: ids.map((idReadable) => ({ idReadable, $type: "Issue" })), $type: "IssueLink" };
+}
+
+/** The `Type` entry of a live `customFields(name,value(name))` answer; `null` is an empty field. */
+export function typeField(value: string | null): JsonObject {
+  return {
+    name: "Type",
+    value: value === null ? null : { name: value, $type: "EnumBundleElement" },
+    $type: "SingleEnumIssueCustomField",
+  };
+}
+
+// The hierarchy keys of the three rows below are neutral (no parent, no Type entry), not
+// live values, so they parse to type: null and parentId: null.
+
 export const UNRESOLVED_ROW: JsonObject = {
   idReadable: "CUI-31",
   summary: "[individual] Explore GH-YouTrack integrations",
@@ -46,6 +80,8 @@ export const UNRESOLVED_ROW: JsonObject = {
   resolved: null,
   numberInProject: 31,
   description: "Probably gonna have Claude draft up a project to use API keys to have ideally bidirectional syncing",
+  parent: parentLink(),
+  customFields: [],
   $type: "Issue",
 };
 
@@ -57,6 +93,8 @@ export const RESOLVED_ROW: JsonObject = {
   numberInProject: 11,
   description:
     "Review Gabriel's draft, identify factual and structural issues, apply corrections, merge into the shared document.",
+  parent: parentLink(),
+  customFields: [],
   $type: "Issue",
 };
 
@@ -67,10 +105,15 @@ export const NULL_DESCRIPTION_ROW: JsonObject = {
   resolved: null,
   numberInProject: 30,
   description: null,
+  parent: parentLink(),
+  customFields: [],
   $type: "Issue",
 };
 
-/** A valid row for issue `numberInProject`; `overrides` replaces or adds keys. */
+/**
+ * A valid row for issue `numberInProject` with no parent and no Type entry (type and parentId
+ * parse to null); `overrides` replaces or adds keys.
+ */
 export function issueRow(numberInProject: number, overrides: JsonObject = {}): JsonObject {
   return {
     idReadable: `CUI-${String(numberInProject)}`,
@@ -79,6 +122,8 @@ export function issueRow(numberInProject: number, overrides: JsonObject = {}): J
     resolved: null,
     numberInProject,
     description: null,
+    parent: parentLink(),
+    customFields: [],
     $type: "Issue",
     ...overrides,
   };

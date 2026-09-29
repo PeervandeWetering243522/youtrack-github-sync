@@ -21,15 +21,28 @@ enables YouTrack's Webhook Triggers app.
 ## Layout
 
 - `src/sync.ts` + `src/sync/`: orchestration of one run (not pure: it does the I/O). Uses only
-  `fetch`, takes config and deps as arguments, no Workers/Node APIs. `sync/execute.ts` is the
-  only GitHub write path (built only when `DRY_RUN` is off); `sync/tally.ts` counts, `sync/log.ts`
-  redacts every log line.
-- `src/plan.ts`, `src/mirror.ts`, `src/utils/`: pure decision and formatting logic, no I/O. New
-  decision logic goes in `plan.ts`, not `sync.ts`.
+  `fetch`, takes config and deps as arguments, no Workers/Node APIs. Reads GitHub issues, then
+  milestones, then YouTrack. `sync/execute.ts` runs the write loop and its stops (cap, fetch
+  guard, rate limit, deadline). `sync/execute-write.ts` holds the only GitHub writer (built
+  only when `DRY_RUN` is off) and turns write outcomes into counts. `sync/execute-issues.ts`
+  (create, label re-add, close) and `sync/execute-hierarchy.ts` (milestones, update, move,
+  detach) do the writes. `sync/resolved.ts` maps YouTrack numbers to GitHub numbers and ids
+  within a run, `sync/preview.ts` is the dry run, `sync/describe.ts` the log wording both
+  share, `sync/tally.ts` counts, and `sync/log.ts` redacts every log line.
+- `src/plan.ts` + `src/plan/`, `src/hierarchy.ts`, `src/mirror.ts`, `src/utils/`: pure decision
+  and formatting logic, no I/O. `hierarchy.ts` classifies `Type` values and walks parent links
+  (cycle-safe). `plan/desired.ts` works out each mirror's desired milestone, type and parent
+  and how it differs. `plan/mirrors.ts` and `plan/milestones.ts` build the `[YT-n]` indexes,
+  and `plan.ts` builds the actions, their order and the cap. New decision logic goes in
+  `plan.ts` or `plan/`, not `sync.ts`.
 - `src/http.ts` + `src/http/`: fetch wrapper (User-Agent, timeout, 45-fetch guard, retry-once,
   rate-limit detection, credential redaction).
-- `src/youtrack.ts` (GET only) and `src/github.ts`: API clients. `src/config.ts`: env -> validated
-  `Config`. `src/json.ts`: the only JSON entry point (`parseJson` -> `JsonValue`).
+- `src/youtrack.ts` (GET only): YouTrack client, including `Type` and the Subtask parent.
+- `src/github/`: GitHub client, no barrel. `client.ts` has the target, headers, URLs and
+  request builder, `link.ts` + `pages.ts` the Link paging, then `issues.ts`, `milestones.ts`
+  and `sub-issues.ts`.
+- `src/config.ts`: env -> validated `Config`. `src/json.ts`: the only JSON entry point
+  (`parseJson` -> `JsonValue`).
 - `src/generated/youtrack.ts`: openapi-typescript output, do not edit. Regenerate with
   `npm run gen:youtrack` after placing the instance's spec at `./youtrack-openapi.json` (the spec
   is intentionally not committed).
@@ -46,6 +59,19 @@ Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_U
 `.env` for `npm run sync`). Full project scan every run; no lookback. Only unresolved issues get
 a mirror; an already-resolved issue without one is never mirrored (R9). Plan (implemented, see its
 "As built" section): `docs/09-implementation-plan.md`.
+
+## Hierarchy (H1-H10, D1-D8; docs/10 and docs/11)
+
+Epic -> milestone `[YT-n] <summary>`. User Story -> issue with type Feature, Bug -> issue with
+type Bug, any other type -> issue with no type; these are always top-level (H9). Task -> issue
+with type Task, as a sub-issue of the mirror of its nearest non-epic ancestor that has one, or
+top-level if there is none. Every mirror gets the milestone of its nearest epic, if that epic
+has one (D1). Epics use the same `[team]` filter and the same R9 rule as issues. Every run
+syncs milestone, type and parent on all mirrors, open or closed (D8). Titles, bodies and
+milestone descriptions never change after creation, and nothing is reopened (D7). Only
+mirror-owned links are changed (D2) and a type is never cleared (D3). A child whose parent
+mirror or milestone is created in the same run waits for it and is capped if that create fails
+or waits itself (D4). Order: milestones, non-task creates, task creates by depth, syncs, closes.
 
 ## Conventions
 
@@ -65,5 +91,8 @@ a mirror; an already-resolved issue without one is never mirrored (R9). Plan (im
   around it, otherwise you get 0 rows and no error.
 - GitHub: labels on `POST /issues` are silently dropped without push access. Verify them in the
   response, or you get a duplicate mirror every run. The issues list includes PRs. A User-Agent
-  is required.
+  is required. Milestone and type are dropped silently the same way.
+- GitHub: `parent_issue_id` and `sub_issue_id` take the issue's REST `id`, not its number. The
+  sub-issue endpoints are `POST .../issues/{n}/sub_issues` but `DELETE .../issues/{n}/sub_issue`
+  (singular, with a JSON body). Issue types exist only on organization repos.
 - Workers Free: 50 subrequests per invocation, counting reads as well as writes. 10 ms CPU.

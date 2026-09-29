@@ -30,6 +30,8 @@ export function makeIssue(overrides: Partial<YouTrackIssue> = {}): YouTrackIssue
     description: null,
     resolved: null,
     updated: 0,
+    type: null,
+    parentId: null,
     ...overrides,
   };
 }

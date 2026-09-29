@@ -11,6 +11,8 @@ import {
   projectQuery,
 } from "../src/youtrack.ts";
 import {
+  HIERARCHY_JSON,
+  ISSUE_KEYS,
   NULL_DESCRIPTION_ROW,
   RESOLVED_ROW,
   UNRESOLVED_ROW,
@@ -25,13 +27,17 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("issueFieldsParam", () => {
-  it("joins ISSUE_FIELDS with commas in declaration order", () => {
+  it("lists ISSUE_FIELDS in declaration order, then the parent link and custom field specs", () => {
     // Act
     const fields = issueFieldsParam();
 
     // Assert
-    assert.equal(fields, "idReadable,numberInProject,summary,description,resolved,updated");
-    assert.equal(fields, ISSUE_FIELDS.join(","));
+    assert.equal(
+      fields,
+      "idReadable,numberInProject,summary,description,resolved,updated," +
+        "parent(issues(idReadable)),customFields(name,value(name))",
+    );
+    assert.ok(fields.startsWith(`${ISSUE_FIELDS.join(",")},`));
   });
 });
 
@@ -63,6 +69,8 @@ describe("parseYouTrackIssue", () => {
         "Probably gonna have Claude draft up a project to use API keys to have ideally bidirectional syncing",
       resolved: null,
       updated: 1790256733345,
+      type: null,
+      parentId: null,
     });
   });
 
@@ -94,9 +102,9 @@ describe("parseYouTrackIssue", () => {
     assert.equal(issue.description, "");
   });
 
-  it("returns a new object with exactly the ISSUE_FIELDS keys and leaves the input untouched", () => {
+  it("returns a new object with exactly the YouTrackIssue keys and leaves the input untouched", () => {
     // Arrange
-    const row = issueRow(8, { customFields: [{ name: "State" }] });
+    const row = issueRow(8, { customFields: [{ name: "State" }], project: { shortName: "CUI" } });
     const snapshot = structuredClone(row);
 
     // Act
@@ -104,11 +112,11 @@ describe("parseYouTrackIssue", () => {
 
     // Assert
     assert.notEqual(issue, row);
-    assert.deepEqual(Object.keys(issue), [...ISSUE_FIELDS]);
+    assert.deepEqual(Object.keys(issue), [...ISSUE_KEYS]);
     assert.deepEqual(row, snapshot);
   });
 
-  for (const field of ISSUE_FIELDS) {
+  for (const field of [...ISSUE_FIELDS, "parent", "customFields"]) {
     it(`throws YouTrackSchemaError naming the missing "${field}" field`, () => {
       // Arrange
       const row = withoutFields(issueRow(12), [field]);
@@ -271,7 +279,8 @@ describe("parseYouTrackIssue", () => {
   it("rejects a non-positive numberInProject that arrives as JSON text", () => {
     // Arrange
     const row = parseJson(
-      '{"idReadable":"CUI-0","numberInProject":-0,"summary":"s","description":null,"resolved":null,"updated":1}',
+      '{"idReadable":"CUI-0","numberInProject":-0,"summary":"s","description":null,"resolved":null,"updated":1,' +
+        `${HIERARCHY_JSON}}`,
     );
 
     // Act + Assert
@@ -341,7 +350,7 @@ describe("parseYouTrackIssue", () => {
     // Arrange: JSON.parse makes "__proto__" an own key, so "summary" is really absent.
     const row = parseJson(
       '{"__proto__":{"summary":"inherited?"},"idReadable":"CUI-2","numberInProject":2,' +
-        '"description":null,"resolved":null,"updated":1}',
+        `"description":null,"resolved":null,"updated":1,${HIERARCHY_JSON}}`,
     );
 
     // Act + Assert
@@ -355,7 +364,7 @@ describe("parseYouTrackIssue", () => {
     // Arrange
     const row = parseJson(
       '{"__proto__":{"polluted":true},"idReadable":"CUI-2","numberInProject":2,"summary":"s",' +
-        '"description":null,"resolved":null,"updated":1}',
+        `"description":null,"resolved":null,"updated":1,${HIERARCHY_JSON}}`,
     );
 
     // Act
@@ -363,7 +372,7 @@ describe("parseYouTrackIssue", () => {
 
     // Assert
     assert.equal(Object.getPrototypeOf(issue), Object.prototype);
-    assert.deepEqual(Object.keys(issue), [...ISSUE_FIELDS]);
+    assert.deepEqual(Object.keys(issue), [...ISSUE_KEYS]);
     assert.equal("polluted" in issue, false);
   });
 

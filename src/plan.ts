@@ -1,170 +1,141 @@
 /**
- * Pure decision logic: GitHub issues + YouTrack issues -> ordered, capped actions.
+ * Pure decision logic (docs/11 §1.2-1.4): YouTrack issues + GitHub mirrors and milestones
+ * -> ordered, capped actions. No I/O. The indexes are built in src/plan/mirrors.ts and
+ * src/plan/milestones.ts; the desired-state rules live in src/plan/desired.ts.
  */
 
-import type { GitHubIssue, IssueState } from "./github.ts";
-import { hasTitlePrefix, parseMirrorTitle } from "./mirror.ts";
+import type { GitHubTypeName, Hierarchy, IssueKind } from "./hierarchy.ts";
+import { buildHierarchy, classify, depth, hierarchyWarnings } from "./hierarchy.ts";
+import { hasTitlePrefix } from "./mirror.ts";
+import { desiredMilestoneEpic, desiredParent, parentChange, updateFields } from "./plan/desired.ts";
+import type { ParentChange, PlanContext, UpdateFields } from "./plan/desired.ts";
+import type { MilestoneIndexResult, MilestoneRef } from "./plan/milestones.ts";
+import { mirrorNumbers } from "./plan/mirrors.ts";
+import type { MirrorIndex, MirrorRef } from "./plan/mirrors.ts";
 import type { YouTrackIssue } from "./youtrack.ts";
 
-export type MirrorRef = {
-  readonly issueNumber: number;
-  readonly state: IssueState;
-  readonly hasLabel: boolean;
-};
-
-export type MirrorIndex = ReadonlyMap<number, MirrorRef>;
-
-export type MirrorIndexResult = {
-  readonly index: MirrorIndex;
-  /** Human-readable warnings (unlabelled title match, duplicates). */
-  readonly warnings: readonly string[];
-};
-
+/**
+ * One GitHub write. `issue` is the scanned YouTrack issue (the epic, for milestone actions).
+ * Dependencies are YouTrack numbers (`milestoneEpic`, `parentYt`), resolved to GitHub
+ * numbers and ids at execution, where one created in the same run may be missing (D4).
+ */
 export type Action =
-  | { readonly kind: "create"; readonly issue: YouTrackIssue }
-  | { readonly kind: "close"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef };
+  /** POST a milestone for an eligible unresolved epic without one (title and description from formatMirror). */
+  | { readonly kind: "createMilestone"; readonly issue: YouTrackIssue }
+  /** Close the open milestone of a resolved epic. */
+  | { readonly kind: "closeMilestone"; readonly issue: YouTrackIssue; readonly milestone: MilestoneRef }
+  /** POST a mirror for an eligible unresolved non-epic without one. */
+  | {
+      readonly kind: "create";
+      readonly issue: YouTrackIssue;
+      /** The GitHub issue type (H6); null: none (D3). */
+      readonly githubType: GitHubTypeName | null;
+      /** The epic whose milestone to set (existing, or created earlier in this run); null: none. */
+      readonly milestoneEpic: number | null;
+      /** Tasks only: the issue whose mirror is the parent (existing, or created earlier); null: top-level. */
+      readonly parentYt: number | null;
+    }
+  /** Close the open mirror of a resolved issue (A7). */
+  | { readonly kind: "close"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef }
+  /** PATCH the mirror's milestone and/or type (the type guarantees at least one of the two keys). */
+  | ({ readonly kind: "update"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef } & UpdateFields)
+  /** Put the mirror under the mirror of `parentYt`, replacing any current parent (replace_parent). */
+  | { readonly kind: "setParent"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef; readonly parentYt: number }
+  /** Take the mirror out from under its current parent, the mirror #parentNumber of YouTrack issue `parentYt`. */
+  | {
+      readonly kind: "removeParent";
+      readonly issue: YouTrackIssue;
+      readonly mirror: MirrorRef;
+      readonly parentNumber: number;
+      readonly parentYt: number;
+    };
 
+/** What planActions reads. */
+export type PlanInput = {
+  /** Every scanned issue, filtered and resolved ones included: the hierarchy walks all of them. */
+  readonly youtrackIssues: readonly YouTrackIssue[];
+  /** buildMirrorIndex(...).index of every GitHub issue; its warnings are logged by the caller, not repeated here. */
+  readonly mirrors: MirrorIndex;
+  /** buildMilestoneIndex of every GitHub milestone; its warnings are passed on in Plan.warnings. */
+  readonly milestones: MilestoneIndexResult;
+  readonly titlePrefix: string;
+  readonly maxWrites: number;
+};
+
+/**
+ * The run's plan. Counts are of scanned issues, except `capped` (of actions): an issue can
+ * need several actions (e.g. update, setParent, close), so scanned = filtered + unchanged +
+ * the issues with at least one action.
+ */
 export type Plan = {
-  /** In execution order (ascending numberInProject), already capped. */
+  /** In execution order (docs/11 §1.4), already capped. */
   readonly actions: readonly Action[];
-  /** YouTrack issues scanned. */
+  /** YouTrack issues scanned (one per numberInProject). */
   readonly scanned: number;
-  /** Issues whose summary lacks the title prefix. */
+  /** Issues and epics whose summary lacks the title prefix (ignored entirely, R2). */
   readonly filtered: number;
   /**
-   * Eligible issues that need no action: a mirror already in the right state, a closed
-   * mirror of a reopened issue (never reopened), or a resolved issue without a mirror
-   * (never mirrored, decision R9).
+   * Eligible issues and epics that need no write: a mirror or milestone already as desired,
+   * a closed one whose YouTrack issue was reopened (never reopened), or a resolved issue or
+   * epic without one (never mirrored, R9).
    */
   readonly unchanged: number;
   /** Actions dropped by the write cap. */
   readonly capped: number;
+  /** The milestone index warnings, then one per YouTrack parent cycle; numbers only. */
+  readonly warnings: readonly string[];
 };
 
-/** A GitHub issue whose title names a YouTrack issue. */
-type Candidate = { readonly numberInProject: number; readonly ref: MirrorRef };
-
-/** All candidates for one YouTrack issue: the best ranked one and the rest, in rank order. */
-type CandidateGroup = {
-  readonly numberInProject: number;
-  readonly winner: MirrorRef;
-  readonly ignored: readonly MirrorRef[];
-};
-
-/**
- * Build numberInProject -> mirror from GitHub issues (decision A5, A6):
- * - pull requests are ignored;
- * - titles are parsed with parseMirrorTitle;
- * - a candidate with the `label` beats one without; among equals the lowest issue
- *   number wins; every extra candidate adds a warning;
- * - an unlabelled winner adds a warning ("matched by title only").
- * Label names compare case-insensitively, as GitHub matches them (docs/03, gotcha 14).
- */
-export function buildMirrorIndex(issues: readonly GitHubIssue[], label: string): MirrorIndexResult {
-  const index = new Map<number, MirrorRef>();
-  const warnings: string[] = [];
-  for (const { numberInProject, winner, ignored } of groupCandidates(mirrorCandidates(issues, label))) {
-    index.set(numberInProject, winner);
-    if (!winner.hasLabel) warnings.push(titleOnlyWarning(numberInProject, winner, label));
-    const count = ignored.length + 1;
-    for (const ref of ignored) warnings.push(duplicateWarning(numberInProject, count, winner, ref));
-  }
-  return { index, warnings };
-}
-
-/** GitHub writes an action costs: create = 1, close = 1. */
+/** GitHub writes an action costs: 1 for every kind (an update sends milestone and type in one PATCH). */
 export function writeCost(action: Action): number {
   switch (action.kind) {
+    case "createMilestone":
+    case "closeMilestone":
     case "create":
     case "close":
+    case "update":
+    case "setParent":
+    case "removeParent":
       return 1;
   }
 }
 
 /**
- * - skip issues without the title prefix (filtered);
- * - no mirror && unresolved -> create;
- * - no mirror && resolved -> unchanged: already-resolved issues are never mirrored (decision R9);
- * - mirror open && resolved -> close;
- * - otherwise unchanged (no reopen, no title/body updates);
- * - order by ascending numberInProject; take actions while their cost fits in
- *   maxWrites; at the first action that does not fit, stop -- it and everything
- *   after it count as capped. Nothing later jumps ahead (decision A2).
+ * - skip issues and epics without the title prefix (filtered, R2);
+ * - epics (H1): no milestone && unresolved -> createMilestone; open milestone && resolved ->
+ *   closeMilestone; milestones are never reopened or renamed (D7);
+ * - other issues: no mirror && unresolved -> create, with type, milestone epic and (tasks
+ *   only) parent; no mirror && resolved -> nothing (R9); every mirror, open or closed (D8),
+ *   gets update / setParent / removeParent where it differs from the desired state
+ *   (src/plan/desired.ts); open mirror && resolved -> close; nothing is ever reopened;
+ * - order (docs/11 §1.4): milestone writes by epic number; creates of non-tasks by number,
+ *   then of tasks by YouTrack depth, then number (parent before child, D4); sync writes by
+ *   number (an issue's update before its parent change); closes by number;
+ * - take actions while their cost fits in maxWrites; at the first action that does not fit,
+ *   stop -- it and everything after it count as capped. Nothing later jumps ahead (A2), so a
+ *   child is never planned without the create it depends on (D4).
  */
-export function planActions(input: {
-  readonly youtrackIssues: readonly YouTrackIssue[];
-  readonly mirrors: MirrorIndex;
-  readonly titlePrefix: string;
-  readonly maxWrites: number;
-}): Plan {
+export function planActions(input: PlanInput): Plan {
   const ordered = uniqueAscending(input.youtrackIssues);
+  const isEligible = (issue: YouTrackIssue): boolean => hasTitlePrefix(issue.summary, input.titlePrefix);
+  const context = planContext(input, ordered, isEligible);
   const needed: Action[] = [];
   let filtered = 0;
   let unchanged = 0;
   for (const issue of ordered) {
-    const outcome = hasTitlePrefix(issue.summary, input.titlePrefix)
-      ? actionFor(issue, input.mirrors.get(issue.numberInProject))
-      : "filtered";
-    if (outcome === "filtered") filtered += 1;
-    else if (outcome === "unchanged") unchanged += 1;
-    else needed.push(outcome);
+    const actions = isEligible(issue) ? actionsFor(context, issue) : null;
+    if (actions === null) filtered += 1;
+    else if (actions.length === 0) unchanged += 1;
+    else needed.push(...actions);
   }
-  const actions = withinWriteCap(needed, input.maxWrites);
-  return { actions, scanned: ordered.length, filtered, unchanged, capped: needed.length - actions.length };
+  const sorted = inExecutionOrder(context.hierarchy, needed);
+  const actions = withinWriteCap(sorted, input.maxWrites);
+  const warnings = [...input.milestones.warnings, ...hierarchyWarnings(context.hierarchy)];
+  return { actions, scanned: ordered.length, filtered, unchanged, capped: sorted.length - actions.length, warnings };
 }
 
 // ---------------------------------------------------------------------------
-// Mirror index
-
-/**
- * Non-PR issues with a mirror title, ranked: by numberInProject, then labelled first,
- * then lowest issue number. An issue listed twice (a page boundary shifted while
- * paging) is kept once, so it is never reported as its own duplicate.
- */
-function mirrorCandidates(issues: readonly GitHubIssue[], label: string): readonly Candidate[] {
-  const wanted = label.toLowerCase();
-  const seen = new Set<number>();
-  const candidates: Candidate[] = [];
-  for (const issue of issues) {
-    const numberInProject = issue.isPullRequest ? null : parseMirrorTitle(issue.title);
-    if (numberInProject === null || seen.has(issue.number)) continue;
-    seen.add(issue.number);
-    const hasLabel = issue.labelNames.some((name) => name.toLowerCase() === wanted);
-    candidates.push({ numberInProject, ref: { issueNumber: issue.number, state: issue.state, hasLabel } });
-  }
-  return candidates.sort(compareCandidates);
-}
-
-function compareCandidates(a: Candidate, b: Candidate): number {
-  if (a.numberInProject !== b.numberInProject) return a.numberInProject - b.numberInProject;
-  if (a.ref.hasLabel !== b.ref.hasLabel) return a.ref.hasLabel ? -1 : 1;
-  return a.ref.issueNumber - b.ref.issueNumber;
-}
-
-/** Splits ranked candidates into one group per numberInProject (they arrive adjacent). */
-function groupCandidates(ranked: readonly Candidate[]): readonly CandidateGroup[] {
-  const groups: { numberInProject: number; winner: MirrorRef; ignored: MirrorRef[] }[] = [];
-  for (const { numberInProject, ref } of ranked) {
-    const current = groups.at(-1);
-    if (current?.numberInProject === numberInProject) current.ignored.push(ref);
-    else groups.push({ numberInProject, winner: ref, ignored: [] });
-  }
-  return groups;
-}
-
-/** Only numbers go into warnings, so no issue text reaches the logs. */
-function titleOnlyWarning(numberInProject: number, ref: MirrorRef, label: string): string {
-  return `YT-${String(numberInProject)}: #${String(ref.issueNumber)} matched by title only (no "${label}" label)`;
-}
-
-function duplicateWarning(numberInProject: number, count: number, winner: MirrorRef, ignored: MirrorRef): string {
-  const matches = `YT-${String(numberInProject)}: ${String(count)} GitHub issues match`;
-  const using = `#${String(winner.issueNumber)} (${winner.hasLabel ? "labelled" : "unlabelled"})`;
-  return `${matches}; using ${using}, ignoring #${String(ignored.issueNumber)}`;
-}
-
-// ---------------------------------------------------------------------------
-// Actions
+// Per-issue decisions
 
 /**
  * A sorted copy with one issue per numberInProject (the first listed), so a repeated
@@ -177,14 +148,126 @@ function uniqueAscending(issues: readonly YouTrackIssue[]): readonly YouTrackIss
   return sorted.filter((issue, position) => sorted[position - 1]?.numberInProject !== issue.numberInProject);
 }
 
+function isEpic(issue: YouTrackIssue): boolean {
+  return classify(issue.type).kind === "milestone";
+}
+
+/** The hierarchy of `issues` and what this run creates: eligible, unresolved and not yet mirrored. */
+function planContext(
+  input: PlanInput,
+  issues: readonly YouTrackIssue[],
+  isEligible: (issue: YouTrackIssue) => boolean,
+): PlanContext {
+  const creatable = issues.filter((issue) => isEligible(issue) && issue.resolved === null);
+  const numbers = (list: readonly YouTrackIssue[]): ReadonlySet<number> =>
+    new Set(list.map(({ numberInProject }) => numberInProject));
+  return {
+    hierarchy: buildHierarchy(issues),
+    mirrors: input.mirrors,
+    mirrorOf: mirrorNumbers(input.mirrors),
+    milestones: input.milestones,
+    newIssues: numbers(creatable.filter((issue) => !isEpic(issue) && !input.mirrors.has(issue.numberInProject))),
+    newMilestones: numbers(
+      creatable.filter((issue) => isEpic(issue) && !input.milestones.index.has(issue.numberInProject)),
+    ),
+  };
+}
+
+/** The actions an eligible issue or epic needs, in the order they run; none: unchanged. */
+function actionsFor(context: PlanContext, issue: YouTrackIssue): readonly Action[] {
+  const { kind, githubType } = classify(issue.type);
+  if (kind === "milestone") return epicActions(context, issue);
+  const mirror = context.mirrors.get(issue.numberInProject);
+  if (mirror === undefined) {
+    if (!context.newIssues.has(issue.numberInProject)) return [];
+    const milestoneEpic = desiredMilestoneEpic(context, issue);
+    const parentYt = kind === "task" ? desiredParent(context, issue) : null;
+    return [{ kind: "create", issue, githubType, milestoneEpic, parentYt }];
+  }
+  return mirrorActions(context, issue, { kind, githubType }, mirror);
+}
+
+/** createMilestone for a new epic, closeMilestone for a resolved one; never reopen or rename (D7). */
+function epicActions(context: PlanContext, issue: YouTrackIssue): readonly Action[] {
+  const milestone = context.milestones.index.get(issue.numberInProject);
+  if (milestone === undefined) {
+    return context.newMilestones.has(issue.numberInProject) ? [{ kind: "createMilestone", issue }] : [];
+  }
+  return milestone.state === "open" && issue.resolved !== null ? [{ kind: "closeMilestone", issue, milestone }] : [];
+}
+
+/** Sync writes for an existing mirror, open or closed (D8), then its close if it is due. */
+function mirrorActions(
+  context: PlanContext,
+  issue: YouTrackIssue,
+  classified: { readonly kind: IssueKind; readonly githubType: GitHubTypeName | null },
+  mirror: MirrorRef,
+): readonly Action[] {
+  const actions: Action[] = [];
+  const fields = updateFields(context, mirror, desiredMilestoneEpic(context, issue), classified.githubType);
+  if (fields !== null) actions.push({ kind: "update", issue, mirror, ...fields });
+  // Only tasks become sub-issues (H9); for any other kind the desired parent is none.
+  const change = parentChange(context, mirror, classified.kind === "task" ? desiredParent(context, issue) : null);
+  if (change !== null) actions.push(parentAction(issue, mirror, change));
+  if (mirror.state === "open" && issue.resolved !== null) actions.push({ kind: "close", issue, mirror });
+  return actions;
+}
+
+function parentAction(issue: YouTrackIssue, mirror: MirrorRef, change: ParentChange): Action {
+  switch (change.kind) {
+    case "set":
+      return { kind: "setParent", issue, mirror, parentYt: change.parentYt };
+    case "remove":
+      return { kind: "removeParent", issue, mirror, parentNumber: change.parentNumber, parentYt: change.parentYt };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Order and cap
+
+/** Execution phases of docs/11 §1.4, in order. */
+const PHASE = { milestones: 0, issueCreates: 1, taskCreates: 2, sync: 3, closes: 4 } as const;
+
+function phaseOf(action: Action): number {
+  switch (action.kind) {
+    case "createMilestone":
+    case "closeMilestone":
+      return PHASE.milestones;
+    case "create":
+      return classify(action.issue.type).kind === "task" ? PHASE.taskCreates : PHASE.issueCreates;
+    case "update":
+    case "setParent":
+    case "removeParent":
+      return PHASE.sync;
+    case "close":
+      return PHASE.closes;
+  }
+}
+
+type SortKey = { readonly phase: number; readonly depth: number; readonly numberInProject: number };
+
 /**
- * The action an eligible issue needs, or "unchanged". Only unresolved issues get a
- * mirror (decision R9); mirrors are never reopened or edited.
+ * `actions` sorted by phase, then (task creates only) YouTrack depth, then numberInProject.
+ * The sort is stable and `actions` arrive per issue in run order, so an issue's update stays
+ * before its parent change.
  */
-function actionFor(issue: YouTrackIssue, mirror: MirrorRef | undefined): Action | "unchanged" {
-  const isResolved = issue.resolved !== null;
-  if (mirror === undefined) return isResolved ? "unchanged" : { kind: "create", issue };
-  return mirror.state === "open" && isResolved ? { kind: "close", issue, mirror } : "unchanged";
+function inExecutionOrder(hierarchy: Hierarchy, actions: readonly Action[]): readonly Action[] {
+  const keyed = actions.map((action) => {
+    const phase = phaseOf(action);
+    const key: SortKey = {
+      phase,
+      depth: phase === PHASE.taskCreates ? depth(hierarchy, action.issue) : 0,
+      numberInProject: action.issue.numberInProject,
+    };
+    return { action, key };
+  });
+  return keyed.sort((a, b) => compareKeys(a.key, b.key)).map(({ action }) => action);
+}
+
+function compareKeys(a: SortKey, b: SortKey): number {
+  if (a.phase !== b.phase) return a.phase - b.phase;
+  if (a.depth !== b.depth) return a.depth - b.depth;
+  return a.numberInProject - b.numberInProject;
 }
 
 /**

@@ -56,7 +56,7 @@ describe("runSync GitHub rate limits: closes", () => {
         `^close YT-1 #12 failed: PATCH .* -> HTTP ${String(status)}: .*API rate limit exceeded`,
       );
       assert.match(error.failures[0] ?? "", expected);
-      assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 3 }));
+      assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
       assert.deepEqual(sleeps, []);
       assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
       assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(error.summary, "failed") });
@@ -79,7 +79,7 @@ describe("runSync GitHub rate limits: closes", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`, `PATCH ${ISSUES_PATH}/13`]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, closed: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, closed: 1, failed: 1, fetches: 5 }));
     assert.ok(!messages(lines, "warn").some((line) => rateLimitWarning.test(line)));
   });
 
@@ -129,7 +129,7 @@ describe("runSync GitHub rate limits: creates", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.match(error.failures[0] ?? "", /^create YT-1 failed: POST .* -> HTTP 403/);
-    assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 3 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 4 }));
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 2 more action(s) capped"]);
   });
 
@@ -148,10 +148,10 @@ describe("runSync GitHub rate limits: creates", () => {
   });
 
   it("stops after a close that follows a successful create is rate-limited", async () => {
-    // Arrange: YT-1 is created, the YT-2 close of #50 is rate-limited, YT-3 waits.
+    // Arrange: YT-1 is created, the YT-2 close of #50 is rate-limited, the YT-3 close of #51 waits.
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(50, "[YT-2] [team] Task 2")],
-      youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT }), ytRow(3)],
+      githubIssues: [ghIssue(50, "[YT-2] [team] Task 2"), ghIssue(51, "[YT-3] [team] Task 3")],
+      youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT }), ytRow(3, { resolved: RESOLVED_AT })],
       override: (call) => (call.method === "PATCH" ? primaryLimit(403) : undefined),
     });
 
@@ -161,7 +161,7 @@ describe("runSync GitHub rate limits: creates", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/50`]);
-    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, capped: 1, failed: 1, fetches: 5 }));
   });
 });
 
@@ -179,7 +179,7 @@ describe("runSync GitHub rate limits: label re-adds", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}/101/labels`]);
     assert.match(error.failures[0] ?? "", /^label YT-1 #101 failed: POST .* -> HTTP 429/);
-    assert.deepEqual(error.summary, summary({ scanned: 1, created: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 1, created: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(sleeps, [WRITE_PAUSE_MS]);
   });
 
@@ -193,6 +193,6 @@ describe("runSync GitHub rate limits: label re-adds", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}/101/labels`]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, created: 1, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, created: 1, capped: 1, failed: 1, fetches: 5 }));
   });
 });

@@ -1,14 +1,14 @@
 /**
- * Shared fixtures for the runSync tests (test/sync*.test.ts): config, YouTrack rows and
- * GitHub issues, a fake fetch that routes by method + URL to canned answers and records
- * every call, a recording logger and sleep, and assertion helpers.
+ * Shared fixtures for the runSync tests (test/sync*.test.ts): config, YouTrack rows,
+ * GitHub issues and milestones, a fake fetch that routes by method + URL to canned answers
+ * and records every call, a recording logger and sleep, and assertion helpers.
  */
 
 import assert from "node:assert/strict";
 
 import type { Config } from "../src/config.ts";
-import { MIRROR_LABEL } from "../src/github.ts";
-import { isJsonArray, isJsonObject, isString, parseJson } from "../src/json.ts";
+import { MIRROR_LABEL } from "../src/github/client.ts";
+import { isInteger, isJsonArray, isJsonObject, isString, parseJson } from "../src/json.ts";
 import type { JsonObject, JsonValue } from "../src/json.ts";
 import { WRITE_PAUSE_MS } from "../src/sync.ts";
 import type { Logger, RunSummary, SyncDeps } from "../src/sync.ts";
@@ -24,10 +24,23 @@ export const GITHUB_ORIGIN = "https://api.github.com";
 export const ISSUES_PATH = "/repos/acme/mirror/issues";
 const ISSUE_PATH = /^\/repos\/acme\/mirror\/issues\/(\d+)$/;
 export const LABELS_PATH = /^\/repos\/acme\/mirror\/issues\/\d+\/labels$/;
+export const MILESTONES_PATH = "/repos/acme/mirror/milestones";
+const MILESTONE_PATH = /^\/repos\/acme\/mirror\/milestones\/(\d+)$/;
+/** POST .../issues/{parent}/sub_issues (add) and DELETE .../issues/{parent}/sub_issue (remove). */
+const SUB_ISSUE_PATH = /^\/repos\/acme\/mirror\/issues\/(\d+)\/sub_issues?$/;
 export const RESOLVED_AT = 1_789_644_365_309;
 const UPDATED_AT = 1_790_254_466_396;
 /** The fake numbers new GitHub issues from here on: the first create gets #101. */
 export const LAST_EXISTING_NUMBER = 100;
+/** The fake numbers new GitHub milestones from here on: the first create gets milestone #201. */
+export const LAST_EXISTING_MILESTONE = 200;
+/** Every fake GitHub issue's REST id is this plus its number, so ids and numbers never coincide. */
+const ID_OFFSET = 1_000_000;
+
+/** The REST `id` the fake gives GitHub issue #issueNumber. */
+export function issueId(issueNumber: number): number {
+  return ID_OFFSET + issueNumber;
+}
 
 const BASE_CONFIG: Config = {
   githubToken: GITHUB_TOKEN,
@@ -49,11 +62,21 @@ type RowOptions = {
   readonly summary?: string;
   readonly resolved?: number | null;
   readonly description?: string | null;
+  /** The YouTrack Type value ("Epic", "User Story", "Bug", "Task"); left out: no Type entry. */
+  readonly type?: string;
+  /** numberInProject of the Subtask parent (CUI-<n>); left out: no parent. */
+  readonly parent?: number;
 };
 
-/** A YouTrack /api/issues row shaped like the live ones in docs/00. */
+/**
+ * A YouTrack /api/issues row shaped like the live ones in docs/00. Without `type` and
+ * `parent` it has no Type entry and no parent (it parses to type: null, parentId: null).
+ */
 export function ytRow(numberInProject: number, options: RowOptions = {}): JsonObject {
   const n = String(numberInProject);
+  const { type, parent } = options;
+  const parentIssues = parent === undefined ? [] : [{ idReadable: `CUI-${String(parent)}`, $type: "Issue" }];
+  const typeValue = type === undefined ? null : { name: type, $type: "EnumBundleElement" };
   return {
     idReadable: `CUI-${n}`,
     numberInProject,
@@ -61,6 +84,8 @@ export function ytRow(numberInProject: number, options: RowOptions = {}): JsonOb
     description: options.description === undefined ? `Details of task ${n}` : options.description,
     resolved: options.resolved ?? null,
     updated: UPDATED_AT,
+    parent: { issues: parentIssues, $type: "IssueLink" },
+    customFields: typeValue === null ? [] : [{ name: "Type", value: typeValue, $type: "SingleEnumIssueCustomField" }],
     $type: "Issue",
   };
 }
@@ -69,15 +94,46 @@ type IssueOptions = {
   readonly state?: "open" | "closed";
   readonly labels?: readonly string[];
   readonly pullRequest?: boolean;
+  /** The milestone number the issue sits in. */
+  readonly milestone?: number;
+  /** The GitHub issue type name. */
+  readonly type?: string;
+  /** The number of its parent issue in this repository. */
+  readonly parent?: number;
 };
 
+/** An issue as GitHub lists it; milestone, type and parent_issue_url only when given. */
 export function ghIssue(issueNumber: number, title: string, options: IssueOptions = {}): JsonObject {
+  const { milestone, type, parent } = options;
   return {
+    id: issueId(issueNumber),
     number: issueNumber,
     title,
     state: options.state ?? "open",
     labels: (options.labels ?? [MIRROR_LABEL]).map((name) => ({ name })),
     ...(options.pullRequest === true ? { pull_request: { url: `${GITHUB_ORIGIN}/pulls/${String(issueNumber)}` } } : {}),
+    ...(milestone === undefined ? {} : { milestone: { number: milestone, title: "any" } }),
+    ...(type === undefined ? {} : { type: { name: type } }),
+    ...(parent === undefined ? {} : { parent_issue_url: `${GITHUB_ORIGIN}${ISSUES_PATH}/${String(parent)}` }),
+  };
+}
+
+/** A milestone as GitHub lists it. */
+export function ghMilestone(milestoneNumber: number, title: string, state: "open" | "closed" = "open"): JsonObject {
+  return { number: milestoneNumber, title, state, description: null, open_issues: 0, closed_issues: 0 };
+}
+
+/** Open milestones #1.. of resolved "[team]" epics YT-1..: each one needs a closeMilestone. */
+export function openMilestonesOfResolvedEpics(count: number): {
+  readonly milestones: JsonObject[];
+  readonly youtrackRows: JsonObject[];
+} {
+  const numbers = Array.from({ length: count }, (_, index) => index + 1);
+  return {
+    milestones: numbers.map((n) => ghMilestone(n, `[YT-${String(n)}] [team] Epic ${String(n)}`)),
+    youtrackRows: numbers.map((n) =>
+      ytRow(n, { type: "Epic", summary: `[team] Epic ${String(n)}`, resolved: RESOLVED_AT }),
+    ),
   };
 }
 
@@ -110,11 +166,17 @@ export type RecordedCall = {
 /** Replaces the default answer; `attempt` counts earlier calls with the same method and URL. */
 export type Override = (call: RecordedCall, attempt: number) => Response | Error | undefined;
 
+/** A POST /issues request field the fake create silently drops, as GitHub does without push access. */
+export type CreateDrop = "milestone" | "type" | "parent_issue_id";
+
 export type World = {
   readonly githubIssues?: readonly JsonObject[];
+  readonly milestones?: readonly JsonObject[];
   readonly youtrackRows?: readonly JsonObject[];
   /** Labels a create answers with; by default the requested ones ([] = silently dropped). */
   readonly createdLabels?: readonly string[];
+  /** Request fields a create answers without; by default none (all echoed back). */
+  readonly createDrops?: readonly CreateDrop[];
   readonly override?: Override;
   /** SyncDeps.deadline on the virtual clock; by default never reached. */
   readonly deadline?: number;
@@ -130,6 +192,7 @@ export type Harness = {
 };
 
 /**
+ * No milestones, and no YouTrack types or parents:
  * YT-1 unresolved, no mirror       -> create
  * YT-2 resolved, no mirror         -> unchanged (never mirrored, decision R9)
  * YT-3 resolved, open mirror #12   -> close
@@ -176,30 +239,84 @@ function youtrackPage(url: URL, rows: readonly JsonObject[]): Response {
   return json(200, rows.slice(skip, skip + top));
 }
 
-function createdIssue(body: JsonValue | undefined, issueNumber: number, createdLabels?: readonly string[]): JsonObject {
-  const request = isJsonObject(body) ? body : {};
-  const title = request["title"];
-  const requested = request["labels"];
-  const labels = createdLabels ?? (isJsonArray(requested) ? requested.filter(isString) : []);
-  return ghIssue(issueNumber, isString(title) ? title : "", { labels });
+/** Hands out the numbers of new issues (#101..) and milestones (#201..). */
+type Counters = { readonly nextIssue: () => number; readonly nextMilestone: () => number };
+
+function requestOf(body: JsonValue | undefined): JsonObject {
+  return isJsonObject(body) ? body : {};
 }
 
-function githubAnswer(call: RecordedCall, world: World, nextNumber: () => number): Response {
+/** The request's integer field `key`, unless the world drops it; else undefined. */
+function kept(request: JsonObject, key: CreateDrop, world: World): number | undefined {
+  const value = request[key];
+  return isInteger(value) && !(world.createDrops ?? []).includes(key) ? value : undefined;
+}
+
+function createdIssue(body: JsonValue | undefined, issueNumber: number, world: World): JsonObject {
+  const request = requestOf(body);
+  const { title, labels: requested, type } = request;
+  const labels = world.createdLabels ?? (isJsonArray(requested) ? requested.filter(isString) : []);
+  const parentId = kept(request, "parent_issue_id", world);
+  const milestone = kept(request, "milestone", world);
+  return ghIssue(issueNumber, isString(title) ? title : "", {
+    labels,
+    ...(milestone === undefined ? {} : { milestone }),
+    ...(isString(type) && !(world.createDrops ?? []).includes("type") ? { type } : {}),
+    ...(parentId === undefined ? {} : { parent: parentId - ID_OFFSET }),
+  });
+}
+
+/** A PATCH answer: closed for a close, otherwise the requested milestone and type echoed back. */
+function patchedIssue(body: JsonValue | undefined, issueNumber: number): JsonObject {
+  const { state, milestone, type } = requestOf(body);
+  if (state === "closed") return ghIssue(issueNumber, "[YT-0] closed", { state: "closed" });
+  return {
+    ...ghIssue(issueNumber, "[YT-0] patched", isString(type) ? { type } : {}),
+    ...(milestone === undefined ? {} : { milestone: isInteger(milestone) ? { number: milestone } : null }),
+  };
+}
+
+function createdMilestone(body: JsonValue | undefined, milestoneNumber: number): JsonObject {
+  const { title } = requestOf(body);
+  return ghMilestone(milestoneNumber, isString(title) ? title : "");
+}
+
+function milestoneAnswer(call: RecordedCall, world: World, counters: Counters): Response | undefined {
+  const path = call.url.pathname;
+  if (path === MILESTONES_PATH && call.method === "GET") return json(200, world.milestones ?? []);
+  if (path === MILESTONES_PATH && call.method === "POST") {
+    return json(201, createdMilestone(call.body, counters.nextMilestone()));
+  }
+  const milestone = MILESTONE_PATH.exec(path);
+  if (call.method === "PATCH" && milestone !== null) {
+    return json(200, ghMilestone(Number(milestone[1]), "[YT-0] closed", "closed"));
+  }
+  return undefined;
+}
+
+function issueAnswer(call: RecordedCall, world: World, counters: Counters): Response | undefined {
   const path = call.url.pathname;
   if (path === ISSUES_PATH && call.method === "GET") return json(200, world.githubIssues ?? []);
   if (path === ISSUES_PATH && call.method === "POST") {
-    return json(201, createdIssue(call.body, nextNumber(), world.createdLabels));
+    return json(201, createdIssue(call.body, counters.nextIssue(), world));
   }
   if (call.method === "POST" && LABELS_PATH.test(path)) return json(200, [{ name: MIRROR_LABEL }]);
   const issue = ISSUE_PATH.exec(path);
-  if (call.method === "PATCH" && issue !== null) {
-    return json(200, ghIssue(Number(issue[1]), "[YT-0] closed", { state: "closed" }));
+  if (call.method === "PATCH" && issue !== null) return json(200, patchedIssue(call.body, Number(issue[1])));
+  const parent = SUB_ISSUE_PATH.exec(path);
+  if (parent !== null && (call.method === "POST" || call.method === "DELETE")) {
+    return json(call.method === "POST" ? 201 : 200, ghIssue(Number(parent[1]), "[YT-0] parent"));
   }
-  return json(404, { message: "Not Found" });
+  return undefined;
 }
 
-function defaultAnswer(call: RecordedCall, world: World, nextNumber: () => number): Response {
-  if (call.url.origin === GITHUB_ORIGIN) return githubAnswer(call, world, nextNumber);
+function githubAnswer(call: RecordedCall, world: World, counters: Counters): Response {
+  const answer = milestoneAnswer(call, world, counters) ?? issueAnswer(call, world, counters);
+  return answer ?? json(404, { message: "Not Found" });
+}
+
+function defaultAnswer(call: RecordedCall, world: World, counters: Counters): Response {
+  if (call.url.origin === GITHUB_ORIGIN) return githubAnswer(call, world, counters);
   const isIssueScan = call.url.origin === YOUTRACK_BASE_URL && call.url.pathname === "/api/issues";
   return isIssueScan && call.method === "GET"
     ? youtrackPage(call.url, world.youtrackRows ?? [])
@@ -224,13 +341,14 @@ export function harness(world: World = {}): Harness {
   const calls: RecordedCall[] = [];
   const lines: LogLine[] = [];
   const sleeps: number[] = [];
-  let lastNumber = LAST_EXISTING_NUMBER;
-  const nextNumber = (): number => (lastNumber += 1);
+  let lastIssue = LAST_EXISTING_NUMBER;
+  let lastMilestone = LAST_EXISTING_MILESTONE;
+  const counters: Counters = { nextIssue: () => (lastIssue += 1), nextMilestone: () => (lastMilestone += 1) };
   const fakeFetch: typeof fetch = (input, init) => {
     const call = recordCall(input, init);
     const attempt = calls.filter((c) => c.method === call.method && c.url.href === call.url.href).length;
     calls.push(call);
-    const answer = world.override?.(call, attempt) ?? defaultAnswer(call, world, nextNumber);
+    const answer = world.override?.(call, attempt) ?? defaultAnswer(call, world, counters);
     return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
   };
   // Virtual clock: starts at 0 and moves only when the code under test sleeps.
@@ -284,6 +402,18 @@ export function isCreate(call: RecordedCall): boolean {
   return call.method === "POST" && call.url.pathname === ISSUES_PATH;
 }
 
+/** The body of the only call with `method` to `path`; fails the test unless exactly one exists. */
+export function onlyBody(calls: readonly RecordedCall[], method: string, path: string): JsonObject {
+  const matching = calls.filter((call) => call.method === method && call.url.pathname === path);
+  assert.equal(matching.length, 1, `expected exactly one ${method} ${path}`);
+  return bodyOf(matching[0]);
+}
+
+/** The bodies of every issue create, in order. */
+export function createBodies(calls: readonly RecordedCall[]): readonly JsonObject[] {
+  return calls.filter(isCreate).map((call) => bodyOf(call));
+}
+
 export function pauses(sleeps: readonly number[]): number {
   return sleeps.filter((ms) => ms === WRITE_PAUSE_MS).length;
 }
@@ -306,6 +436,9 @@ export function summary(fields: Partial<RunSummary>): RunSummary {
     scanned: 0,
     created: 0,
     closed: 0,
+    updated: 0,
+    milestonesCreated: 0,
+    milestonesClosed: 0,
     skipped: (fields.filtered ?? 0) + (fields.unchanged ?? 0),
     capped: 0,
     failed: 0,

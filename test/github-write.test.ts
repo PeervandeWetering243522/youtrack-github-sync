@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { addLabel, closeIssue, createIssue } from "../src/github.ts";
-import type { CreateIssueBody, GitHubTarget } from "../src/github.ts";
+import type { GitHubTarget } from "../src/github/client.ts";
+import { addLabel, closeIssue, createIssue } from "../src/github/issues.ts";
+import type { CreateIssueBody } from "../src/github/issues.ts";
 import {
+  DEFAULT_ISSUE_ID,
   EXPECTED_HEADERS,
   ISSUES_URL,
+  NO_HIERARCHY,
   TARGET,
   TOKEN,
   createFakeHttp,
   httpError,
   issueJson,
+  parentUrl,
   requestAt,
   schemaError,
 } from "./github-fixtures.ts";
@@ -58,11 +62,89 @@ describe("createIssue", () => {
     // Assert
     assert.deepEqual(issue, {
       number: 101,
+      id: DEFAULT_ISSUE_ID,
       title: "[YT-12] Mirror me",
       state: "open",
       labelNames: ["youtrack"],
       isPullRequest: false,
+      ...NO_HIERARCHY,
     });
+  });
+
+  it("sends milestone, type and parent_issue_id, with the parent id as a JSON integer", async () => {
+    // Arrange
+    const fake = createFakeHttp([{ status: 201, body: created }]);
+    const input: CreateIssueBody = { ...body, milestone: 2, type: "Task", parent_issue_id: 3_400_000_024 };
+
+    // Act
+    await createIssue(fake.http, TARGET, input);
+
+    // Assert
+    const sent = requestAt(fake.requests, 0).body;
+    assert.deepEqual(sent, { ...body, milestone: 2, type: "Task", parent_issue_id: 3_400_000_024 });
+    assert.match(JSON.stringify(sent), /"milestone":2,"type":"Task","parent_issue_id":3400000024\}$/);
+  });
+
+  it("returns the milestone, type and parent GitHub reports for the new issue", async () => {
+    // Arrange: a dropped milestone or type shows up here as null (docs/11 1.6).
+    const response = issueJson({
+      number: 25,
+      id: 88,
+      milestone: null,
+      type: { name: "Task" },
+      parent_issue_url: parentUrl(24),
+    });
+    const fake = createFakeHttp([{ status: 201, body: response }]);
+
+    // Act
+    const issue = await createIssue(fake.http, TARGET, { ...body, milestone: 2, type: "Task", parent_issue_id: 7 });
+
+    // Assert
+    assert.deepEqual(
+      [issue.id, issue.milestoneNumber, issue.typeName, issue.parentNumber, issue.parentIsForeign],
+      [88, null, "Task", 24, false],
+    );
+  });
+
+  for (const [field, value] of [
+    ["parent_issue_id", 0],
+    ["parent_issue_id", -1],
+    ["parent_issue_id", 1.5],
+    ["parent_issue_id", Number.NaN],
+    ["parent_issue_id", 2 ** 53],
+    ["milestone", 0],
+    ["milestone", Number.NaN],
+    ["milestone", Number.POSITIVE_INFINITY],
+  ] as const) {
+    it(`refuses ${field} ${String(value)} before sending the create (JSON would turn NaN into null)`, async () => {
+      // Arrange
+      const fake = createFakeHttp([{ status: 201, body: created }]);
+      const input: CreateIssueBody =
+        field === "milestone" ? { ...body, milestone: value } : { ...body, parent_issue_id: value };
+
+      // Act + Assert
+      await assert.rejects(createIssue(fake.http, TARGET, input), {
+        name: "RangeError",
+        message: field === "milestone" ? /GitHub milestone number/ : /GitHub parent issue id/,
+      });
+      assert.equal(fake.requests.length, 0);
+    });
+  }
+
+  it("passes a null or string milestone through unchanged (GitHub's schema allows both)", async () => {
+    // Arrange
+    const fake = createFakeHttp([
+      { status: 201, body: created },
+      { status: 201, body: created },
+    ]);
+
+    // Act
+    await createIssue(fake.http, TARGET, { ...body, milestone: null });
+    await createIssue(fake.http, TARGET, { ...body, milestone: "2" });
+
+    // Assert
+    assert.deepEqual(requestAt(fake.requests, 0).body, { ...body, milestone: null });
+    assert.deepEqual(requestAt(fake.requests, 1).body, { ...body, milestone: "2" });
   });
 
   it("reports a dropped label as an empty labelNames list", async () => {

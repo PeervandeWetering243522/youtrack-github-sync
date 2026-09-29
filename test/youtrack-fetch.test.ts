@@ -99,7 +99,7 @@ describe("fetchProjectIssues: requests", () => {
     }
   });
 
-  it("sends only the query, fields, $top and $skip parameters", async () => {
+  it("sends only the query, fields, customFields, $top and $skip parameters", async () => {
     // Arrange
     const fake = serveBodies([issueRows(1, 100), issueRows(101, 1)]);
 
@@ -109,9 +109,10 @@ describe("fetchProjectIssues: requests", () => {
     // Assert
     for (const request of fake.requests) {
       const url = new URL(request.url);
-      assert.deepEqual([...url.searchParams.keys()], ["query", "fields", "$top", "$skip"]);
+      assert.deepEqual([...url.searchParams.keys()], ["query", "fields", "customFields", "$top", "$skip"]);
       assert.equal(url.searchParams.get("query"), "project: CUI sort by: {issue id} asc");
       assert.equal(url.searchParams.get("fields"), issueFieldsParam());
+      assert.deepEqual(url.searchParams.getAll("customFields"), ["Type"]);
       assert.equal(url.hash, "");
     }
   });

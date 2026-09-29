@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { GitHubSchemaError, nextPageUrl } from "../src/github.ts";
+import { GitHubSchemaError } from "../src/github/client.ts";
+import { nextPageUrl } from "../src/github/link.ts";
 import { schemaError } from "./github-fixtures.ts";
 
 // ---------------------------------------------------------------------------

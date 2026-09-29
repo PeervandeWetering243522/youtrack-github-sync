@@ -14,6 +14,7 @@ import {
   json,
   lastLine,
   messages,
+  MILESTONES_PATH,
   MIXED_WORLD,
   rejection,
   RESOLVED_AT,
@@ -56,13 +57,13 @@ describe("runSync write cap", () => {
 
     // Assert
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-2] [team] Task 2"]);
-    assert.deepEqual(result, summary({ scanned: 3, unchanged: 1, created: 1, capped: 1, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 3, unchanged: 1, created: 1, capped: 1, fetches: 4 }));
   });
 
-  it("closes the open mirror of a resolved issue first under a cap of 1", async () => {
-    // Arrange: #101 is the open mirror of resolved YT-1.
+  it("creates before it closes under a cap of 1, even for a lower issue number (docs/11 §1.4)", async () => {
+    // Arrange: #50 is the open mirror of resolved YT-1; YT-2 needs a create.
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(101, "[YT-1] [team] Task 1")],
+      githubIssues: [ghIssue(50, "[YT-1] [team] Task 1")],
       youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)],
     });
 
@@ -70,8 +71,9 @@ describe("runSync write cap", () => {
     const result = await runSync(config({ maxWritesPerRun: 1 }), deps);
 
     // Assert
-    assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/101`]);
-    assert.equal(result.closed, 1);
+    assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
+    assert.equal(result.created, 1);
+    assert.equal(result.closed, 0);
     assert.equal(result.capped, 1);
   });
 
@@ -113,7 +115,7 @@ describe("runSync write failures", () => {
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
     assert.equal(error.failures.length, 1);
     assert.match(error.failures[0] ?? "", /^create YT-1 failed: POST https:\/\/api\.github\.com\/.* -> HTTP 422/);
-    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, closed: 1, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, closed: 1, failed: 1, fetches: 6 }));
   });
 
   it("logs the failure and then the failed summary as the last line", async () => {
@@ -206,6 +208,36 @@ describe("runSync read failures", () => {
     assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(summary({ fetches: 1 }), "failed") });
   });
 
+  it("rethrows a GitHub milestones list error after a failed summary, before touching YouTrack", async () => {
+    // Arrange
+    const { deps, calls, lines } = harness({
+      ...MIXED_WORLD,
+      override: (call) => (call.url.pathname === MILESTONES_PATH ? json(404, { message: "Not Found" }) : undefined),
+    });
+
+    // Act
+    const error = await rejection(runSync(config(), deps));
+
+    // Assert
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.status, 404);
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((call) => call.url.origin === GITHUB_ORIGIN && call.method === "GET"));
+    assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(summary({ fetches: 2 }), "failed") });
+  });
+
+  it("rethrows a GitHub milestone that is not shaped like one", async () => {
+    // Arrange
+    const { deps, calls } = harness({ ...MIXED_WORLD, milestones: [{ number: 1, title: "[YT-1] x", state: "gone" }] });
+
+    // Act
+    const error = await rejection(runSync(config(), deps));
+
+    // Assert
+    assert.equal(error.name, "GitHubSchemaError");
+    assert.deepEqual(writeCalls(calls), []);
+  });
+
   it("rethrows a YouTrack 400 and writes nothing", async () => {
     // Arrange
     const { deps, calls, lines } = harness({
@@ -223,7 +255,7 @@ describe("runSync read failures", () => {
     assert.ok(error instanceof HttpError);
     assert.equal(error.status, 400);
     assert.deepEqual(writeCalls(calls), []);
-    const failed = formatSummary(summary({ dryRun: true, fetches: 2 }), "failed");
+    const failed = formatSummary(summary({ dryRun: true, fetches: 3 }), "failed");
     assert.deepEqual(lastLine(lines), { level: "error", message: failed });
   });
 

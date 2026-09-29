@@ -16,58 +16,120 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
    requests. An issue whose title starts with `[YT-<n>]` is the mirror of YouTrack issue `n`.
    One with the `youtrack` label wins. A title match without the label still counts as the
    mirror, and a warning is logged. If several issues match, the lowest number wins (warning).
-2. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
-   `project: CUI sort by: {issue id} asc`, 100 per page). There is no lookback window. Every
-   row must have `idReadable` = `<project>-<numberInProject>`, otherwise the run fails.
-3. **Filters** to issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
-   case-insensitive). Everything else counts as `filtered`.
-4. **Plans**, oldest first (ascending issue number):
-   - no mirror and the YouTrack issue is unresolved: **create** `[YT-<n>] <summary>` with the
-     `youtrack` label. The body is the description with `@mentions` and `#123`-style references
-     wrapped in backticks, plus a link back to YouTrack.
-   - no mirror and the YouTrack issue is already resolved: nothing (`unchanged`). Issues that
-     are resolved before they are ever mirrored never get a mirror (decision R9).
-   - open mirror and the YouTrack issue is resolved: **close** it (`state_reason: completed`).
-   - anything else: nothing (`unchanged`). Mirrors are **never reopened, retitled, edited or
-     commented on**.
-5. **Writes** serially, 1 s apart, at most `MAX_WRITES_PER_RUN` per run. Whatever does not
-   fit is `capped` and picked up by the next run; nothing later jumps ahead. Every create and
-   every close costs one write. If GitHub drops the label on create, it is
-   re-added once (this counts as a write). The write phase also stops early, counting the rest
-   as `capped`, when GitHub rate-limits a write, when the fetch guard is reached, or when the
-   run deadline passes (see [Limits and budget](#limits-and-budget)).
-6. **Logs one line per write and one summary line**, for example:
+   For each mirror it keeps the REST `id`, milestone, issue type and parent.
+2. **Lists every GitHub milestone** (`state=all`). A milestone whose title starts with
+   `[YT-<n>]` is the milestone of YouTrack epic `n`. If several match, the lowest number wins
+   (warning). Any other milestone counts as hand-made.
+3. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
+   `project: CUI sort by: {issue id} asc`, 100 per page), including each issue's `Type` field
+   and its Subtask parent. There is no lookback window. The run fails on any row whose
+   `idReadable` is not `<project>-<numberInProject>`, and on any row with two parents or two
+   `Type` fields.
+4. **Filters** to issues whose summary starts with `YOUTRACK_TITLE_PREFIX` (default `[team]`,
+   case-insensitive). Epics are filtered the same way. Everything else counts as `filtered` and
+   gets no write, even if it already has a mirror.
+5. **Plans**, using the [hierarchy mapping](#hierarchy) below:
+   - no mirror (for an epic: no milestone) and unresolved in YouTrack: **create** it. An issue
+     is `[YT-<n>] <summary>` with the `youtrack` label, and its issue type, milestone and (tasks
+     only) parent go in the same request. The body is the description with `@mentions` and
+     `#123`-style references wrapped in backticks, plus a link back to YouTrack. A milestone
+     gets the same title, the body as its description, and no due date.
+   - no mirror and already resolved: nothing (`unchanged`). Issues and epics that are resolved
+     before they are ever mirrored never get a mirror (decision R9).
+   - every existing mirror, open or closed: **sync** its milestone, type and parent with
+     YouTrack (an update, a move or a detach).
+   - open mirror or milestone, and resolved in YouTrack: **close** it (issues with
+     `state_reason: completed`).
+   - anything else: nothing (`unchanged`).
+6. **Writes** serially, 1 s apart, in this order: milestone creates and closes; creates of
+   everything except tasks; creates of tasks, parents before children; syncs; closes. Within a
+   group the oldest (lowest issue number) goes first. At most `MAX_WRITES_PER_RUN` writes run
+   per run. Whatever does not fit is `capped` and picked up by the next run, and nothing later
+   jumps ahead. Every action costs one write. If GitHub drops the label on create, it is
+   re-added once (this counts as a write). A child whose parent mirror or milestone is created
+   earlier in the same run uses it. If that create failed or waited itself, the child is
+   `capped` too (with a warning) and the run goes on. The write phase also stops early,
+   counting the rest as `capped`, when GitHub rate-limits a write, when the fetch guard is
+   reached, or when the run deadline passes (see [Limits and budget](#limits-and-budget)).
+7. **Logs one line per write and one summary line**, for example:
 
    ```text
-   create YT-5 -> #41
+   create milestone YT-40 -> #1
+   create YT-41 with type Feature, milestone YT-40 #1 -> #30
+   create YT-42 with type Task, milestone YT-40 #1, parent YT-41 #30 -> #31
+   update YT-15 #21: set type Task
    close YT-3 #12
-   yt-gh-sync ok scanned=29 created=5 closed=3 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=10 dryRun=false
+   yt-gh-sync ok scanned=40 created=2 closed=1 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=8 dryRun=false
    ```
 
-   The headline counts come first; `skipped` = `filtered` + `unchanged`.
+   The headline counts come first. `updated` counts updates, moves and detaches, and `skipped`
+   = `filtered` + `unchanged`. The other write lines look like `close milestone YT-33 #7`,
+   `update YT-15 #21: set milestone YT-33 #7`, `update YT-15 #21: clear milestone`,
+   `move YT-42 #31 under YT-36 #22`, `detach YT-42 #31 from parent YT-41 #30` and
+   `label YT-41 #30` (label re-added).
 
-YouTrack is only ever read: the only call is `GET /api/issues`.
+### Hierarchy
 
-**Failures.** A failed read (GitHub list, YouTrack scan) logs a `yt-gh-sync failed ...` summary
-line and aborts the run. A failed write is logged, the run carries on with the other writes
-(unless GitHub rate-limited it), and at the end it logs `yt-gh-sync failed ...` and throws, so
-the run shows as failed in Cron Events (or as a failed systemd unit). Tokens are never logged.
+| YouTrack `Type`   | GitHub                                                                | Issue type |
+| ----------------- | --------------------------------------------------------------------- | ---------- |
+| Epic              | milestone `[YT-<n>] <summary>`, no due date                           | -          |
+| User Story        | issue                                                                 | Feature    |
+| Bug               | issue                                                                 | Bug        |
+| Task              | sub-issue of its parent's mirror, or a top-level issue if it has none | Task       |
+| other, or no Type | issue                                                                 | none       |
 
-**Dry run is on by default.** With `DRY_RUN` on, the run reads both sides and logs
-`[dry-run] would create ...` / `[dry-run] would close ...` lines, but sends no GitHub write at all.
+- **Milestone:** every mirror gets the milestone of its nearest Epic ancestor, if that epic
+  has one. Higher epics are not searched. An existing milestone still counts after its epic
+  loses the prefix or is resolved.
+- **Parent:** only tasks become sub-issues. A task goes under the mirror of its nearest
+  non-epic ancestor that has one, skipping ancestors without a mirror. The walk stops at the
+  first epic. With no such ancestor the task is top-level, and it is moved once a parent
+  mirror exists. Stories, bugs and other issues are always top-level, so one that sits under
+  another mirror is detached.
+- **Parent links** come from YouTrack's Subtask link. A parent in another project ends the
+  walk. A parent cycle, which YouTrack should never hold, is ignored and logged as
+  `YT-<n>: parent chain loops back to YT-<m>`.
+- **Hand-made links stay:** a milestone or parent that is not a mirror is left alone unless
+  YouTrack wants a mirrored one there. A type is never cleared, so a mirror whose YouTrack type
+  has no mapping keeps whatever type it has on GitHub.
+
+**Never done.** YouTrack is only ever read: the only call is `GET /api/issues`. On GitHub the
+tool never reopens an issue or milestone, never changes a title, body or milestone description
+after creation, never comments, never reorders sub-issues, never clears an issue type, never
+creates labels and never touches pull requests. Relates links and sprints are not mirrored.
+
+**Failures.** A failed read (GitHub issues or milestones, YouTrack scan) logs a
+`yt-gh-sync failed ...` summary line and aborts the run. A failed write is logged, the run
+carries on with the other writes (unless GitHub rate-limited it), and at the end it logs
+`yt-gh-sync failed ...` and throws, so the run shows as failed in Cron Events (or as a failed
+systemd unit). A write that waits for a failed create is `capped`, not failed. Tokens are
+never logged.
+
+**Dry run is on by default.** With `DRY_RUN` on, the run reads both sides and logs one
+`[dry-run] would ...` line per planned write, but sends no GitHub write at all. The create
+lines end with the title. A milestone or mirror that the run would create earlier shows as
+`(new)`:
+
+```text
+[dry-run] would create milestone YT-40: [YT-40] [team] Data pipeline
+[dry-run] would create YT-41 with type Feature, milestone YT-40 (new): [YT-41] [team] Ingest the data
+[dry-run] would create YT-42 with type Task, milestone YT-40 (new), parent YT-41 (new): [YT-42] [team] Clean the data
+[dry-run] would update YT-15 #21: set type Task
+[dry-run] would close YT-3 #12
+```
 
 ## Configuration
 
-| Name                    | Kind   | Default  | Notes                                                                                                         |
-| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_TOKEN`          | secret | required | Classic PAT with the `repo` scope (decision B12).                                                             |
-| `YOUTRACK_TOKEN`        | secret | required | YouTrack permanent token.                                                                                     |
-| `GITHUB_REPO`           | var    | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                      |
-| `YOUTRACK_BASE_URL`     | var    | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`. |
-| `YOUTRACK_PROJECT`      | var    | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                              |
-| `YOUTRACK_TITLE_PREFIX` | var    | `[team]` | Case-insensitive summary prefix that marks an issue for mirroring.                                            |
-| `MAX_WRITES_PER_RUN`    | var    | `30`     | Whole number from 0 to 40. A create = 1 write, a close = 1, a label re-add = 1.                               |
-| `DRY_RUN`               | var    | on       | Only `false` (any case, surrounding whitespace ignored) turns it off.                                         |
+| Name                    | Kind   | Default  | Notes                                                                                                                          |
+| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN`          | secret | required | Classic PAT with the `repo` scope (decision B12).                                                                              |
+| `YOUTRACK_TOKEN`        | secret | required | YouTrack permanent token.                                                                                                      |
+| `GITHUB_REPO`           | var    | required | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                                       |
+| `YOUTRACK_BASE_URL`     | var    | required | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`.                  |
+| `YOUTRACK_PROJECT`      | var    | required | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                                               |
+| `YOUTRACK_TITLE_PREFIX` | var    | `[team]` | Case-insensitive summary prefix that marks an issue or epic for mirroring.                                                     |
+| `MAX_WRITES_PER_RUN`    | var    | `30`     | Whole number from 0 to 40. Every write counts 1: create, close, update, move, detach, milestone create or close, label re-add. |
+| `DRY_RUN`               | var    | on       | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                          |
 
 Invalid config fails the run before any request is made, listing every problem at once.
 
@@ -99,11 +161,15 @@ gh label create youtrack --repo BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyU
   --color 6f42c1 --description "Mirrored from YouTrack (read-only)"
 ```
 
+The issue types Feature, Bug and Task are defined per organization, so the mirror repo has to
+belong to an organization that has them (BredaUniversityADSAI does). Milestones are created by
+the tool.
+
 ## Commands
 
 | Command                              | What it does                                                                                     |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `npm run check`                      | Type-check (Node and Workers configs), lint, and run all tests.                                  |
+| `npm run check`                      | Type-check (Node and Workers configs), lint, check formatting, and run all tests.                |
 | `npm run typecheck`                  | `tsc` against `tsconfig.node.json` and `tsconfig.worker.json`. Bare `tsc` skips `src/worker.ts`. |
 | `npm run lint`                       | ESLint with typescript-eslint `strictTypeChecked`.                                               |
 | `npm test` / `npm run test:coverage` | `node --test`, optionally with coverage.                                                         |
@@ -324,16 +390,17 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **Fetch guard:** the HTTP client refuses a 46th fetch. When it refuses a write, the run stops
   cleanly and that action and the remaining ones count as `capped`, not `failed`. A write that
   was sent and failed but whose retry the guard cannot pay for counts as `failed`.
-- **Today:** 1 GitHub page + 1 YouTrack page + at most 30 writes = 32 fetches without retries.
-  Each retry of a GET, close or label re-add is one more fetch, up to the 45-fetch guard. Every
-  further 100 GitHub items (issues and pull requests) or 100 YouTrack issues costs one more page.
-- **Retries:** every GET, close and label re-add is retried once on a network error, timeout,
-  5xx, 429, or a 403 that carries `retry-after` (GitHub's secondary rate limit). The retry
-  waits `retry-after` when it is 10 s or less, and 2 s when the header is missing or
+- **Today:** 3 reads (1 GitHub issues page, 1 milestones page, 1 YouTrack page) + at most 30
+  writes = 33 fetches without retries. Each retry is one more fetch, up to the 45-fetch guard.
+  Every further 100 GitHub items (issues and pull requests), 100 milestones or 100 YouTrack
+  issues costs one more page. A dry run sends only the reads.
+- **Retries:** every GET and every write except a create is retried once on a network error,
+  timeout, 5xx, 429, or a 403 that carries `retry-after` (GitHub's secondary rate limit). The
+  retry waits `retry-after` when it is 10 s or less, and 2 s when the header is missing or
   unreadable. There is no retry when `retry-after` is over 10 s, or when GitHub's primary rate
-  limit (`x-ratelimit-remaining: 0`) comes without a usable `retry-after`. A create is
-  **never** retried, since a timed-out create may have succeeded; the next run acts as the
-  retry. Every request times out after 15 s.
+  limit (`x-ratelimit-remaining: 0`) comes without a usable `retry-after`. A create (issue or
+  milestone) is **never** retried, since a timed-out create may have succeeded; the next run
+  acts as the retry. Every request times out after 15 s.
 - **GitHub rate limit:** when a write still fails with a rate limit (a 403 or 429 with
   `x-ratelimit-remaining: 0`, with `retry-after`, or whose body names the secondary rate
   limit), it counts as `failed`, the run stops writing, and the remaining actions count as
@@ -344,7 +411,17 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
   affected. On systemd, `TimeoutStartSec=10min` is the hard backstop.
 - **GitHub:** writes are serial and 1 s apart, well within the secondary limit of 80
   content-creating requests per minute. If the token lacks push access, GitHub silently drops
-  labels on create. The label re-add and the title fallback stop that from causing duplicates.
+  labels, milestones and types. The label re-add and the title fallback stop that from causing
+  duplicates. When GitHub's answer lacks a milestone, type or parent that was sent, a warning
+  is logged and the next run's sync tries again (no extra write in the same run). GitHub allows
+  100 sub-issues per parent and 8 levels; a create or move beyond that is expected to fail on
+  every run (unverified).
+- **Swapping two task mirrors** (A under B on GitHub, B under A in YouTrack) can fail one run.
+  When B has the lower number, its move under A runs before A leaves B, and GitHub is expected
+  to refuse the cycle. A still leaves B in that run (detached, or moved to its new parent), and
+  the next run moves B.
+- **Blocked epics:** while a milestone create keeps failing, every create and update that
+  needs that milestone is `capped` on every run, type changes included.
 - **Repeat-safe runs:** each run re-reads both sides before writing, so running again (or a
   Cloudflare retry of a failed run, which is undocumented) does not create duplicates. Two runs
   that overlap could still race; Cloudflare does not document whether cron runs can overlap.
@@ -356,6 +433,9 @@ Research and design notes live in [`docs/`](docs/README.md):
 - [08-decisions.md](docs/08-decisions.md): every decision this behavior follows.
 - [09-implementation-plan.md](docs/09-implementation-plan.md): the original plan (implemented),
   with an "As built" section where the code differs.
+- [10-hierarchy-design.md](docs/10-hierarchy-design.md) and
+  [11-hierarchy-plan.md](docs/11-hierarchy-plan.md): epics, stories, bugs and tasks as
+  milestones, issue types and sub-issues (implemented; docs/11 has the "As built" notes).
 - [04-cloudflare-workers.md](docs/04-cloudflare-workers.md): Workers limits, cron, secrets, local testing.
 - [05-node-debian-systemd.md](docs/05-node-debian-systemd.md): Node versions, Debian packages, systemd.
 - [03-github-rest-api.md](docs/03-github-rest-api.md) and

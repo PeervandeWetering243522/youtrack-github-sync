@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { nextPageUrl } from "../src/github.ts";
+import { nextPageUrl } from "../src/github/link.ts";
 import { schemaError } from "./github-fixtures.ts";
 
-// nextPageUrl is what listAllIssues calls for every page, so these tests cover production paging.
+// nextPageUrl is what listAllPages calls for every issue and milestone page, so these tests cover production paging.
 // Host checks and error-message redaction are in github-link-host.test.ts.
 
 // ---------------------------------------------------------------------------
