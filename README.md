@@ -24,6 +24,17 @@ as a plain Node script, for local dry runs and for a Debian/systemd host in plac
 > repo can race the first and create duplicate `[YT-n]` issues. Dry runs are always safe: they
 > only read.
 
+## Contents
+
+- [Setup](#setup): from a fresh clone to a running Worker, in seven steps
+- [Troubleshooting](#troubleshooting)
+- [How it works](#how-it-works)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Alternative host: Debian + systemd timer](#alternative-host-debian--systemd-timer)
+- [Limits and budget](#limits-and-budget)
+- [Docs](#docs)
+
 ## Setup
 
 Steps 1 to 5 end in a local dry run, which only reads and is safe to try at any time. Steps 6
