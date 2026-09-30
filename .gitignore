@@ -1,5 +1,6 @@
 .env
 .dev.vars
+wrangler.jsonc
 .wrangler/
 node_modules/
 coverage/

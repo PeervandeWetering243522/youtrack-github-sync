@@ -1,3 +1,7 @@
+// Copy to wrangler.jsonc (gitignored), then fill in GITHUB_REPO and YOUTRACK_PROJECT:
+//   cp wrangler.example.jsonc wrangler.jsonc
+// wrangler reads wrangler.jsonc. `npm run gen:worker-types` reads this file instead, so the
+// committed worker-configuration.d.ts is the same for everyone.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "youtrack-gh-mirror",
@@ -32,11 +36,15 @@
   // Non-secret config. Secrets GITHUB_TOKEN and YOUTRACK_TOKEN are set with
   // `wrangler secret put <NAME>` and never live in this file.
   "vars": {
-    "GITHUB_REPO": "BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI",
+    // Your mirror repository, "owner/repo", e.g. "BredaUniversityADSAI/my-group-repo".
+    "GITHUB_REPO": "",
+    // The BUas instance; change it only if your project lives elsewhere.
     "YOUTRACK_BASE_URL": "https://youtrack.ai.buas.nl",
-    "YOUTRACK_PROJECT": "CUI",
+    // Your project's shortName: the part of its issue IDs before the dash, e.g. "ABC" for ABC-12.
+    "YOUTRACK_PROJECT": "",
     "YOUTRACK_EXCLUDE_PREFIX": "[individual]",
     "MAX_WRITES_PER_RUN": "30",
-    "DRY_RUN": "false",
+    // Only "false" sends writes. Keep "true" until a dry run's log looks right (README, step 7).
+    "DRY_RUN": "true",
   },
 }

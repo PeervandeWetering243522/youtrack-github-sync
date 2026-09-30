@@ -1,9 +1,14 @@
 # youtrack-gh
 
-A read-only, one-way mirror from YouTrack project **CUI** ("ComfyUI 26-27S1") on
-`https://youtrack.ai.buas.nl` (Server 2025.2) to GitHub issues in the private repo
-`BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`. It is an interim stopgap until BUas
-enables YouTrack's Webhook Triggers app.
+A read-only, one-way mirror from a YouTrack project to GitHub issues in a repo, run every 10
+minutes. The project (`YOUTRACK_PROJECT`, on the BUas instance `https://youtrack.ai.buas.nl`,
+Server 2025.2) and the repo (`GITHUB_REPO`) are settings, so each student group runs its own copy
+for its own project. It is an interim stopgap until BUas enables YouTrack's Webhook Triggers
+app. Setup for users is in `README.md`.
+
+It was written for one group's project, `CUI`. The research and live checks in `docs/` were done
+against that project, so examples there such as `CUI-24` or "29 issues" describe CUI, not
+necessarily the project you are working with.
 
 ## Hard rules
 
@@ -55,9 +60,18 @@ enables YouTrack's Webhook Triggers app.
 ## Config
 
 Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_URL`,
-`YOUTRACK_PROJECT` (CUI), `YOUTRACK_EXCLUDE_PREFIX` (`[individual]`), `MAX_WRITES_PER_RUN` (30),
+`YOUTRACK_PROJECT`, `YOUTRACK_EXCLUDE_PREFIX` (`[individual]`), `MAX_WRITES_PER_RUN` (30),
 `DRY_RUN` (on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the
-Worker, `.env` for `npm run sync`). Full project scan every run; no lookback. Every issue and
+Worker, `.env` for `npm run sync`).
+
+`.env` and `wrangler.jsonc` hold each user's own values and are gitignored. They are copied from
+the committed `.env.example` and `wrangler.example.jsonc`, where the repo and project are blank.
+Never put a real repo, project or token in the example files. `npm run gen:worker-types` reads
+the two example files, not the local ones, so the committed `worker-configuration.d.ts` does not
+depend on anyone's own values. Rerun it after adding a var or binding to `wrangler.example.jsonc`
+(and the var to `.env.example`, `ENV_KEYS` in `src/config.ts` and the README).
+
+Full project scan every run; no lookback. Every issue and
 epic is mirrored except summaries starting with the exclude prefix (case-insensitive, F1) and
 everything below such an issue: any YouTrack ancestor with the prefix, epics included, excludes
 it too (F3; the walk follows parent cycles too). An excluded issue counts as `filtered` and is
@@ -89,7 +103,7 @@ or waits itself (D4). Order: milestones, non-task creates, task creates by depth
 - Minimal dependencies, no frameworks.
 - Probe YouTrack by hand like this (GET only, token never echoed):
   `set -a; . ./.env; set +a; curl -sS -G "https://youtrack.ai.buas.nl/api/issues" -H "Authorization: Bearer $YOUTRACK_TOKEN" --data-urlencode 'query=...' --data-urlencode 'fields=...' --data-urlencode '$top=...'`
-- Shell is Git Bash on Windows. `jq` and `node` are available.
+- Commands here use bash syntax (on Windows, Git Bash works).
 
 ## Gotchas that have already bitten (or nearly)
 

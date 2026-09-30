@@ -9,7 +9,7 @@
   },
   "scripts": {
     "gen:youtrack": "openapi-typescript youtrack-openapi.json -o src/generated/youtrack.ts",
-    "gen:worker-types": "wrangler types",
+    "gen:worker-types": "wrangler types -c wrangler.example.jsonc --env-file .env.example --strict-vars=false",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.worker.json",
     "lint": "eslint .",
     "format": "prettier --write .",

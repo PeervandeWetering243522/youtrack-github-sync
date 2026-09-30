@@ -1,16 +1,209 @@
 # youtrack-gh
 
-A read-only, one-way mirror from the YouTrack project **CUI** ("ComfyUI 26-27S1") on
-`https://youtrack.ai.buas.nl` to GitHub issues in the private repo
-`BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.
+A read-only, one-way mirror from a YouTrack project to GitHub issues. Every 10 minutes it reads
+the whole project and keeps a matching `[YT-<n>]` issue in a GitHub repo for each YouTrack issue,
+and a milestone for each epic. It creates a mirror for every open issue, closes the mirror once the
+issue is resolved, and keeps each mirror's milestone, issue type and parent in step with YouTrack.
+It never writes to YouTrack.
 
-This is an **interim stopgap**. Once BUas enables YouTrack's Webhook Triggers app, that app
-replaces this tool and the Worker (or timer) should be removed.
+You can run it for your own group's YouTrack project and GitHub repo: both come from settings,
+which you fill in in [step 3](#3-fill-in-env) (for local runs) and
+[step 6](#6-deploy-the-worker) (for the Worker). Your settings live in two gitignored files,
+`.env` and `wrangler.jsonc`, which you copy from the committed examples. A `git pull` of a newer
+version never touches them.
+
+It is an **interim stopgap** until BUas enables YouTrack's Webhook Triggers app. Once that app
+is available, it replaces this tool, and the Worker (or timer) should be removed.
 
 It runs as a Cloudflare Workers cron job (Free plan, every 10 minutes). The same code also runs
-as a plain Node script, for local dry runs and for the Debian/systemd fallback host.
+as a plain Node script, for local dry runs and for a Debian/systemd host in place of the Worker.
 
-## What a run does
+> [!WARNING]
+> **Run only one copy per GitHub repo.** Agree within your group who runs the mirror. A second
+> copy (another Worker, a systemd timer, or a Node run with `DRY_RUN=false`) against the same
+> repo can race the first and create duplicate `[YT-n]` issues. Dry runs are always safe: they
+> only read.
+
+## Setup
+
+Steps 1 to 5 end in a local dry run, which only reads and is safe to try at any time. Steps 6
+and 7 deploy the Worker and turn writes on.
+
+### What you need
+
+- **Node.js 22.18 or later**, with npm. The `.ts` sources run directly (type stripping), so
+  there is no build step.
+- **A GitHub account with the Write role or higher on the target repo.** Its token does every
+  write, so every mirror issue and milestone is created by this account, and GitHub subscribes
+  it to each mirror issue. A dedicated account keeps those notifications out of someone's inbox.
+  Without push access, GitHub silently drops labels, milestones and issue types.
+- **A target repo owned by an organization that has the issue types Feature, Bug and Task.**
+  Issue types exist only on organizations (the BredaUniversityADSAI organization has all three).
+- **A YouTrack account that can read every issue in the project.** The mirror only sees what
+  this account can see.
+- **A YouTrack project with a `Type` field.** The values `Epic`, `User Story`, `Bug` and `Task`
+  are mapped (see [Hierarchy](#hierarchy)); any other value, or no `Type`, becomes a plain issue.
+  Parents come from YouTrack's Subtask links.
+- **A Cloudflare account** (the Free plan is enough), only for deploying the Worker. A
+  [Debian + systemd host](#alternative-host-debian--systemd-timer) is the alternative.
+
+### 1. Get the code
+
+Clone this repo (or your fork of it) and install the tools:
+
+```bash
+git clone <this repo's URL> youtrack-gh
+cd youtrack-gh
+npm ci
+```
+
+`npm ci` installs the development tools only (TypeScript, ESLint, Prettier, Wrangler). The code
+itself has no runtime dependencies.
+
+### 2. Create the two tokens
+
+**GitHub:** a classic personal access token with the `repo` scope (decision B12), for the
+account above.
+
+1. On GitHub, open **Settings > Developer settings > Personal access tokens > Tokens (classic)**
+   and choose **Generate new token > Generate new token (classic)**.
+2. Give it a note, pick an expiration, tick the `repo` scope and click **Generate token**. Copy
+   the token right away.
+3. If the organization uses SAML single sign-on, authorize the token for it (**Configure SSO**
+   next to the token in the list).
+
+When the token expires, every run fails until you put in a new one (`.env` for local runs,
+`wrangler secret put GITHUB_TOKEN` for the Worker).
+
+**YouTrack:** a permanent token for the account above. It does not expire.
+
+1. In YouTrack, click your avatar, then **Profile**, and open the **Account Security** tab.
+2. Under **Tokens**, click **New token**. Give it a name and the **YouTrack** scope, then click
+   **Create token** and copy it.
+
+The tool only ever calls `GET /api/issues` with it.
+
+### 3. Fill in `.env`
+
+```bash
+cp .env.example .env
+```
+
+In `.env`:
+
+1. Put the two tokens in `GITHUB_TOKEN` and `YOUTRACK_TOKEN`.
+2. Fill in `GITHUB_REPO` with your repo (`owner/repo`) and `YOUTRACK_PROJECT` with your
+   project's shortName: the part of its issue IDs before the dash, such as `ABC` for `ABC-12`.
+   Both are empty in `.env.example`, so a run stops with a `ConfigError` until you set them.
+3. Leave `YOUTRACK_BASE_URL` at `https://youtrack.ai.buas.nl`, the BUas instance, unless your
+   project lives elsewhere.
+4. Leave `DRY_RUN=true`.
+
+Issues whose summary starts with `[individual]` stay out of the mirror, along with everything
+below them. Set `YOUTRACK_EXCLUDE_PREFIX` if your group uses another prefix.
+[Configuration](#configuration) lists every setting. `.env` is gitignored: never commit it or
+paste it anywhere.
+
+### 4. Prepare the GitHub repo
+
+Create the `youtrack` label once, by hand. The tool never creates labels:
+
+```bash
+gh label create youtrack --repo <owner>/<repo> \
+  --color 6f42c1 --description "Mirrored from YouTrack (read-only)"
+```
+
+Without the GitHub CLI, add it in the repo under **Issues > Labels > New label**. Also check
+that the organization has the issue types Feature, Bug and Task (the organization's settings,
+under **Issue types**). Milestones are created by the tool.
+
+### 5. Do a dry run
+
+```bash
+npm run sync
+```
+
+With `DRY_RUN=true` this reads GitHub and YouTrack and logs one `[dry-run] would ...` line per
+write it would make, then a summary line. It sends no GitHub write:
+
+```text
+[dry-run] would create milestone YT-40: [YT-40] Data pipeline
+[dry-run] would create YT-41 with type Feature, milestone YT-40 (new): [YT-41] Ingest the data
+[dry-run] would create YT-42 with type Task, milestone YT-40 (new), parent YT-41 (new): [YT-42] Clean the data
+[dry-run] would update YT-15 #21: set type Task
+[dry-run] would close YT-3 #12
+yt-gh-sync ok scanned=40 created=2 closed=1 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=3 dryRun=true
+```
+
+Check that `scanned` matches the number of issues in the project, and that the planned writes
+are what you expect. The dry run shows exactly what the next real run would do, write cap
+included. On a new repo that means one create per open issue and epic that is not excluded, up to
+`MAX_WRITES_PER_RUN` (30); the rest show up as `capped` and are created by later runs, 10
+minutes apart. If the run fails, see [Troubleshooting](#troubleshooting).
+
+### 6. Deploy the Worker
+
+The Worker takes its settings from `wrangler.jsonc`, not from `.env`, and its tokens from
+Cloudflare secrets.
+
+1. Copy the example config:
+
+   ```bash
+   cp wrangler.example.jsonc wrangler.jsonc
+   ```
+
+2. In `wrangler.jsonc`, fill in `GITHUB_REPO` and `YOUTRACK_PROJECT` under `vars`, with the same
+   values as in your `.env`. Leave `"DRY_RUN": "true"` for now; step 7 turns writes on.
+3. Log in, deploy, add the two secrets and watch the logs:
+
+   ```bash
+   npx wrangler login                       # opens a browser to log in to Cloudflare
+   npx wrangler deploy
+   npx wrangler secret put GITHUB_TOKEN     # prompts for the value
+   npx wrangler secret put YOUTRACK_TOKEN
+   npx wrangler tail                        # live logs; add --status error to see failures only
+   ```
+
+The Worker has only a `scheduled()` handler. `workers_dev` and `preview_urls` are off, so it
+has no public URL. The cron is `*/10 * * * *` (UTC).
+
+- The Worker is called `youtrack-gh-mirror` (`name` in `wrangler.jsonc`). To run two mirrors
+  on one Cloudflare account, give each its own name.
+- Each `wrangler secret put` creates and deploys a new version right away. Until both secrets
+  exist, runs fail at config validation without sending any request.
+- A new, changed or removed cron can take up to 15 minutes to propagate. Past Cron Events can
+  take up to 30 minutes to show up for a new Worker (Workers & Pages > the Worker > Settings >
+  Trigger Events > View events). It keeps the last 100 runs. Workers Logs keeps 3 days on Free.
+
+### 7. Turn writes on (and off)
+
+1. Review the log of a dry run (`npm run sync`, or `wrangler tail` on the deployed Worker).
+2. In `wrangler.jsonc`, set `"DRY_RUN": "false"`.
+3. Run `npx wrangler deploy`.
+
+To pause writes, set it back to `"true"` and redeploy. To stop the Worker entirely, set
+`"crons": []` and redeploy. Commenting out `crons` does **not** remove the trigger.
+
+## Troubleshooting
+
+| Symptom                                                           | Likely cause                                                                                                                                                        |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ConfigError: Invalid configuration: ...`                         | A setting is missing or invalid. The message lists every problem. For `npm run sync`, the three required vars must be in `.env`; it does not read `wrangler.jsonc`. |
+| GitHub answers 401                                                | The GitHub token is wrong or has expired.                                                                                                                           |
+| GitHub answers 403 and mentions SAML                              | The token is not authorized for the organization's single sign-on (step 2).                                                                                         |
+| GitHub answers 404 for the repo                                   | A private repo answers 404, not 403, when the token is wrong or expired, or its account has no access. Check `GITHUB_REPO` too.                                     |
+| YouTrack answers 401 `Invalid token`                              | The YouTrack token is wrong or was revoked.                                                                                                                         |
+| YouTrack answers 400 `invalid_query`                              | `YOUTRACK_PROJECT` is not a project the token's account can see.                                                                                                    |
+| `scanned` is lower than the number of issues in the project       | The token's account cannot see some issues (visibility restrictions).                                                                                               |
+| `GitHub dropped ... on create` warnings, or `label YT-n #m` lines | The token's account lacks the Write role, or the organization lacks an issue type. The next run tries again.                                                        |
+| Duplicate `[YT-n]` issues                                         | Two copies are running against one repo, or someone edited a mirror's `[YT-n]` title so it no longer matches.                                                       |
+| Nothing in Cron Events or `wrangler tail` after a deploy          | A new cron can take up to 15 minutes to start firing.                                                                                                               |
+
+## How it works
+
+Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decisions.md).
+
+### What a run does
 
 1. **Lists every GitHub issue** in the repo (`state=all`, no label filter), dropping pull
    requests. An issue whose title starts with `[YT-<n>]` is the mirror of YouTrack issue `n`.
@@ -21,7 +214,7 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
    `[YT-<n>]` is the milestone of YouTrack epic `n`. If several match, the lowest number wins
    (warning). Any other milestone counts as hand-made.
 3. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
-   `project: CUI sort by: {issue id} asc`, 100 per page), including each issue's `Type` field
+   `project: <YOUTRACK_PROJECT> sort by: {issue id} asc`, 100 per page), including each issue's `Type` field
    and its Subtask parent. There is no lookback window. The run fails on any row whose
    `idReadable` is not `<project>-<numberInProject>`, and on any row with two parents or two
    `Type` fields.
@@ -32,8 +225,7 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
    count as `filtered` and get no write at all, even if they already have a mirror or
    milestone: one that gets the prefix, or moves under an issue that has it, after it was
    mirrored keeps its mirror or milestone as it is, which is no longer synced or closed
-   (decision F2). Every other issue goes on to planning, whatever its prefix (`[team]` is an
-   ordinary summary now).
+   (decision F2). Every other issue goes on to planning.
 5. **Plans**, using the [hierarchy mapping](#hierarchy) below:
    - no mirror (for an epic: no milestone) and unresolved in YouTrack: **create** it. An issue
      is `[YT-<n>] <summary>` with the `youtrack` label, and its issue type, milestone and (tasks
@@ -104,30 +296,27 @@ as a plain Node script, for local dry runs and for the Debian/systemd fallback h
   YouTrack wants a mirrored one there. A type is never cleared, so a mirror whose YouTrack type
   has no mapping keeps whatever type it has on GitHub.
 
-**Never done.** YouTrack is only ever read: the only call is `GET /api/issues`. On GitHub the
-tool never reopens an issue or milestone, never changes a title, body or milestone description
-after creation, never comments, never reorders sub-issues, never clears an issue type, never
-creates labels and never touches pull requests. Relates links and sprints are not mirrored.
+### What it never does
 
-**Failures.** A failed read (GitHub issues or milestones, YouTrack scan) logs a
-`yt-gh-sync failed ...` summary line and aborts the run. A failed write is logged, the run
-carries on with the other writes (unless GitHub rate-limited it), and at the end it logs
-`yt-gh-sync failed ...` and throws, so the run shows as failed in Cron Events (or as a failed
-systemd unit). A write that waits for a failed create is `capped`, not failed. Tokens are
-never logged.
+YouTrack is only ever read: the only call is `GET /api/issues`. On GitHub the tool never
+reopens an issue or milestone, never changes a title, body or milestone description after
+creation, never comments, never reorders sub-issues, never clears an issue type, never creates
+labels and never touches pull requests. Relates links and sprints are not mirrored.
 
-**Dry run is on by default.** With `DRY_RUN` on, the run reads both sides and logs one
-`[dry-run] would ...` line per planned write, but sends no GitHub write at all. The create
-lines end with the title. A milestone or mirror that the run would create earlier shows as
-`(new)`:
+### Failures
 
-```text
-[dry-run] would create milestone YT-40: [YT-40] Data pipeline
-[dry-run] would create YT-41 with type Feature, milestone YT-40 (new): [YT-41] Ingest the data
-[dry-run] would create YT-42 with type Task, milestone YT-40 (new), parent YT-41 (new): [YT-42] Clean the data
-[dry-run] would update YT-15 #21: set type Task
-[dry-run] would close YT-3 #12
-```
+A failed read (GitHub issues or milestones, YouTrack scan) logs a `yt-gh-sync failed ...`
+summary line and aborts the run. A failed write is logged, the run carries on with the other
+writes (unless GitHub rate-limited it), and at the end it logs `yt-gh-sync failed ...` and
+throws, so the run shows as failed in Cron Events (or as a failed systemd unit). A write that
+waits for a failed create is `capped`, not failed. Tokens are never logged.
+
+### Dry run
+
+Dry run is on by default: only `DRY_RUN=false` turns it off. With it on, the run reads both
+sides and logs one `[dry-run] would ...` line per planned write, but sends no GitHub write at
+all. The create lines end with the title. A milestone or mirror that the run would create
+earlier shows as `(new)`. See [step 5](#5-do-a-dry-run) for an example.
 
 ## Configuration
 
@@ -135,86 +324,50 @@ lines end with the title. A milestone or mirror that the run would create earlie
 | ------------------------- | ------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `GITHUB_TOKEN`            | secret | required       | Classic PAT with the `repo` scope (decision B12).                                                                              |
 | `YOUTRACK_TOKEN`          | secret | required       | YouTrack permanent token.                                                                                                      |
-| `GITHUB_REPO`             | var    | required       | `owner/repo`. `wrangler.jsonc` sets `BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI`.                                       |
-| `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. `wrangler.jsonc` sets `https://youtrack.ai.buas.nl`.                  |
-| `YOUTRACK_PROJECT`        | var    | required       | Project shortName, starting with a letter or digit. `wrangler.jsonc` sets `CUI`.                                               |
+| `GITHUB_REPO`             | var    | required       | The mirror repo, as `owner/repo`.                                                                                              |
+| `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. For BUas: `https://youtrack.ai.buas.nl`.                              |
+| `YOUTRACK_PROJECT`        | var    | required       | Project shortName (the prefix of its issue IDs), starting with a letter or digit.                                              |
 | `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` | Case-insensitive summary prefix that keeps an issue or epic, and everything below it, out of the mirror. Not blank when set.   |
 | `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. Every write counts 1: create, close, update, move, detach, milestone create or close, label re-add. |
 | `DRY_RUN`                 | var    | on             | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                          |
 
 Invalid config fails the run before any request is made, listing every problem at once.
-`YOUTRACK_TITLE_PREFIX` (the old `[team]` inclusion filter) is no longer read: if an older
-`.env` or `config.env` still sets it, it is ignored and can be removed.
+Variables the tool does not know, such as the retired `YOUTRACK_TITLE_PREFIX`, are ignored.
 
 Where the values come from:
 
-- **Worker:** vars in `wrangler.jsonc`, secrets via `wrangler secret put`.
+- **Worker:** vars in `wrangler.jsonc` (your gitignored copy of `wrangler.example.jsonc`),
+  secrets via `wrangler secret put`.
 - **Node (`npm run sync`):** the environment, plus `.env` if present. It does **not** read
   `wrangler.jsonc`, so the three required vars must be in `.env` (or the environment).
-- **systemd:** `EnvironmentFile=` for vars, `LoadCredential=` for the two tokens (see below).
+- **systemd:** `EnvironmentFile=` for vars, `LoadCredential=` for the two tokens (see
+  [below](#app-config-and-secrets)).
 
-## Local setup
-
-Requires Node 22.18 or later (it runs the `.ts` sources directly via type stripping).
-
-```bash
-npm ci
-cp .env.example .env     # then fill in GITHUB_TOKEN and YOUTRACK_TOKEN
-```
-
-`.env` must also contain `GITHUB_REPO`, `YOUTRACK_BASE_URL` and `YOUTRACK_PROJECT`, which
-`.env.example` already sets. If you have an older `.env` with only the tokens, copy those lines
-(and the optional ones) over from `.env.example`; otherwise `npm run sync` stops with a
-`ConfigError` naming the missing vars.
-
-Create the `youtrack` label in the mirror repo once, by hand. The script never creates it:
-
-```bash
-gh label create youtrack --repo BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI \
-  --color 6f42c1 --description "Mirrored from YouTrack (read-only)"
-```
-
-The issue types Feature, Bug and Task are defined per organization, so the mirror repo has to
-belong to an organization that has them (BredaUniversityADSAI does). Milestones are created by
-the tool.
-
-## Commands
+## Development
 
 | Command                              | What it does                                                                                     |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | `npm run check`                      | Type-check (Node and Workers configs), lint, check formatting, and run all tests.                |
 | `npm run typecheck`                  | `tsc` against `tsconfig.node.json` and `tsconfig.worker.json`. Bare `tsc` skips `src/worker.ts`. |
 | `npm run lint`                       | ESLint with typescript-eslint `strictTypeChecked`.                                               |
+| `npm run format`                     | Prettier over the whole repo.                                                                    |
 | `npm test` / `npm run test:coverage` | `node --test`, optionally with coverage.                                                         |
 | `npm run sync`                       | One run with Node, reading `.env`. With `DRY_RUN=true` it only reads and logs the plan.          |
 | `npm run dev:worker`                 | `wrangler dev --test-scheduled`, for triggering the Worker locally.                              |
 | `npm run gen:youtrack`               | Regenerate `src/generated/youtrack.ts` from `./youtrack-openapi.json` (see below).               |
-| `npm run gen:worker-types`           | Regenerate `worker-configuration.d.ts` (`wrangler types`) after editing `wrangler.jsonc`.        |
+| `npm run gen:worker-types`           | Regenerate `worker-configuration.d.ts` from `wrangler.example.jsonc` and `.env.example`.         |
 
-The tests use a fake `fetch`; they never contact YouTrack or GitHub.
+Run `npm run check` before committing. The tests use a fake `fetch`; they never contact YouTrack
+or GitHub. [CLAUDE.md](CLAUDE.md) describes the source layout and the conventions.
+
+The generated `worker-configuration.d.ts` is committed. `npm run gen:worker-types` builds it from
+the two example files, not from your own `wrangler.jsonc` and `.env`, so it is the same for
+everyone. Run it after adding a setting or a binding to `wrangler.example.jsonc` or after
+upgrading Wrangler. Changing a value in your own `wrangler.jsonc` needs no regeneration.
 
 `youtrack-openapi.json` (the instance's OpenAPI spec, about 500 KB) is intentionally not
 committed; the generated `src/generated/youtrack.ts` is. To regenerate the types, for example
 after a YouTrack upgrade, first place the instance's OpenAPI spec at `./youtrack-openapi.json`.
-
-## Deploying to Cloudflare Workers
-
-The Worker has only a `scheduled()` handler. `workers_dev` and `preview_urls` are off, so it
-has no public URL. The cron is `*/10 * * * *` (UTC).
-
-```bash
-npx wrangler login
-npx wrangler deploy                      # check "DRY_RUN" in wrangler.jsonc first
-npx wrangler secret put GITHUB_TOKEN     # prompts for the value
-npx wrangler secret put YOUTRACK_TOKEN
-npx wrangler tail                        # live logs; add --status error to see failures only
-```
-
-- Each `wrangler secret put` creates and deploys a new version right away. Until both secrets
-  exist, runs fail at config validation without sending any request.
-- A new, changed or removed cron can take up to 15 minutes to propagate. Past Cron Events can
-  take up to 30 minutes to show up for a new Worker (Workers & Pages > the Worker > Settings >
-  Trigger Events > View events). It keeps the last 100 runs. Workers Logs keeps 3 days on Free.
 
 ### Testing the Worker locally
 
@@ -228,15 +381,6 @@ A good run answers `{"outcome":"ok","noRetry":false}`, and the log lines appear 
 `wrangler.jsonc` vars. So `DRY_RUN=false` in `.env` makes local Worker runs write too. If a
 `.dev.vars` file exists, values from `.env` no longer reach the Worker's env. Subrequest limits
 are not enforced locally.
-
-### Turning writes on (and off)
-
-1. Review the log of a dry run (`npm run sync`, or `wrangler tail` on the deployed Worker).
-2. In `wrangler.jsonc`, set `"DRY_RUN": "false"`.
-3. `npx wrangler deploy` (and `npm run gen:worker-types` to keep the generated types in step).
-
-To pause writes, set it back to `"true"` and redeploy. To stop the Worker entirely, set
-`"crons": []` and redeploy. Commenting out `crons` does **not** remove the trigger.
 
 ## Alternative host: Debian + systemd timer
 
@@ -303,9 +447,9 @@ sudo sh -c 'umask 077; cat > /etc/youtrack-gh/youtrack_token'
 inline comments):
 
 ```ini
-GITHUB_REPO=BredaUniversityADSAI/2026-27s1-fai3-adsai-ComfyUI
+GITHUB_REPO=<owner>/<repo>
 YOUTRACK_BASE_URL=https://youtrack.ai.buas.nl
-YOUTRACK_PROJECT=CUI
+YOUTRACK_PROJECT=<PROJECT>
 YOUTRACK_EXCLUDE_PREFIX=[individual]
 MAX_WRITES_PER_RUN=30
 DRY_RUN=true
