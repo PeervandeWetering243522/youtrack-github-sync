@@ -13,6 +13,14 @@
       }
     ],
     ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
-    ["@semantic-release/github", { "successComment": false, "failComment": false, "releasedLabels": false }]
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failComment": false,
+        "releasedLabels": false,
+        "releaseBodyTemplate": "<%= nextRelease.notes %>\n\n### Pin this release\n\nCommit `<%= nextRelease.gitHead %>`. In your workflow:\n\n```yaml\n- uses: <%= env.GITHUB_REPOSITORY %>@<%= nextRelease.gitHead %> # <%= nextRelease.gitTag %>\n```\n"
+      }
+    ]
   ]
 }
