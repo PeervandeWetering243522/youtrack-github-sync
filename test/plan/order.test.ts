@@ -17,6 +17,7 @@ import {
   story,
   task,
   under,
+  ytIssue,
 } from "./fixtures.ts";
 
 const RESOLVED = { resolved: RESOLVED_AT } as const;
@@ -41,7 +42,7 @@ const MIRRORS = mirrors(
   [8, mirror(18, { typeName: "Task" })],
   [9, mirror(19, { typeName: "Feature", parentNumber: 16 })],
 );
-const MILESTONES = milestoneIndex(ghMilestone(5, "[YT-3] Epic three"));
+const MILESTONES = milestoneIndex(ghMilestone(5, "[CUI-3] Issue 3"));
 
 const FULL_ORDER = [
   // 1. milestones, by epic number
@@ -89,7 +90,7 @@ describe("planActions: execution order (docs/11 §1.4)", () => {
   it("counts epics and unmirrored ancestors in the depth, and breaks depth ties by number", () => {
     const issues = [epic(1), task(9, under(1)), task(4, under(1)), task(3, under(4)), task(2)];
 
-    const result = plan(issues, { milestones: milestoneIndex(ghMilestone(1, "[YT-1] Epic")) });
+    const result = plan(issues, { milestones: milestoneIndex(ghMilestone(1, "[CUI-1] Issue 1")) });
 
     assert.deepEqual(describeActions(result.actions), [
       "create 2 type=Task",
@@ -108,6 +109,40 @@ describe("planActions: execution order (docs/11 §1.4)", () => {
       "create 1 type=Task",
       "create 3 type=Task",
     ]);
+  });
+});
+
+describe("planActions: title sync in the execution order (N2)", () => {
+  /** Epic YT-2 and the resolved epic YT-3 have legacy milestone titles; YT-5's mirror an outdated title. */
+  const issues = Object.freeze([ytIssue(5), story(4), epic(3, RESOLVED), epic(2), epic(1)]);
+  const options = {
+    mirrors: mirrors([5, mirror(15, { title: "[YT-5] Issue 5" })]),
+    milestones: milestoneIndex(ghMilestone(5, "[YT-2] Issue 2"), ghMilestone(6, "[YT-3] Issue 3")),
+  };
+  const order = [
+    "createMilestone 1",
+    "renameMilestone 2 -> m5",
+    "renameMilestone 3 -> m6",
+    "closeMilestone 3 -> m6",
+    "create 4 type=Feature",
+    "update 5 #15 title",
+  ];
+
+  it("puts renames with the milestone writes by epic number, an epic's rename before its close", () => {
+    const result = plan(issues, options);
+
+    assert.deepEqual(describeActions(result.actions), order);
+    assert.deepEqual(counts(result), { scanned: 5, filtered: 0, unchanged: 0, capped: 0 });
+  });
+
+  it("caps renames and title updates like any other write, in that order", () => {
+    for (let maxWrites = 0; maxWrites <= order.length; maxWrites += 1) {
+      const result = plan(issues, { ...options, maxWrites });
+
+      const label = `maxWrites=${String(maxWrites)}`;
+      assert.deepEqual(describeActions(result.actions), order.slice(0, maxWrites), label);
+      assert.equal(result.capped, order.length - maxWrites, label);
+    }
   });
 });
 
@@ -167,16 +202,28 @@ describe("planActions: cap and dependencies (A2, D4)", () => {
 
 describe("planActions: warnings", () => {
   it("passes on the milestone index warnings, then one per parent cycle", () => {
-    const milestones = milestoneIndex(ghMilestone(5, "[YT-3] Epic"), ghMilestone(6, "[YT-3] Copy"));
+    // A legacy and a new title for one epic are duplicates too (N1).
+    const milestones = milestoneIndex(ghMilestone(5, "[CUI-3] Issue 3"), ghMilestone(6, "[YT-3] Copy"));
     const issues = [task(31, under(30)), task(30, under(31)), epic(3), task(8, under(8))];
 
     const result = plan(issues, { milestones });
 
     assert.deepEqual(result.warnings, [
-      "YT-3: 2 GitHub milestones match; using milestone #5, ignoring milestone #6",
-      "YT-8: parent chain loops back to YT-8",
-      "YT-31: parent chain loops back to YT-30",
+      "CUI-3: 2 GitHub milestones match; using milestone #5, ignoring milestone #6",
+      "CUI-8: parent chain loops back to CUI-8",
+      "CUI-31: parent chain loops back to CUI-30",
     ]);
+  });
+
+  it("names cycles by the issues' YouTrack ids", () => {
+    const issues = [
+      story(1, { idReadable: "ABC-1", parentId: "ABC-2" }),
+      story(2, { idReadable: "ABC-2", parentId: "ABC-1" }),
+    ];
+
+    const result = plan(issues);
+
+    assert.deepEqual(result.warnings, ["ABC-2: parent chain loops back to ABC-1"]);
   });
 
   it("walks filtered and resolved issues too, so their cycles are reported", () => {
@@ -184,7 +231,7 @@ describe("planActions: warnings", () => {
 
     const result = plan(issues);
 
-    assert.deepEqual(result.warnings, ["YT-2: parent chain loops back to YT-1"]);
+    assert.deepEqual(result.warnings, ["CUI-2: parent chain loops back to CUI-1"]);
     // YT-2's parent is the excluded YT-1, so it is excluded too (F3 follows cycle links).
     assert.equal(result.filtered, 2);
   });

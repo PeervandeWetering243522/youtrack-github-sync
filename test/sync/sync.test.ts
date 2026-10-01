@@ -55,7 +55,7 @@ describe("formatSummary", () => {
     // Assert
     assert.equal(
       line,
-      "yt-gh-sync ok scanned=29 created=5 closed=3 updated=6 milestonesCreated=2 milestonesClosed=1 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=7 fetches=8 dryRun=true",
+      "yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=6 milestonesCreated=2 milestonesClosed=1 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=7 fetches=8 dryRun=true",
     );
   });
 
@@ -73,7 +73,7 @@ describe("formatSummary", () => {
 describe("runSync summary", () => {
   it("counts skipped as filtered plus unchanged", async () => {
     // Arrange: MIXED_WORLD has one "[individual]" issue and three that need nothing
-    // (YT-2 is resolved without a mirror, decision R9).
+    // (CUI-2 is resolved without a mirror, decision R9).
     const { deps } = harness(MIXED_WORLD);
 
     // Act
@@ -117,8 +117,8 @@ describe("runSync in dry run", () => {
 
     // Assert
     assert.deepEqual(messages(lines), [
-      "[dry-run] would create YT-1: [YT-1] [team] Task 1",
-      "[dry-run] would close YT-3 #12",
+      "[dry-run] would create CUI-1: [CUI-1] [team] Task 1",
+      "[dry-run] would close CUI-3 #12",
       formatSummary(result, "ok"),
     ]);
     assert.equal(lastLine(lines).level, "info");
@@ -136,7 +136,7 @@ describe("runSync in dry run", () => {
   });
 
   it("applies the write cap to the preview as well", async () => {
-    // Arrange: the YT-1 create fits; the YT-3 close does not.
+    // Arrange: the CUI-1 create fits; the CUI-3 close does not.
     const { deps, calls, lines } = harness(MIXED_WORLD);
 
     // Act
@@ -163,9 +163,9 @@ describe("runSync with writes enabled", () => {
     // Act
     const result = await runSync(config(), deps);
 
-    // Assert: YT-2 (resolved, no mirror) gets no mirror (decision R9).
+    // Assert: CUI-2 (resolved, no mirror) gets no mirror (decision R9).
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
-    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [team] Task 1"]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-1] [team] Task 1"]);
     assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 5 }));
   });
 
@@ -197,10 +197,10 @@ describe("runSync with writes enabled", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-2] [team] Task 2"]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-2] [team] Task 2"]);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.equal(result.unchanged, 1);
-    assert.ok(!messages(lines).some((line) => line.includes("YT-1")));
+    assert.ok(!messages(lines).some((line) => line.includes("CUI-1")));
   });
 
   it("sends the mirror title, body and label on create and completed on close", async () => {
@@ -212,7 +212,7 @@ describe("runSync with writes enabled", () => {
 
     // Assert
     const create = bodyOf(calls.find(isCreate));
-    assert.equal(create["title"], "[YT-1] [team] Task 1");
+    assert.equal(create["title"], "[CUI-1] [team] Task 1");
     assert.deepEqual(create["labels"], [MIRROR_LABEL]);
     assert.equal(create["body"], `Details of task 1\n\n---\nMirrored from YouTrack: ${YOUTRACK_BASE_URL}/issue/CUI-1`);
     const close = bodyOf(calls.find((call) => call.method === "PATCH"));
@@ -227,7 +227,7 @@ describe("runSync with writes enabled", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(messages(lines), ["create YT-1 -> #101", "close YT-3 #12", formatSummary(result, "ok")]);
+    assert.deepEqual(messages(lines), ["create CUI-1 -> #101", "close CUI-3 #12", formatSummary(result, "ok")]);
   });
 
   it("pauses WRITE_PAUSE_MS between writes, not before the first one", async () => {
@@ -240,7 +240,7 @@ describe("runSync with writes enabled", () => {
     // Act
     await runSync(config(), deps);
 
-    // Assert: 4 writes (YT-1, YT-3, YT-7, YT-8), 3 gaps.
+    // Assert: 4 writes (CUI-1, CUI-3, CUI-7, CUI-8), 3 gaps.
     assert.deepEqual(sleeps, [WRITE_PAUSE_MS, WRITE_PAUSE_MS, WRITE_PAUSE_MS]);
   });
 
@@ -310,7 +310,7 @@ describe("runSync with writes enabled", () => {
   it("logs mirror index warnings and treats an unlabelled title match as the mirror", async () => {
     // Arrange
     const { deps, calls, lines } = harness({
-      githubIssues: [ghIssue(20, "[YT-1] [team] Task 1", { labels: [] })],
+      githubIssues: [ghIssue(20, "[CUI-1] [team] Task 1", { labels: [] })],
       youtrackRows: [ytRow(1)],
     });
 
@@ -322,7 +322,7 @@ describe("runSync with writes enabled", () => {
     assert.equal(result.unchanged, 1);
     const warnings = messages(lines, "warn");
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0] ?? "", /YT-1: #20 matched by title only/);
+    assert.match(warnings[0] ?? "", /CUI-1: #20 matched by title only/);
   });
 });
 
@@ -330,9 +330,9 @@ describe("runSync with writes enabled", () => {
 // Label re-add (decision A5)
 // ---------------------------------------------------------------------------
 
-/** YT-1 unresolved without a mirror (create #101), then YT-2 resolved with open mirror #50 (close). */
+/** CUI-1 unresolved without a mirror (create #101), then CUI-2 resolved with open mirror #50 (close). */
 const CREATE_THEN_CLOSE = {
-  githubIssues: [ghIssue(50, "[YT-2] [team] Task 2")],
+  githubIssues: [ghIssue(50, "[CUI-2] [team] Task 2")],
   youtrackRows: [ytRow(1), ytRow(2, { resolved: RESOLVED_AT })],
 };
 
@@ -353,7 +353,7 @@ describe("runSync label re-add", () => {
     assert.deepEqual(bodyOf(calls.find((call) => LABELS_PATH.test(call.url.pathname))), { labels: [MIRROR_LABEL] });
     assert.equal(result.labelsReAdded, 1);
     assert.equal(result.closed, 1);
-    assert.ok(messages(lines).includes("label YT-1 #101"));
+    assert.ok(messages(lines).includes("label CUI-1 #101"));
   });
 
   it("accepts the label in another case without re-adding it", async () => {
@@ -380,7 +380,7 @@ describe("runSync label re-add", () => {
     assert.equal(result.labelsReAdded, 0);
     assert.equal(result.created, 1);
     assert.equal(result.capped, 0);
-    assert.match(messages(lines, "warn")[0] ?? "", /YT-1 #101 was created without the "youtrack" label .*write cap/);
+    assert.match(messages(lines, "warn")[0] ?? "", /CUI-1 #101 was created without the "youtrack" label .*write cap/);
   });
 
   it("counts the re-add as a write, which can cap a later action", async () => {
@@ -412,7 +412,7 @@ describe("runSync label re-add", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.equal(error.failures.length, 1);
-    assert.match(error.failures[0] ?? "", /^label YT-1 #101 failed: POST .* -> HTTP 422/);
+    assert.match(error.failures[0] ?? "", /^label CUI-1 #101 failed: POST .* -> HTTP 422/);
     assert.equal(error.summary.closed, 1);
     assert.deepEqual(writeCalls(calls).at(-1), `PATCH ${ISSUES_PATH}/50`);
   });

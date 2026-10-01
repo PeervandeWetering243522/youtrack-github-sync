@@ -8,7 +8,7 @@ import {
   DEFAULT_ISSUE_ID,
   EXPECTED_HEADERS,
   FIRST_PAGE_URL,
-  NO_HIERARCHY,
+  NO_EXTRAS,
   SECOND_PAGE_URL,
   TARGET,
   TOKEN,
@@ -85,7 +85,7 @@ describe("listAllIssues", () => {
       [FIRST_PAGE_URL, SECOND_PAGE_URL],
     );
     assert.ok(fake.requests.every((request) => request.method === "GET" && request.retry === "retry-once"));
-    const common = { id: DEFAULT_ISSUE_ID, ...NO_HIERARCHY };
+    const common = { id: DEFAULT_ISSUE_ID, ...NO_EXTRAS };
     assert.deepEqual(issues, [
       { ...common, number: 30, title: "[YT-3] c", state: "open", labelNames: ["youtrack"], isPullRequest: false },
       { ...common, number: 29, title: "[YT-1] First", state: "open", labelNames: [], isPullRequest: true },

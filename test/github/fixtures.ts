@@ -37,6 +37,9 @@ export const NO_HIERARCHY = {
   parentIsForeign: false,
 } as const;
 
+/** NO_HIERARCHY plus no closer: the optional fields of a parsed issue that has none of them. */
+export const NO_EXTRAS = { ...NO_HIERARCHY, closedBy: null } as const;
+
 export const EXPECTED_HEADERS = {
   Accept: "application/vnd.github+json",
   Authorization: `Bearer ${TOKEN}`,

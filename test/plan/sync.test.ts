@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { formatMirror } from "../../src/mirror.ts";
+import { writeCost } from "../../src/plan.ts";
 import { buildMirrorIndex } from "../../src/plan/mirrors.ts";
 import {
   bug,
   counts,
   describeActions,
+  desiredTitle,
   epic,
   FILTERED,
   ghIssue,
@@ -16,25 +19,28 @@ import {
   mirror,
   mirrors,
   plan,
+  PROJECT,
   RESOLVED_AT,
   story,
   task,
+  titled,
   under,
+  unlabelled,
   ytIssue,
 } from "./fixtures.ts";
 
 const RESOLVED = { resolved: RESOLVED_AT } as const;
-/** Epic YT-1 -> milestone #3, epic YT-2 -> milestone #4; #7 is a hand-made milestone. */
+/** Epic YT-1 -> milestone #3, epic YT-2 -> milestone #4, both titled as desired; #7 is a hand-made milestone. */
 const MILESTONES = milestoneIndex(
-  ghMilestone(3, "[YT-1] Epic one"),
-  ghMilestone(4, "[YT-2] Epic two"),
+  ghMilestone(3, "[CUI-1] Issue 1"),
+  ghMilestone(4, "[CUI-2] Issue 2"),
   ghMilestone(7, "Sprint 7"),
 );
 
 describe("planActions: milestone sync (H4, H5, D2)", () => {
   it("sets the nearest epic's milestone on a mirror without one", () => {
     const issue = bug(5, under(1));
-    const ref = mirror(12, { typeName: "Bug" });
+    const ref = titled(5, mirror(12, { typeName: "Bug" }));
 
     const result = plan([epic(1), issue], { mirrors: mirrors([5, ref]), milestones: MILESTONES });
 
@@ -115,7 +121,7 @@ describe("planActions: milestone sync (H4, H5, D2)", () => {
   });
 
   it("treats a losing duplicate milestone like a hand-made one", () => {
-    const milestones = milestoneIndex(ghMilestone(3, "[YT-1] Epic"), ghMilestone(5, "[YT-1] Copy"));
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1"), ghMilestone(5, "[CUI-1] Copy"));
 
     const kept = plan([ytIssue(5)], { mirrors: mirrors([5, mirror(12, { milestoneNumber: 5 })]), milestones });
     const moved = plan([epic(1), ytIssue(5, under(1))], {
@@ -177,7 +183,7 @@ describe("planActions: type sync (H6, D3)", () => {
 
   it("carries a milestone and a type change in one update", () => {
     const issue = task(5, under(1));
-    const ref = mirror(12, { typeName: "Bug", milestoneNumber: 7 });
+    const ref = titled(5, mirror(12, { typeName: "Bug", milestoneNumber: 7 }));
 
     const result = plan([epic(1), issue], { mirrors: mirrors([5, ref]), milestones: MILESTONES });
 
@@ -225,7 +231,7 @@ describe("planActions: task parent sync (H3, H5, D2)", () => {
 
   it("carries the setParent shape with the parent's YouTrack number", () => {
     const issue = task(5, under(1));
-    const ref = mirror(12, { typeName: "Task" });
+    const ref = titled(5, mirror(12, { typeName: "Task" }));
 
     const result = plan([story(1), issue], { mirrors: mirrors([1, mirror(11, { typeName: "Feature" })], [5, ref]) });
 
@@ -242,7 +248,7 @@ describe("planActions: task parent sync (H3, H5, D2)", () => {
 
   it("removes a task from a mirror parent when it should be top-level", () => {
     const issue = task(5, under(9));
-    const ref = mirror(12, { typeName: "Task", parentNumber: 21 });
+    const ref = titled(5, mirror(12, { typeName: "Task", parentNumber: 21 }));
     const index = mirrors([2, mirror(21, { typeName: "Feature" })], [5, ref]);
 
     const result = plan([story(2), epic(9, RESOLVED), issue], { mirrors: index });
@@ -272,11 +278,11 @@ describe("planActions: task parent sync (H3, H5, D2)", () => {
 
   it("treats a losing duplicate issue as a hand-made parent", () => {
     const githubIssues = Object.freeze([
-      ghIssue(21, "[YT-2] Story"),
-      ghIssue(22, "[YT-2] Story copy"),
-      ghIssue(12, "[YT-5] Task", { typeName: "Task", parentNumber: 22 }),
+      ghIssue(21, "[CUI-2] Story"),
+      ghIssue(22, "[CUI-2] Story copy"),
+      ghIssue(12, desiredTitle(5), { typeName: "Task", parentNumber: 22 }),
     ]);
-    const { index } = buildMirrorIndex(githubIssues, LABEL);
+    const { index } = buildMirrorIndex(githubIssues, LABEL, PROJECT);
 
     const result = plan([task(5)], { mirrors: lockedMap(index) });
 
@@ -355,5 +361,141 @@ describe("planActions: closed mirrors are synced too (D8)", () => {
 
     assert.deepEqual(result.actions, []);
     assert.deepEqual(counts(result), { scanned: 3, filtered: 1, unchanged: 2, capped: 0 });
+  });
+});
+
+describe("planActions: title sync (N1, N2)", () => {
+  it("updates the title of an open mirror whose YouTrack summary changed", () => {
+    const issue = ytIssue(5, { summary: "New summary" });
+    const index = mirrors([5, mirror(12, { title: "[CUI-5] Old summary" })]);
+
+    const result = plan([issue], { mirrors: index });
+
+    assert.deepEqual(result.actions, [{ kind: "update", issue, mirror: index.get(5), title: "[CUI-5] New summary" }]);
+    assert.deepEqual(counts(result), { scanned: 1, filtered: 0, unchanged: 0, capped: 0 });
+  });
+
+  it("updates the title of a closed mirror too, without reopening it (D8)", () => {
+    const issues = [ytIssue(5, { summary: "Reopened" }), ytIssue(6, { ...RESOLVED, summary: "Done" })];
+    const index = mirrors(
+      [5, mirror(12, { state: "closed", title: "[CUI-5] Old" })],
+      [6, mirror(13, { state: "closed", title: "[CUI-6] Old" })],
+    );
+
+    const result = plan(issues, { mirrors: index });
+
+    assert.deepEqual(describeActions(result.actions), ["update 5 #12 title", "update 6 #13 title"]);
+    assert.deepEqual(
+      result.actions.map((action) => (action.kind === "update" ? action.title : null)),
+      ["[CUI-5] Reopened", "[CUI-6] Done"],
+    );
+  });
+
+  it("leaves a mirror whose title is already the desired one unchanged", () => {
+    const index = mirrors([5, mirror(12, { title: "[CUI-5] Issue 5" })], [6, mirror(13, { state: "closed" })]);
+
+    const result = plan([ytIssue(5), ytIssue(6)], { mirrors: index });
+
+    assert.deepEqual(result.actions, []);
+    assert.equal(result.unchanged, 2);
+  });
+
+  it("renames a legacy [YT-n] mirror found by the index to the YouTrack id (N1)", () => {
+    const { index } = buildMirrorIndex(Object.freeze([ghIssue(12, "[YT-5] Issue 5")]), LABEL, PROJECT);
+
+    const result = plan([ytIssue(5)], { mirrors: lockedMap(index) });
+
+    assert.deepEqual(describeActions(result.actions), ["update 5 #12 title"]);
+    assert.equal(result.actions[0]?.kind === "update" ? result.actions[0].title : null, "[CUI-5] Issue 5");
+  });
+
+  it("renames an unlabelled legacy mirror like a labelled one, never creating a second mirror", () => {
+    const { index } = buildMirrorIndex(Object.freeze([unlabelled(12, "[YT-5] Old")]), LABEL, PROJECT);
+
+    const result = plan([ytIssue(5)], { mirrors: lockedMap(index) });
+
+    assert.deepEqual(describeActions(result.actions), ["update 5 #12 title"]);
+  });
+
+  it("compares titles exactly, so a mirror matched case-insensitively is still renamed", () => {
+    const index = mirrors(
+      [5, mirror(12, { title: "[cui-5] Issue 5" })],
+      [6, mirror(13, { title: "[CUI-6] issue 6" })],
+      [7, mirror(14, { title: "[CUI-7]  Issue 7" })],
+    );
+
+    const result = plan([ytIssue(5), ytIssue(6), ytIssue(7)], { mirrors: index });
+
+    assert.deepEqual(describeActions(result.actions), [
+      "update 5 #12 title",
+      "update 6 #13 title",
+      "update 7 #14 title",
+    ]);
+  });
+
+  it("wants the title formatMirror gave the mirror: trimmed, and cut for a long summary", () => {
+    const padded = ytIssue(5, { summary: "  Padded  " });
+    const long = ytIssue(6, { summary: "x".repeat(300) });
+    const created = formatMirror(long, "https://youtrack.example");
+    const index = mirrors(
+      [5, mirror(12, { title: formatMirror(padded, "https://youtrack.example").title })],
+      [6, mirror(13, { title: created.title })],
+    );
+
+    const result = plan([padded, long], { mirrors: index });
+
+    assert.equal(created.titleTruncated, true);
+    assert.deepEqual(result.actions, []);
+    assert.equal(result.unchanged, 2);
+  });
+
+  it("carries title, milestone and type in one update that costs one write", () => {
+    const issue = task(5, { ...under(1), summary: "Renamed" });
+    const index = mirrors([5, mirror(12, { title: "[YT-5] Old", typeName: "Bug", milestoneNumber: 7 })]);
+
+    const result = plan([epic(1), issue], { mirrors: index, milestones: MILESTONES, maxWrites: 1 });
+
+    assert.deepEqual(result.actions, [
+      { kind: "update", issue, mirror: index.get(5), title: "[CUI-5] Renamed", milestoneEpic: 1, githubType: "Task" },
+    ]);
+    assert.deepEqual(result.actions.map(writeCost), [1]);
+    assert.deepEqual(counts(result), { scanned: 2, filtered: 0, unchanged: 1, capped: 0 });
+  });
+
+  it("puts only the title into a title-only update", () => {
+    const index = mirrors([5, mirror(12, { title: "[CUI-5] Old" })]);
+
+    const result = plan([ytIssue(5)], { mirrors: index });
+
+    assert.deepEqual(Object.keys(result.actions[0] ?? {}).sort(), ["issue", "kind", "mirror", "title"]);
+  });
+
+  it("updates the title before the parent change and the close of the same mirror", () => {
+    const issues = [story(1), task(5, { ...under(1), ...RESOLVED })];
+    const index = mirrors(
+      [1, mirror(11, { typeName: "Feature" })],
+      [5, mirror(12, { title: "[YT-5] Issue 5", typeName: "Task" })],
+    );
+
+    const result = plan(issues, { mirrors: index });
+
+    assert.deepEqual(describeActions(result.actions), [
+      "update 5 #12 title",
+      "setParent 5 #12 under YT-1",
+      "close 5 -> #12",
+    ]);
+  });
+
+  it("never updates the title of an excluded issue's mirror, nor of one below it (F1, F3, F2)", () => {
+    const issues = [story(5, FILTERED), task(6, { ...under(5), summary: "Renamed" })];
+    const index = mirrors(
+      [5, mirror(12, { title: "[YT-5] Old", typeName: "Feature" })],
+      [6, mirror(13, { title: "[CUI-6] Old", typeName: "Task" })],
+    );
+
+    const result = plan(issues, { mirrors: index });
+
+    assert.deepEqual(result.actions, []);
+    assert.deepEqual(counts(result), { scanned: 2, filtered: 2, unchanged: 0, capped: 0 });
   });
 });

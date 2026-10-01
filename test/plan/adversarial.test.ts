@@ -17,6 +17,7 @@ import {
   RESOLVED_AT,
   story,
   task,
+  titled,
   under,
   ytIssue,
 } from "./fixtures.ts";
@@ -52,10 +53,10 @@ describe("planActions: YouTrack and GitHub numbers are never confused", () => {
   it("reads a current milestone by its GitHub number, not as an epic number", () => {
     // Milestone #2 mirrors epic YT-1 and #1 mirrors YT-2; #6 is hand-made (epic YT-6 has none).
     const milestones = milestoneIndex(
-      ghMilestone(2, "[YT-1] One"),
-      ghMilestone(1, "[YT-2] Two"),
+      ghMilestone(2, "[CUI-1] Issue 1"),
+      ghMilestone(1, "[CUI-2] Issue 2"),
       ghMilestone(6, "Sprint 6"),
-      ghMilestone(4, "[YT-3] Three"),
+      ghMilestone(4, "[CUI-3] Issue 3"),
     );
     const issues = [epic(1), epic(2), epic(6, FILTERED), bug(7, under(1)), bug(8, under(1)), bug(9), bug(10)];
     const index = mirrors(
@@ -74,7 +75,7 @@ describe("planActions: YouTrack and GitHub numbers are never confused", () => {
 
   it("keeps a milestone that is hand-made even when its number is an epic's with a milestone", () => {
     // Milestone #1 is hand-made; epic YT-1's mirror milestone is #2.
-    const milestones = milestoneIndex(ghMilestone(2, "[YT-1] One"), ghMilestone(1, "Sprint 1"));
+    const milestones = milestoneIndex(ghMilestone(2, "[CUI-1] Issue 1"), ghMilestone(1, "Sprint 1"));
 
     const result = plan([epic(1), bug(5)], {
       mirrors: mirrors([5, mirror(12, { typeName: "Bug", milestoneNumber: 1 })]),
@@ -103,7 +104,7 @@ describe("planActions: YouTrack and GitHub numbers are never confused", () => {
 
 describe("planActions: closed mirrors lose mirror-owned links too (D8)", () => {
   it("clears a mirror milestone and a mirror parent of a closed mirror, without reopening or closing it", () => {
-    const milestones = milestoneIndex(ghMilestone(3, "[YT-1] Epic"));
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1"));
     const index = mirrors(
       [2, mirror(21, { typeName: "Feature" })],
       [5, mirror(12, { state: "closed", typeName: "Task", milestoneNumber: 3, parentNumber: 21 })],
@@ -120,20 +121,22 @@ describe("planActions: closed mirrors lose mirror-owned links too (D8)", () => {
 
 describe("planActions: update shape", () => {
   it("cannot express an update that changes nothing (checked by npm run typecheck)", () => {
-    // @ts-expect-error -- an update must carry a milestone or a type change
-    const empty: Action = { kind: "update", issue: task(5), mirror: mirror(12) };
-    const typeOnly: Action = { kind: "update", issue: task(5), mirror: mirror(12), githubType: "Task" };
+    const ref = titled(5, mirror(12));
+    // @ts-expect-error -- an update must carry a title, milestone or type change
+    const empty: Action = { kind: "update", issue: task(5), mirror: ref };
+    const typeOnly: Action = { kind: "update", issue: task(5), mirror: ref, githubType: "Task" };
+    const titleOnly: Action = { kind: "update", issue: task(5), mirror: ref, title: "[CUI-5] Issue 5" };
 
-    assert.equal(writeCost(empty) + writeCost(typeOnly), 2);
+    assert.equal(writeCost(empty) + writeCost(typeOnly) + writeCost(titleOnly), 3);
   });
 
   it("carries a null milestoneEpic (clear) as a present key, and no type key", () => {
     const issue = bug(5);
-    const ref = mirror(12, { typeName: "Bug", milestoneNumber: 3 });
+    const ref = titled(5, mirror(12, { typeName: "Bug", milestoneNumber: 3 }));
 
     const result = plan([issue], {
       mirrors: mirrors([5, ref]),
-      milestones: milestoneIndex(ghMilestone(3, "[YT-1] E")),
+      milestones: milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1")),
     });
 
     assert.deepEqual(result.actions, [{ kind: "update", issue, mirror: ref, milestoneEpic: null }]);
@@ -141,7 +144,7 @@ describe("planActions: update shape", () => {
   });
 
   it("never plans an update that changes nothing", () => {
-    const milestones = milestoneIndex(ghMilestone(3, "[YT-1] E"), ghMilestone(4, "Hand-made"));
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1"), ghMilestone(4, "Hand-made"));
     const issues = [epic(1), story(2, under(1)), ytIssue(3), ytIssue(4, under(1)), task(5, under(2))];
     const index = mirrors(
       [2, mirror(12, { typeName: "Feature", milestoneNumber: 3 })],
@@ -191,7 +194,7 @@ describe("planActions: dependencies under the cap (D4)", () => {
   });
 
   it("closes a resolved epic's milestone and still gives it to an unresolved child", () => {
-    const milestones = milestoneIndex(ghMilestone(3, "[YT-1] Epic"));
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1"));
 
     const result = plan([epic(1, RESOLVED), story(2, under(1))], { milestones });
 
@@ -224,11 +227,11 @@ describe("planActions: repeated and odd hierarchy rows", () => {
     const result = plan([story(1), task(5, under(5))], { mirrors: index });
 
     assert.deepEqual(describeActions(result.actions), ["removeParent 5 #12 from #11 (YT-1)"]);
-    assert.deepEqual(result.warnings, ["YT-5: parent chain loops back to YT-5"]);
+    assert.deepEqual(result.warnings, ["CUI-5: parent chain loops back to CUI-5"]);
   });
 
   it("gives an epic nested in a mirrored epic its own milestone, and its children that one (D1)", () => {
-    const milestones = milestoneIndex(ghMilestone(3, "[YT-1] Outer"));
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1"));
 
     const result = plan([epic(1), epic(2, under(1)), story(5, under(2))], { milestones });
 

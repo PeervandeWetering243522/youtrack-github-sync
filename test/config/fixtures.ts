@@ -33,6 +33,7 @@ export const EXPECTED_CONFIG: Config = {
   excludePrefix: "[individual]",
   maxWritesPerRun: 30,
   dryRun: true,
+  reopenClosedBy: null,
 };
 
 const REQUIRED_KEYS = [
@@ -60,6 +61,8 @@ export const PROJECT_PROBLEM =
   'YOUTRACK_PROJECT must start with a letter or digit and contain only letters, digits, "_" or "-"';
 export const PREFIX_PROBLEM = "YOUTRACK_EXCLUDE_PREFIX must not be empty when set";
 export const MAX_WRITES_PROBLEM = `MAX_WRITES_PER_RUN must be a whole number from 0 to ${String(MAX_WRITES_LIMIT)}`;
+export const REOPEN_CLOSED_BY_PROBLEM =
+  'REOPEN_CLOSED_BY must be a GitHub login, such as "github-actions[bot]", or empty';
 
 /** One character from its code point, so every odd character in these tests is named, not invisible. */
 export function char(codePoint: number): string {

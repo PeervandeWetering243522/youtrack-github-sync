@@ -38,17 +38,18 @@ describe("runSync exclude prefix (F1, F2)", () => {
 
     // Assert
     assert.deepEqual(calls.filter(isCreate).map(titleOf), [
-      "[YT-2] [individual] Not excluded here",
-      "[YT-3] ops: missing brackets",
+      "[CUI-2] [individual] Not excluded here",
+      "[CUI-3] ops: missing brackets",
     ]);
     assert.equal(result.filtered, 2);
     assert.equal(result.created, 2);
   });
 
   it("leaves the open mirror of an issue that gained the exclude prefix alone (F2)", async () => {
-    // Arrange: YT-1 was mirrored as #12, then renamed to "[individual] ..." and resolved.
+    // Arrange: CUI-1 was mirrored as #12, then renamed to "[individual] ..." and resolved; the
+    // mirror keeps its old title too (N2 does not reach excluded issues).
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(12, "[YT-1] [team] Task 1")],
+      githubIssues: [ghIssue(12, "[CUI-1] [team] Task 1")],
       youtrackRows: [ytRow(1, { summary: "[individual] Task 1", resolved: RESOLVED_AT })],
     });
 
@@ -62,20 +63,21 @@ describe("runSync exclude prefix (F1, F2)", () => {
 });
 
 /**
- * Inherited exclusion end to end (decisions F1-F3), shaped like CUI today:
- * YT-32 "[Individual] ..." epic, open milestone #7    -> filtered (F1)
- * YT-46 task under YT-32, mirror #30 of the wrong type -> filtered (F3), not updated (F2)
- * YT-47 resolved task under YT-32, open mirror #31     -> filtered (F3), not closed (F2)
- * YT-9 epic, no milestone                              -> createMilestone
- * YT-10 task under YT-9                                -> create, Task, milestone of YT-9
- * YT-15 task, mirror #21 without a type                -> update: type Task
+ * Inherited exclusion end to end (decisions F1-F3), shaped like CUI today; every mirror and
+ * milestone has its issue's title:
+ * CUI-32 "[Individual] ..." epic, open milestone #7       -> filtered (F1)
+ * CUI-46 task under CUI-32, mirror #30 of the wrong type  -> filtered (F3), not updated (F2)
+ * CUI-47 resolved task under CUI-32, open mirror #31      -> filtered (F3), not closed (F2)
+ * CUI-9 epic, no milestone                                -> createMilestone
+ * CUI-10 task under CUI-9                                 -> create, Task, milestone of CUI-9
+ * CUI-15 task, mirror #21 without a type                  -> update: type Task
  */
 const INDIVIDUAL_WORLD: World = {
-  milestones: [ghMilestone(7, "[YT-32] [Individual] Data Structures and Algorithms")],
+  milestones: [ghMilestone(7, "[CUI-32] [Individual] Data Structures and Algorithms")],
   githubIssues: [
-    ghIssue(21, "[YT-15] Plan the sprint"),
-    ghIssue(30, "[YT-46] Implement a linked list", { type: "Feature" }),
-    ghIssue(31, "[YT-47] Big-O exercises", { type: "Task" }),
+    ghIssue(21, "[CUI-15] Plan the sprint"),
+    ghIssue(30, "[CUI-46] Implement a linked list", { type: "Feature" }),
+    ghIssue(31, "[CUI-47] Big-O exercises", { type: "Task" }),
   ],
   youtrackRows: [
     ytRow(9, { type: "Epic", summary: "Business Understanding" }),
@@ -99,9 +101,9 @@ describe("runSync inherited exclusion (F3)", () => {
 
     // Assert
     assert.deepEqual(messages(lines), [
-      "[dry-run] would create milestone YT-9: [YT-9] Business Understanding",
-      "[dry-run] would create YT-10 with type Task, milestone YT-9 (new): [YT-10] Write the proposal",
-      "[dry-run] would update YT-15 #21: set type Task",
+      "[dry-run] would create milestone CUI-9: [CUI-9] Business Understanding",
+      "[dry-run] would create CUI-10 with type Task, milestone CUI-9 (new): [CUI-10] Write the proposal",
+      "[dry-run] would update CUI-15 #21: set type Task",
       formatSummary(result, "ok"),
     ]);
     assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 3 }));
@@ -136,8 +138,8 @@ describe("runSync inherited exclusion (F3)", () => {
 
     // Assert
     assert.deepEqual(messages(lines).slice(0, -1), [
-      "[dry-run] would create milestone YT-3: [YT-3] [Individual] Shared now",
-      "[dry-run] would create YT-4 with type Task, milestone YT-3 (new): [YT-4] Shared task",
+      "[dry-run] would create milestone CUI-3: [CUI-3] [Individual] Shared now",
+      "[dry-run] would create CUI-4 with type Task, milestone CUI-3 (new): [CUI-4] Shared task",
     ]);
     assert.equal(result.filtered, 2);
   });

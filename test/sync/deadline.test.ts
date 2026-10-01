@@ -16,8 +16,8 @@ import {
 import type { World } from "./fixtures.ts";
 
 // The harness clock starts at 0 and moves only by what the run sleeps. In DEADLINE_WORLD the
-// YT-1 create starts at 0, the YT-7 create at 0 (its write sent at 1 s, after the pause) and the
-// YT-3 close at 1 s, since creates run before closes (docs/11 §1.4; decision R8: no action
+// CUI-1 create starts at 0, the CUI-7 create at 0 (its write sent at 1 s, after the pause) and the
+// CUI-3 close at 1 s, since creates run before closes (docs/11 §1.4; decision R8: no action
 // starts at or after the deadline).
 const DEADLINE_WORLD: World = { ...MIXED_WORLD, youtrackRows: [...(MIXED_WORLD.youtrackRows ?? []), ytRow(7)] };
 
@@ -43,8 +43,8 @@ describe("runSync run deadline", () => {
   });
 
   it("finishes an action that started before the deadline, including its label re-add", async () => {
-    // Arrange: the YT-1 create starts at 0 and its re-add is sent at 1 s, past the deadline;
-    // the YT-7 create and YT-3 close would start at 1 s and are capped.
+    // Arrange: the CUI-1 create starts at 0 and its re-add is sent at 1 s, past the deadline;
+    // the CUI-7 create and CUI-3 close would start at 1 s and are capped.
     const { deps, calls, lines } = harness({ ...DEADLINE_WORLD, createdLabels: [], deadline: 1 });
 
     // Act

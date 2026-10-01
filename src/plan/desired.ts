@@ -31,16 +31,30 @@ export type PlanContext = {
   readonly newIssues: ReadonlySet<number>;
   /** Eligible unresolved epics without a milestone: each gets a `createMilestone` this run. */
   readonly newMilestones: ReadonlySet<number>;
+  /** PlanInput.reopenClosedBy: the login whose closes a reopen undoes (R10); null: never reopen. */
+  readonly reopenClosedBy: string | null;
 };
 
 /**
  * The fields of an `update`, at least one of them present (updateIssue refuses an empty
- * patch); a key left out is not changed. `milestoneEpic` null clears the milestone, a
- * number sets the milestone of that epic; `githubType` sets the issue type.
+ * patch); a key left out is not changed. `title` sets the mirror title (N2);
+ * `milestoneEpic` null clears the milestone, a number sets the milestone of that epic;
+ * `githubType` sets the issue type.
  */
 export type UpdateFields =
-  | { readonly milestoneEpic: number | null; readonly githubType?: GitHubTypeName }
-  | { readonly milestoneEpic?: never; readonly githubType: GitHubTypeName };
+  | { readonly title: string; readonly milestoneEpic?: number | null; readonly githubType?: GitHubTypeName }
+  | { readonly title?: never; readonly milestoneEpic: number | null; readonly githubType?: GitHubTypeName }
+  | { readonly title?: never; readonly milestoneEpic?: never; readonly githubType: GitHubTypeName };
+
+/** What a mirror should look like: the fields updateFields compares (docs/11 §1.3, N2). */
+export type DesiredFields = {
+  /** mirrorTitle of the YouTrack issue. */
+  readonly title: string;
+  /** desiredMilestoneEpic of the issue; null: no mirror milestone. */
+  readonly milestoneEpic: number | null;
+  /** The GitHub type of its YouTrack type; null: none (D3). */
+  readonly githubType: GitHubTypeName | null;
+};
 
 /** A milestone change of an `update`: null clears it, a number sets that epic's milestone. */
 type MilestoneChange = { readonly milestoneEpic: number | null };
@@ -80,22 +94,20 @@ export function desiredParent(context: PlanContext, issue: YouTrackIssue): numbe
 
 /**
  * What an `update` of `mirror` must change, or null when nothing:
+ * - title: a desired title that differs from the current one (compared exactly, N2);
  * - milestone: a desired epic whose milestone is not the current one -> that epic; no desired
  *   epic but the current milestone is a mirror milestone -> null (clear); a milestone not in
  *   the milestone index (hand-made) is otherwise left alone (D2);
  * - type: a desired type that differs from the current name (compared exactly); a desired
  *   type of none never changes it (D3).
  */
-export function updateFields(
-  context: PlanContext,
-  mirror: MirrorRef,
-  desiredEpic: number | null,
-  desiredType: GitHubTypeName | null,
-): UpdateFields | null {
-  const milestone = milestoneChange(context, mirror, desiredEpic);
-  const githubType = desiredType === null || desiredType === mirror.typeName ? null : desiredType;
-  if (githubType === null) return milestone;
-  return milestone === null ? { githubType } : { ...milestone, githubType };
+export function updateFields(context: PlanContext, mirror: MirrorRef, desired: DesiredFields): UpdateFields | null {
+  const milestone = milestoneChange(context, mirror, desired.milestoneEpic);
+  const { githubType: desiredType } = desired;
+  const type = desiredType === null || desiredType === mirror.typeName ? null : { githubType: desiredType };
+  const rest = milestone === null ? type : { ...milestone, ...type };
+  if (desired.title !== mirror.title) return { title: desired.title, ...rest };
+  return rest;
 }
 
 /**

@@ -42,8 +42,8 @@ const guardWarning = `fetch guard of ${String(DEFAULT_MAX_FETCHES)} reached`;
 
 describe("runSync fetch guard", () => {
   it("caps the remaining actions instead of failing when the budget runs out before a write", async () => {
-    // Arrange: 3 reads + the YT-24 and YT-25 creates = 5; 20 closes x 2 fetches = 45, so the
-    // YT-21 close cannot even start: it and the two closes after it are capped.
+    // Arrange: 3 reads + the CUI-24 and CUI-25 creates = 5; 20 closes x 2 fetches = 45, so the
+    // CUI-21 close cannot even start: it and the two closes after it are capped.
     const world = openMirrorsOfResolved(23);
     const { deps, calls, lines } = harness({
       githubIssues: world.githubIssues,
@@ -62,8 +62,8 @@ describe("runSync fetch guard", () => {
   });
 
   it("records a close whose retry the budget cannot pay for as failed, caps the rest and throws", async () => {
-    // Arrange: 3 reads + the YT-25 create + 20 closes x 2 fetches = 44; the YT-21 close spends
-    // the 45th on a 502 and cannot retry. It really failed (decision A10); YT-22..24 are capped.
+    // Arrange: 3 reads + the CUI-25 create + 20 closes x 2 fetches = 44; the CUI-21 close spends
+    // the 45th on a 502 and cannot retry. It really failed (decision A10); CUI-22..24 are capped.
     const world = openMirrorsOfResolved(24);
     const { deps, calls, lines, sleeps } = harness({
       githubIssues: world.githubIssues,
@@ -78,7 +78,7 @@ describe("runSync fetch guard", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.equal(calls.length, DEFAULT_MAX_FETCHES);
     assert.equal(error.failures.length, 1);
-    assert.match(error.failures[0] ?? "", /^close YT-21 #121 failed: PATCH .*\/issues\/121 -> HTTP 502/);
+    assert.match(error.failures[0] ?? "", /^close CUI-21 #121 failed: PATCH .*\/issues\/121 -> HTTP 502/);
     assert.deepEqual(
       error.summary,
       summary({ scanned: 25, created: 1, closed: 20, capped: 3, failed: 1, fetches: DEFAULT_MAX_FETCHES }),
@@ -90,7 +90,7 @@ describe("runSync fetch guard", () => {
   });
 
   it("records a label re-add whose retry the budget cannot pay for as failed", async () => {
-    // Arrange: 3 reads + 20 milestone closes x 2 fetches = 43. The YT-21 create takes the 44th;
+    // Arrange: 3 reads + 20 milestone closes x 2 fetches = 43. The CUI-21 create takes the 44th;
     // its label re-add spends the 45th on a 502 and cannot retry.
     const world = openMilestonesOfResolvedEpics(20);
     const { deps, lines } = harness({
@@ -106,7 +106,7 @@ describe("runSync fetch guard", () => {
 
     // Assert
     assert.ok(error instanceof SyncFailedError);
-    assert.match(error.failures[0] ?? "", /^label YT-21 #101 failed: POST .* -> HTTP 502/);
+    assert.match(error.failures[0] ?? "", /^label CUI-21 #101 failed: POST .* -> HTTP 502/);
     assert.deepEqual(
       error.summary,
       summary({ scanned: 21, created: 1, milestonesClosed: 20, failed: 1, fetches: DEFAULT_MAX_FETCHES }),
@@ -115,8 +115,8 @@ describe("runSync fetch guard", () => {
   });
 
   it("caps the action after the budget ran out, and does not pause for it", async () => {
-    // Arrange: 3 reads + the YT-22 and YT-23 creates = 5; 20 closes take the other 40, so the
-    // YT-21 close is refused.
+    // Arrange: 3 reads + the CUI-22 and CUI-23 creates = 5; 20 closes take the other 40, so the
+    // CUI-21 close is refused.
     const world = openMirrorsOfResolved(21);
     const { deps, sleeps } = harness({
       githubIssues: world.githubIssues,
@@ -134,7 +134,7 @@ describe("runSync fetch guard", () => {
   });
 
   it("caps a create the budget refuses, sends nothing for it and still ends ok", async () => {
-    // Arrange: 3 reads + 21 milestone closes x 2 fetches = 45, so the YT-22 create is refused
+    // Arrange: 3 reads + 21 milestone closes x 2 fetches = 45, so the CUI-22 create is refused
     // before anything is sent.
     const world = openMilestonesOfResolvedEpics(21);
     const { deps, calls, lines } = harness({
@@ -155,9 +155,9 @@ describe("runSync fetch guard", () => {
   });
 
   it("stops and caps the next action when the budget refuses the label re-add", async () => {
-    // Arrange: 3 reads + 20 milestone closes x 2 fetches + milestone #21 x 1 = 44; the YT-22
+    // Arrange: 3 reads + 20 milestone closes x 2 fetches + milestone #21 x 1 = 44; the CUI-22
     // create takes the 45th and comes back without the label, so the re-add is refused, and
-    // the YT-23 create must not be tried.
+    // the CUI-23 create must not be tried.
     const world = openMilestonesOfResolvedEpics(21);
     const { deps, calls, lines } = harness({
       milestones: world.milestones,
@@ -177,13 +177,13 @@ describe("runSync fetch guard", () => {
       summary({ scanned: 23, created: 1, milestonesClosed: 21, capped: 1, fetches: DEFAULT_MAX_FETCHES }),
     );
     const warnings = messages(lines, "warn");
-    assert.ok(warnings.some((line) => /YT-22 #\d+ .*not re-added \(fetch guard reached\)/.test(line)));
+    assert.ok(warnings.some((line) => /CUI-22 #\d+ .*not re-added \(fetch guard reached\)/.test(line)));
     assert.ok(warnings.some((line) => line.includes(guardWarning)));
     assert.equal(lastLine(lines).level, "info");
   });
 
   it("warns when the budget runs out on a label re-add with no action left", async () => {
-    // Arrange: as above, without YT-23.
+    // Arrange: as above, without CUI-23.
     const world = openMilestonesOfResolvedEpics(21);
     const { deps, lines } = harness({
       milestones: world.milestones,
@@ -200,16 +200,16 @@ describe("runSync fetch guard", () => {
     assert.equal(result.labelsReAdded, 0);
     assert.equal(result.capped, 0);
     assert.equal(result.failed, 0);
-    assert.ok(messages(lines, "warn").some((line) => /YT-22 #101 .*not re-added \(fetch guard reached\)/.test(line)));
+    assert.ok(messages(lines, "warn").some((line) => /CUI-22 #101 .*not re-added \(fetch guard reached\)/.test(line)));
   });
 
   it("caps a sub-issue move the budget refuses, like any other write", async () => {
-    // Arrange: 3 reads + 21 milestone closes x 2 = 45; the YT-40 move under #30 (its only
-    // action: #31 already has type Task) is refused before anything is sent.
+    // Arrange: 3 reads + 21 milestone closes x 2 = 45; the CUI-40 move under #30 (its only
+    // action: #31 already has type Task and its title) is refused before anything is sent.
     const world = openMilestonesOfResolvedEpics(21);
     const { deps, calls, lines, sleeps } = harness({
       milestones: world.milestones,
-      githubIssues: [ghIssue(30, "[YT-30] [team] Story"), ghIssue(31, "[YT-40] [team] Task", { type: "Task" })],
+      githubIssues: [ghIssue(30, "[CUI-30] [team] Task 30"), ghIssue(31, "[CUI-40] [team] Task 40", { type: "Task" })],
       youtrackRows: [...world.youtrackRows, ytRow(30), ytRow(40, { type: "Task", parent: 30 })],
       override: flakyPatch,
     });

@@ -52,6 +52,7 @@ const BASE_CONFIG: Config = {
   excludePrefix: "[individual]",
   maxWritesPerRun: 30,
   dryRun: false,
+  reopenClosedBy: null,
 };
 
 export function config(overrides: Partial<Config> = {}): Config {
@@ -66,6 +67,8 @@ type RowOptions = {
   readonly type?: string;
   /** numberInProject of the Subtask parent (CUI-<n>); left out: no parent. */
   readonly parent?: number;
+  /** The project ID of the row and its parent; left out: "CUI", as in config(). */
+  readonly project?: string;
 };
 
 /**
@@ -74,11 +77,11 @@ type RowOptions = {
  */
 export function ytRow(numberInProject: number, options: RowOptions = {}): JsonObject {
   const n = String(numberInProject);
-  const { type, parent } = options;
-  const parentIssues = parent === undefined ? [] : [{ idReadable: `CUI-${String(parent)}`, $type: "Issue" }];
+  const { type, parent, project = "CUI" } = options;
+  const parentIssues = parent === undefined ? [] : [{ idReadable: `${project}-${String(parent)}`, $type: "Issue" }];
   const typeValue = type === undefined ? null : { name: type, $type: "EnumBundleElement" };
   return {
-    idReadable: `CUI-${n}`,
+    idReadable: `${project}-${n}`,
     numberInProject,
     summary: options.summary ?? `[team] Task ${n}`,
     description: options.description === undefined ? `Details of task ${n}` : options.description,
@@ -100,11 +103,13 @@ type IssueOptions = {
   readonly type?: string;
   /** The number of its parent issue in this repository. */
   readonly parent?: number;
+  /** The login of `closed_by` (R10); null sends `closed_by: null`, left out sends no key. */
+  readonly closedBy?: string | null;
 };
 
-/** An issue as GitHub lists it; milestone, type and parent_issue_url only when given. */
+/** An issue as GitHub lists it; milestone, type, parent_issue_url and closed_by only when given. */
 export function ghIssue(issueNumber: number, title: string, options: IssueOptions = {}): JsonObject {
-  const { milestone, type, parent } = options;
+  const { milestone, type, parent, closedBy } = options;
   return {
     id: issueId(issueNumber),
     number: issueNumber,
@@ -115,6 +120,7 @@ export function ghIssue(issueNumber: number, title: string, options: IssueOption
     ...(milestone === undefined ? {} : { milestone: { number: milestone, title: "any" } }),
     ...(type === undefined ? {} : { type: { name: type } }),
     ...(parent === undefined ? {} : { parent_issue_url: `${GITHUB_ORIGIN}${ISSUES_PATH}/${String(parent)}` }),
+    ...(closedBy === undefined ? {} : { closed_by: closedBy === null ? null : { login: closedBy, type: "Bot" } }),
   };
 }
 
@@ -123,28 +129,28 @@ export function ghMilestone(milestoneNumber: number, title: string, state: "open
   return { number: milestoneNumber, title, state, description: null, open_issues: 0, closed_issues: 0 };
 }
 
-/** Open milestones #1.. of resolved epics YT-1..: each one needs a closeMilestone. */
+/** Open milestones #1.. of resolved epics CUI-1.., titled as the epics: each needs a closeMilestone only. */
 export function openMilestonesOfResolvedEpics(count: number): {
   readonly milestones: JsonObject[];
   readonly youtrackRows: JsonObject[];
 } {
   const numbers = Array.from({ length: count }, (_, index) => index + 1);
   return {
-    milestones: numbers.map((n) => ghMilestone(n, `[YT-${String(n)}] [team] Epic ${String(n)}`)),
+    milestones: numbers.map((n) => ghMilestone(n, `[CUI-${String(n)}] [team] Epic ${String(n)}`)),
     youtrackRows: numbers.map((n) =>
       ytRow(n, { type: "Epic", summary: `[team] Epic ${String(n)}`, resolved: RESOLVED_AT }),
     ),
   };
 }
 
-/** Open, labelled mirrors #101.. of resolved YouTrack issues YT-1..: each one needs a close. */
+/** Open, labelled mirrors #101.. of resolved issues CUI-1.., titled as the issues: each needs a close only. */
 export function openMirrorsOfResolved(count: number): {
   readonly githubIssues: JsonObject[];
   readonly youtrackRows: JsonObject[];
 } {
   const numbers = Array.from({ length: count }, (_, index) => index + 1);
   return {
-    githubIssues: numbers.map((n) => ghIssue(LAST_EXISTING_NUMBER + n, `[YT-${String(n)}] [team] Task ${String(n)}`)),
+    githubIssues: numbers.map((n) => ghIssue(LAST_EXISTING_NUMBER + n, `[CUI-${String(n)}] [team] Task ${String(n)}`)),
     youtrackRows: numbers.map((n) => ytRow(n, { resolved: RESOLVED_AT })),
   };
 }
@@ -192,21 +198,21 @@ export type Harness = {
 };
 
 /**
- * No milestones, and no YouTrack types or parents:
- * YT-1 unresolved, no mirror       -> create
- * YT-2 resolved, no mirror         -> unchanged (never mirrored, decision R9)
- * YT-3 resolved, open mirror #12   -> close
- * YT-4 "[individual]"              -> filtered (decision F1)
- * YT-5 unresolved, open mirror #13 -> unchanged
- * YT-6 resolved, closed mirror #14 -> unchanged
- * PR #15 is titled "[YT-1]" but is not a mirror.
+ * No milestones, and no YouTrack types or parents; every mirror has its issue's title:
+ * CUI-1 unresolved, no mirror       -> create
+ * CUI-2 resolved, no mirror         -> unchanged (never mirrored, decision R9)
+ * CUI-3 resolved, open mirror #12   -> close
+ * CUI-4 "[individual]"              -> filtered (decision F1)
+ * CUI-5 unresolved, open mirror #13 -> unchanged
+ * CUI-6 resolved, closed mirror #14 -> unchanged
+ * PR #15 is titled "[CUI-1]" but is not a mirror.
  */
 export const MIXED_WORLD: World = {
   githubIssues: [
-    ghIssue(12, "[YT-3] [team] Task 3"),
-    ghIssue(13, "[YT-5] [team] Task 5"),
-    ghIssue(14, "[YT-6] [team] Task 6", { state: "closed" }),
-    ghIssue(15, "[YT-1] Some pull request", { pullRequest: true, labels: [] }),
+    ghIssue(12, "[CUI-3] [team] Task 3"),
+    ghIssue(13, "[CUI-5] [team] Task 5"),
+    ghIssue(14, "[CUI-6] [team] Task 6", { state: "closed" }),
+    ghIssue(15, "[CUI-1] Some pull request", { pullRequest: true, labels: [] }),
   ],
   youtrackRows: [
     ytRow(1),
@@ -266,18 +272,25 @@ function createdIssue(body: JsonValue | undefined, issueNumber: number, world: W
   });
 }
 
-/** A PATCH answer: closed for a close, otherwise the requested milestone and type echoed back. */
+/** A PATCH answer: closed for a close, otherwise the requested title, milestone and type echoed back. */
 function patchedIssue(body: JsonValue | undefined, issueNumber: number): JsonObject {
-  const { state, milestone, type } = requestOf(body);
-  if (state === "closed") return ghIssue(issueNumber, "[YT-0] closed", { state: "closed" });
+  const { state, title, milestone, type } = requestOf(body);
+  if (state === "closed") return ghIssue(issueNumber, "[CUI-0] closed", { state: "closed" });
   return {
-    ...ghIssue(issueNumber, "[YT-0] patched", isString(type) ? { type } : {}),
+    ...ghIssue(issueNumber, isString(title) ? title : "[CUI-0] patched", isString(type) ? { type } : {}),
     ...(milestone === undefined ? {} : { milestone: isInteger(milestone) ? { number: milestone } : null }),
   };
 }
 
 function createdMilestone(body: JsonValue | undefined, milestoneNumber: number): JsonObject {
   const { title } = requestOf(body);
+  return ghMilestone(milestoneNumber, isString(title) ? title : "");
+}
+
+/** A milestone PATCH answer: closed for a close, otherwise open with the requested title (a rename). */
+function patchedMilestone(body: JsonValue | undefined, milestoneNumber: number): JsonObject {
+  const { state, title } = requestOf(body);
+  if (state === "closed") return ghMilestone(milestoneNumber, "[CUI-0] closed", "closed");
   return ghMilestone(milestoneNumber, isString(title) ? title : "");
 }
 
@@ -289,7 +302,7 @@ function milestoneAnswer(call: RecordedCall, world: World, counters: Counters): 
   }
   const milestone = MILESTONE_PATH.exec(path);
   if (call.method === "PATCH" && milestone !== null) {
-    return json(200, ghMilestone(Number(milestone[1]), "[YT-0] closed", "closed"));
+    return json(200, patchedMilestone(call.body, Number(milestone[1])));
   }
   return undefined;
 }
@@ -305,7 +318,7 @@ function issueAnswer(call: RecordedCall, world: World, counters: Counters): Resp
   if (call.method === "PATCH" && issue !== null) return json(200, patchedIssue(call.body, Number(issue[1])));
   const parent = SUB_ISSUE_PATH.exec(path);
   if (parent !== null && (call.method === "POST" || call.method === "DELETE")) {
-    return json(call.method === "POST" ? 201 : 200, ghIssue(Number(parent[1]), "[YT-0] parent"));
+    return json(call.method === "POST" ? 201 : 200, ghIssue(Number(parent[1]), "[CUI-0] parent"));
   }
   return undefined;
 }
@@ -409,6 +422,11 @@ export function onlyBody(calls: readonly RecordedCall[], method: string, path: s
   return bodyOf(matching[0]);
 }
 
+/** The bodies of every call with `method` to `path`, in order. */
+export function bodiesOf(calls: readonly RecordedCall[], method: string, path: string): readonly JsonObject[] {
+  return calls.filter((call) => call.method === method && call.url.pathname === path).map((call) => bodyOf(call));
+}
+
 /** The bodies of every issue create, in order. */
 export function createBodies(calls: readonly RecordedCall[]): readonly JsonObject[] {
   return calls.filter(isCreate).map((call) => bodyOf(call));
@@ -436,6 +454,7 @@ export function summary(fields: Partial<RunSummary>): RunSummary {
     scanned: 0,
     created: 0,
     closed: 0,
+    reopened: 0,
     updated: 0,
     milestonesCreated: 0,
     milestonesClosed: 0,

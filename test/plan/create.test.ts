@@ -21,7 +21,7 @@ import {
 
 const RESOLVED = { resolved: RESOLVED_AT } as const;
 /** Epic YT-1 with open milestone #3. */
-const EPIC_1_MILESTONE = milestoneIndex(ghMilestone(3, "[YT-1] Epic"));
+const EPIC_1_MILESTONE = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1"));
 /** Story YT-1's mirror #11, already of type Feature (so it needs no update). */
 const STORY_1_MIRRORED = mirrors([1, mirror(11, { typeName: "Feature" })]);
 
@@ -110,7 +110,7 @@ describe("planActions: create carries the milestone of the nearest epic (H4, D1,
   });
 
   it("uses an existing milestone of a resolved epic, even a closed one", () => {
-    const milestones = milestoneIndex(ghMilestone(3, "[YT-1] Epic", "closed"), ghMilestone(4, "[YT-5] Epic"));
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1", "closed"), ghMilestone(4, "[CUI-5] Issue 5"));
     const issues = [epic(1, RESOLVED), story(2, under(1)), epic(5, RESOLVED), story(6, under(5))];
 
     const result = plan(issues, { milestones });
@@ -228,7 +228,7 @@ describe("planActions: a task's GitHub parent (H3, H9)", () => {
       "create 3 type=Task",
       "create 4 type=Task parent=YT-3",
     ]);
-    assert.deepEqual(result.warnings, ["YT-3: parent chain loops back to YT-2"]);
+    assert.deepEqual(result.warnings, ["CUI-3: parent chain loops back to CUI-2"]);
   });
 
   it("never creates a mirror for a resolved task, whatever its parent (R9)", () => {

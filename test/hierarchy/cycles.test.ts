@@ -28,7 +28,7 @@ import type { YouTrackIssue } from "../../src/youtrack.ts";
 
 const EPIC = YOUTRACK_TYPES.epic;
 const TASK = YOUTRACK_TYPES.task;
-const WARNING = /^YT-\d+: parent chain loops back to YT-\d+$/;
+const WARNING = /^CUI-\d+: parent chain loops back to CUI-\d+$/;
 
 function id(numberInProject: number): string {
   return `CUI-${String(numberInProject)}`;
@@ -62,8 +62,9 @@ function numbers(issues: readonly YouTrackIssue[]): readonly number[] {
   return issues.map((issue) => issue.numberInProject);
 }
 
+/** The warning for a cycle of CUI issues, by number: "CUI-<closer>: ... CUI-<lowest>". */
 function loopWarning(closer: number, lowest: number): string {
-  return `YT-${String(closer)}: parent chain loops back to YT-${String(lowest)}`;
+  return `${id(closer)}: parent chain loops back to ${id(lowest)}`;
 }
 
 /** Asserts that `issue` behaves as a root: no ancestors at all. */
@@ -107,7 +108,7 @@ describe("parent cycles", () => {
   });
 
   it("names the link that closes the loop when walked from the lowest issue", () => {
-    // 2 -> 9 -> 7 -> 2: YT-7's parent link closes the loop.
+    // 2 -> 9 -> 7 -> 2: CUI-7's parent link closes the loop.
     const issues = [yt(7, TASK, 2), yt(2, TASK, 9), yt(9, TASK, 7)];
     const hierarchy = build(...issues);
     for (const issue of issues) assertRoot(hierarchy, issue);
@@ -154,7 +155,7 @@ describe("parent cycles", () => {
   });
 
   it("names cycle members only, never a lower-numbered tail", () => {
-    // Parents: 1 -> 7 -> 2 -> 9 -> 7. The cycle is 7, 2, 9; YT-7's link returns to YT-2.
+    // Parents: 1 -> 7 -> 2 -> 9 -> 7. The cycle is 7, 2, 9; CUI-7's link returns to CUI-2.
     const tail = yt(1, TASK, 7);
     const hierarchy = build(yt(9, TASK, 7), yt(2, TASK, 9), tail, yt(7, TASK, 2));
     assert.deepEqual(hierarchyWarnings(hierarchy), [loopWarning(7, 2)]);
@@ -176,6 +177,7 @@ describe("parent cycles", () => {
   });
 
   it("reports one warning per cycle, ordered by lowest issue number, whatever the input order", () => {
+    // By number, not by id text: as text "CUI-10" and "CUI-20" would sort before "CUI-4".
     const issues = [yt(12, TASK, 10), yt(20, EPIC, 20), yt(10, TASK, 12), yt(6, TASK, 4), yt(4, TASK, 6)];
     const expected = [loopWarning(6, 4), loopWarning(12, 10), loopWarning(20, 20)];
     assert.deepEqual(hierarchyWarnings(build(...issues)), expected);
@@ -187,6 +189,15 @@ describe("parent cycles", () => {
     const hierarchy = build(task);
     assertRoot(hierarchy, task);
     assert.deepEqual(hierarchyWarnings(hierarchy), [loopWarning(4, 4)]);
+  });
+
+  it("names cycle members by their own idReadable, as YouTrack spells it", () => {
+    // The warning uses the issue's idReadable, not its parent link's spelling or a project prefix.
+    const lower = yt(4, TASK, "CUI-4", { idReadable: "cui-4" });
+    assert.deepEqual(hierarchyWarnings(build(lower)), ["cui-4: parent chain loops back to cui-4"]);
+    const low = yt(3, TASK, "ABC-5", { idReadable: "ABC-3" });
+    const high = yt(5, TASK, "ABC-3", { idReadable: "ABC-5" });
+    assert.deepEqual(hierarchyWarnings(build(high, low)), ["ABC-5: parent chain loops back to ABC-3"]);
   });
 
   it("returns no warnings for a forest or an empty scan", () => {
@@ -328,7 +339,7 @@ function oracleWarnings(issues: readonly YouTrackIssue[]): readonly string[] {
     .sort((a, b) => a.numberInProject - b.numberInProject);
   return lowest.map((low) => {
     const closer = members.find((member) => oracleParent(issues, member) === low);
-    return loopWarning(closer?.numberInProject ?? Number.NaN, low.numberInProject);
+    return `${closer?.idReadable ?? "(no closer)"}: parent chain loops back to ${low.idReadable}`;
   });
 }
 

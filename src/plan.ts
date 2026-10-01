@@ -9,7 +9,9 @@ import type { GitHubTypeName, Hierarchy, IssueKind } from "./hierarchy.ts";
 import { buildHierarchy, classify, depth, hierarchyWarnings } from "./hierarchy.ts";
 import { desiredMilestoneEpic, desiredParent, parentChange, updateFields } from "./plan/desired.ts";
 import type { ParentChange, PlanContext, UpdateFields } from "./plan/desired.ts";
+import { mirrorTitle } from "./mirror.ts";
 import { isExcluded } from "./plan/exclude.ts";
+import { titleKey } from "./plan/milestones.ts";
 import type { MilestoneIndexResult, MilestoneRef } from "./plan/milestones.ts";
 import { mirrorNumbers } from "./plan/mirrors.ts";
 import type { MirrorIndex, MirrorRef } from "./plan/mirrors.ts";
@@ -23,6 +25,13 @@ import type { YouTrackIssue } from "./youtrack.ts";
 export type Action =
   /** POST a milestone for an eligible unresolved epic without one (title and description from formatMirror). */
   | { readonly kind: "createMilestone"; readonly issue: YouTrackIssue }
+  /** PATCH the title of an epic's milestone, open or closed, to the epic's mirrorTitle (N2). */
+  | {
+      readonly kind: "renameMilestone";
+      readonly issue: YouTrackIssue;
+      readonly milestone: MilestoneRef;
+      readonly title: string;
+    }
   /** Close the open milestone of a resolved epic. */
   | { readonly kind: "closeMilestone"; readonly issue: YouTrackIssue; readonly milestone: MilestoneRef }
   /** POST a mirror for an eligible unresolved non-epic without one. */
@@ -38,7 +47,9 @@ export type Action =
     }
   /** Close the open mirror of a resolved issue (A7). */
   | { readonly kind: "close"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef }
-  /** PATCH the mirror's milestone and/or type (the type guarantees at least one of the two keys). */
+  /** Reopen a closed mirror of an unresolved issue that PlanInput.reopenClosedBy closed (R10). */
+  | { readonly kind: "reopen"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef }
+  /** PATCH the mirror's title, milestone and/or type (the type guarantees at least one of the keys). */
   | ({ readonly kind: "update"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef } & UpdateFields)
   /** Put the mirror under the mirror of `parentYt`, replacing any current parent (replace_parent). */
   | { readonly kind: "setParent"; readonly issue: YouTrackIssue; readonly mirror: MirrorRef; readonly parentYt: number }
@@ -62,6 +73,8 @@ export type PlanInput = {
   /** YOUTRACK_EXCLUDE_PREFIX: an issue whose summary, or an ancestor's, starts with it is filtered (F1, F3). */
   readonly excludePrefix: string;
   readonly maxWrites: number;
+  /** REOPEN_CLOSED_BY: the login whose closes are undone (R10); null: never reopen. */
+  readonly reopenClosedBy: string | null;
 };
 
 /**
@@ -81,23 +94,25 @@ export type Plan = {
   readonly filtered: number;
   /**
    * Eligible issues and epics that need no write: a mirror or milestone already as desired,
-   * a closed one whose YouTrack issue was reopened (never reopened), or a resolved issue or
-   * epic without one (never mirrored, R9).
+   * a closed one whose YouTrack issue was reopened that `reopenClosedBy` did not close (R10),
+   * or a resolved issue or epic without one (never mirrored, R9).
    */
   readonly unchanged: number;
   /** Actions dropped by the write cap. */
   readonly capped: number;
-  /** The milestone index warnings, then one per YouTrack parent cycle; numbers only. */
+  /** The milestone index warnings, then one per YouTrack parent cycle; ids and numbers only. */
   readonly warnings: readonly string[];
 };
 
-/** GitHub writes an action costs: 1 for every kind (an update sends milestone and type in one PATCH). */
+/** GitHub writes an action costs: 1 for every kind (an update sends title, milestone and type in one PATCH). */
 export function writeCost(action: Action): number {
   switch (action.kind) {
     case "createMilestone":
+    case "renameMilestone":
     case "closeMilestone":
     case "create":
     case "close":
+    case "reopen":
     case "update":
     case "setParent":
     case "removeParent":
@@ -110,15 +125,18 @@ export function writeCost(action: Action): number {
  *   issue (F1) or of any YouTrack ancestor (F3) starts with `excludePrefix`. Nothing is
  *   planned for them, not even for an existing mirror or milestone (F2), and none of them is
  *   ever used as a milestone or parent;
- * - epics (H1): no milestone && unresolved -> createMilestone; open milestone && resolved ->
- *   closeMilestone; milestones are never reopened or renamed (D7);
+ * - epics (H1): no milestone && unresolved -> createMilestone; a milestone, open or closed,
+ *   whose title is not the epic's mirrorTitle -> renameMilestone (N2); open milestone &&
+ *   resolved -> closeMilestone; milestones are never reopened or re-described (D7);
  * - other issues: no mirror && unresolved -> create, with type, milestone epic and (tasks
  *   only) parent; no mirror && resolved -> nothing (R9); every mirror, open or closed (D8),
- *   gets update / setParent / removeParent where it differs from the desired state
- *   (src/plan/desired.ts); open mirror && resolved -> close; nothing is ever reopened;
+ *   gets update (title, milestone, type) / setParent / removeParent where it differs from the
+ *   desired state (src/plan/desired.ts); open mirror && resolved -> close; closed mirror &&
+ *   unresolved && closed by `reopenClosedBy` -> reopen (R10); nothing else is reopened, and
+ *   milestones never are;
  * - order (docs/11 §1.4): milestone writes by epic number; creates of non-tasks by number,
  *   then of tasks by YouTrack depth, then number (parent before child, D4); sync writes by
- *   number (an issue's update before its parent change); closes by number;
+ *   number (an issue's update before its parent change); closes and reopens by number;
  * - take actions while their cost fits in maxWrites; at the first action that does not fit,
  *   stop -- it and everything after it count as capped. Nothing later jumps ahead (A2), so a
  *   child is never planned without the create it depends on (D4).
@@ -181,6 +199,7 @@ function planContext(input: PlanInput, issues: readonly YouTrackIssue[]): PlanCo
     newMilestones: numbers(
       creatable.filter((issue) => isEpic(issue) && !input.milestones.index.has(issue.numberInProject)),
     ),
+    reopenClosedBy: input.reopenClosedBy,
   };
 }
 
@@ -198,13 +217,26 @@ function actionsFor(context: PlanContext, issue: YouTrackIssue): readonly Action
   return mirrorActions(context, issue, { kind, githubType }, mirror);
 }
 
-/** createMilestone for a new epic, closeMilestone for a resolved one; never reopen or rename (D7). */
+/**
+ * createMilestone for a new epic; for an existing milestone, renameMilestone when its title
+ * is not the epic's (N2) and no other milestone has that title yet (GitHub would refuse it on
+ * every run; that other milestone is a duplicate the index already warns about), then
+ * closeMilestone when the epic is resolved. Never reopen or re-describe (D7).
+ */
 function epicActions(context: PlanContext, issue: YouTrackIssue): readonly Action[] {
   const milestone = context.milestones.index.get(issue.numberInProject);
   if (milestone === undefined) {
     return context.newMilestones.has(issue.numberInProject) ? [{ kind: "createMilestone", issue }] : [];
   }
-  return milestone.state === "open" && issue.resolved !== null ? [{ kind: "closeMilestone", issue, milestone }] : [];
+  const title = mirrorTitle(issue);
+  const owners = context.milestones.titleOwners.get(titleKey(title)) ?? [];
+  const isTaken = owners.some((owner) => owner !== milestone.milestoneNumber);
+  const actions: Action[] = [];
+  if (milestone.title !== title && !isTaken) {
+    actions.push({ kind: "renameMilestone", issue, milestone, title });
+  }
+  if (milestone.state === "open" && issue.resolved !== null) actions.push({ kind: "closeMilestone", issue, milestone });
+  return actions;
 }
 
 /** Sync writes for an existing mirror, open or closed (D8), then its close if it is due. */
@@ -215,13 +247,34 @@ function mirrorActions(
   mirror: MirrorRef,
 ): readonly Action[] {
   const actions: Action[] = [];
-  const fields = updateFields(context, mirror, desiredMilestoneEpic(context, issue), classified.githubType);
+  const fields = updateFields(context, mirror, {
+    title: mirrorTitle(issue),
+    milestoneEpic: desiredMilestoneEpic(context, issue),
+    githubType: classified.githubType,
+  });
   if (fields !== null) actions.push({ kind: "update", issue, mirror, ...fields });
   // Only tasks become sub-issues (H9); for any other kind the desired parent is none.
   const change = parentChange(context, mirror, classified.kind === "task" ? desiredParent(context, issue) : null);
   if (change !== null) actions.push(parentAction(issue, mirror, change));
   if (mirror.state === "open" && issue.resolved !== null) actions.push({ kind: "close", issue, mirror });
+  if (isReopenDue(context, issue, mirror)) actions.push({ kind: "reopen", issue, mirror });
   return actions;
+}
+
+/**
+ * R10: a closed mirror of an unresolved issue is reopened only when the `reopenClosedBy`
+ * login closed it; a close by any other login (a person, or this tool on an earlier token)
+ * stays. With github-actions[bot] that includes closes by any workflow using GITHUB_TOKEN.
+ * Logins compare ASCII-case-insensitively, as GitHub treats them.
+ */
+function isReopenDue(context: PlanContext, issue: YouTrackIssue, mirror: MirrorRef): boolean {
+  const { reopenClosedBy } = context;
+  if (reopenClosedBy === null || mirror.state !== "closed" || issue.resolved !== null) return false;
+  return mirror.closedBy !== null && loginKey(mirror.closedBy) === loginKey(reopenClosedBy);
+}
+
+function loginKey(login: string): string {
+  return login.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
 }
 
 function parentAction(issue: YouTrackIssue, mirror: MirrorRef, change: ParentChange): Action {
@@ -242,6 +295,7 @@ const PHASE = { milestones: 0, issueCreates: 1, taskCreates: 2, sync: 3, closes:
 function phaseOf(action: Action): number {
   switch (action.kind) {
     case "createMilestone":
+    case "renameMilestone":
     case "closeMilestone":
       return PHASE.milestones;
     case "create":
@@ -251,6 +305,7 @@ function phaseOf(action: Action): number {
     case "removeParent":
       return PHASE.sync;
     case "close":
+    case "reopen":
       return PHASE.closes;
   }
 }

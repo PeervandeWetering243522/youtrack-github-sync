@@ -150,6 +150,64 @@ describe("parseGitHubIssue: type", () => {
 });
 
 // ---------------------------------------------------------------------------
+// closed_by (R10)
+// ---------------------------------------------------------------------------
+
+describe("parseGitHubIssue: closed_by", () => {
+  it("reads a missing key and a null value as no closer", () => {
+    assert.equal(parse(issueJson()).closedBy, null);
+    assert.equal(parse(issueJson({ state: "closed", closed_by: null })).closedBy, null);
+  });
+
+  it("reads closed_by.login from a full user object", () => {
+    const closedBy = {
+      login: "github-actions[bot]",
+      id: 41_898_282,
+      node_id: "MDM6Qm90NDE4OTgyODI=",
+      type: "Bot",
+      site_admin: false,
+      url: "https://api.github.com/users/github-actions%5Bbot%5D",
+    };
+    assert.equal(parse(issueJson({ state: "closed", closed_by: closedBy })).closedBy, "github-actions[bot]");
+  });
+
+  for (const login of ["github-actions[bot]", "Some-User", "MY-BOT[bot]", "", " padded ", "ü 😀"]) {
+    it(`keeps the login ${JSON.stringify(login)} verbatim (no trimming or case folding)`, () => {
+      assert.equal(parse(issueJson({ state: "closed", closed_by: { login } })).closedBy, login);
+    });
+  }
+
+  it("reads closed_by on an open issue too (GitHub keeps the last closer after a reopen)", () => {
+    assert.equal(parse(issueJson({ state: "open", closed_by: { login: "someone" } })).closedBy, "someone");
+  });
+
+  for (const value of ["github-actions[bot]", 1, true, [{ login: "x" }]]) {
+    it(`rejects closed_by = ${JSON.stringify(value)}`, () => {
+      assert.throws(
+        () => parse(issueJson({ number: 8, closed_by: value })),
+        schemaError(/#8: "closed_by" must be an object or null/),
+      );
+    });
+  }
+
+  for (const value of [{}, { login: null }, { login: 3 }, { login: ["x"] }, { name: "x" }]) {
+    it(`rejects closed_by ${JSON.stringify(value)} without a string login`, () => {
+      assert.throws(
+        () => parse(issueJson({ number: 8, closed_by: value })),
+        schemaError(/#8: "closed_by\.login" must be a string/),
+      );
+    });
+  }
+
+  it("leaves the hierarchy fields alone", () => {
+    const { milestoneNumber, typeName, parentNumber, parentIsForeign } = parse(
+      issueJson({ state: "closed", closed_by: { login: "someone" } }),
+    );
+    assert.deepEqual({ milestoneNumber, typeName, parentNumber, parentIsForeign }, NO_HIERARCHY);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // parent_issue_url
 // ---------------------------------------------------------------------------
 
@@ -301,6 +359,7 @@ describe("parseGitHubIssue: hierarchy fields together", () => {
       typeName: "Task",
       parentNumber: 24,
       parentIsForeign: false,
+      closedBy: null,
     };
     assert.deepEqual(issue, expected);
   });

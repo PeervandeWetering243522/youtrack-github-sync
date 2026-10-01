@@ -9,8 +9,8 @@ import type { CreateIssueBody, GitHubIssue } from "../github/issues.ts";
 import type { GitHubTypeName } from "../hierarchy.ts";
 import { formatMirror } from "../mirror.ts";
 import type { YouTrackIssue } from "../youtrack.ts";
-import { createDetails, describeClose } from "./describe.ts";
-import type { CloseAction, CreateAction } from "./describe.ts";
+import { createDetails, describeClose, describeReopen } from "./describe.ts";
+import type { CloseAction, CreateAction, ReopenAction } from "./describe.ts";
 import { attemptWrite, failure, notWritten, sendWrite, waitsFor } from "./execute-write.ts";
 import type { Step, WriteContext } from "./execute-write.ts";
 import { milestoneFor, mirrorFor, optional, withIssue } from "./resolved.ts";
@@ -34,9 +34,9 @@ type CreateTargets = {
 export async function executeCreate(action: CreateAction, context: WriteContext, resolved: Resolved): Promise<Step> {
   const name = mirrorName(action.issue);
   const what = `create ${name}`;
-  const milestone = optional(action.milestoneEpic, (epic) => milestoneFor(resolved, epic));
+  const milestone = optional(action.milestoneEpic, (epic) => milestoneFor(resolved, epic, action.issue));
   if (!milestone.found) return { tally: waitsFor(context, what, milestone.missing), resolved };
-  const parent = optional(action.parentYt, (parentYt) => mirrorFor(resolved, parentYt));
+  const parent = optional(action.parentYt, (parentYt) => mirrorFor(resolved, parentYt, action.issue));
   if (!parent.found) return { tally: waitsFor(context, what, parent.missing), resolved };
   const targets: CreateTargets = { milestone: milestone.value, type: action.githubType, parent: parent.value };
   const body = createBody(action.issue, context.youtrackBaseUrl, targets);
@@ -53,6 +53,12 @@ export async function executeCreate(action: CreateAction, context: WriteContext,
 export function executeClose(action: CloseAction, context: WriteContext): Promise<Tally> {
   const { issueNumber } = action.mirror;
   return sendWrite(context, describeClose(action), () => context.writer.close(issueNumber), "closed");
+}
+
+/** PATCH a closed mirror of an unresolved issue back to open/reopened (R10). */
+export function executeReopen(action: ReopenAction, context: WriteContext): Promise<Tally> {
+  const { issueNumber } = action.mirror;
+  return sendWrite(context, describeReopen(action), () => context.writer.reopen(issueNumber), "reopened");
 }
 
 /** The POST /issues body: the mirror title, body and label, plus each target that is not null. */

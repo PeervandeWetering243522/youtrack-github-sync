@@ -6,11 +6,15 @@ import {
   ARABIC_INDIC_THREE,
   BOM,
   CYRILLIC_SMALL_A,
+  EXPECTED_CONFIG,
   IDEOGRAPHIC_SPACE,
   LINE_SEPARATOR,
   MAX_WRITES_PROBLEM,
   NBSP,
   PARAGRAPH_SEPARATOR,
+  PROJECT_PROBLEM,
+  REOPEN_CLOSED_BY_PROBLEM,
+  REPO_SHAPE_PROBLEM,
   ZERO_WIDTH_SPACE,
   char,
   envWith,
@@ -135,5 +139,95 @@ describe("parseConfig: DRY_RUN", () => {
     for (const value of values) {
       assert.equal(parseConfig(envWith({ DRY_RUN: value })).dryRun, true, visible(value));
     }
+  });
+});
+
+describe("parseConfig: REOPEN_CLOSED_BY", () => {
+  const offValues = [undefined, "", "  ", "\t\n", `${NBSP}${BOM}`, LINE_SEPARATOR];
+  for (const value of offValues) {
+    it(`turns reopening off (null) for ${value === undefined ? "undefined" : `"${visible(value)}"`}`, () => {
+      const config = parseConfig(envWith({ REOPEN_CLOSED_BY: value }));
+
+      assert.equal(config.reopenClosedBy, null);
+    });
+  }
+
+  const accepted: readonly (readonly [string, string])[] = [
+    ["github-actions[bot]", "github-actions[bot]"],
+    ["some-user", "some-user"],
+    ["My-Bot[bot]", "My-Bot[bot]"],
+    [" github-actions[bot]\n", "github-actions[bot]"],
+    [`${NBSP}Some-User\t`, "Some-User"],
+    ["a", "a"],
+    ["9", "9"],
+    ["a-", "a-"],
+    ["a--b", "a--b"],
+    ["a".repeat(39), "a".repeat(39)],
+    [`${"b".repeat(39)}[bot]`, `${"b".repeat(39)}[bot]`],
+    // Enterprise Managed Users logins have an underscore; GitHub compares logins case-insensitively.
+    ["octocat_acme", "octocat_acme"],
+    ["GitHub-Actions[BOT]", "GitHub-Actions[BOT]"],
+  ];
+  for (const [value, expected] of accepted) {
+    it(`accepts "${visible(value).slice(0, 48)}" as the login "${expected.slice(0, 48)}", trimmed and case kept`, () => {
+      const config = parseConfig(envWith({ REOPEN_CLOSED_BY: value }));
+
+      assert.equal(config.reopenClosedBy, expected);
+    });
+  }
+
+  it("rejects values that are not a GitHub login, naming only the key", () => {
+    const values = [
+      ...["a b", "-x", "-", "x[bot]extra", "[bot]", "x[bot][bot]", "x[bot", "xbot]", "x[ bot]", "x [bot]"],
+      ...["a".repeat(40), `${"a".repeat(40)}[bot]`, "user@example.com", "owner/repo", "_x", "x.y", "@user"],
+      ...["github-actions[bot],other", "github-actions[bot]\nother", `user${char(0)}`, '"github-actions[bot]"'],
+    ];
+    for (const value of values) {
+      assert.deepEqual(problemsFor(envWith({ REOPEN_CLOSED_BY: value })), [REOPEN_CLOSED_BY_PROBLEM], visible(value));
+    }
+  });
+
+  it("rejects non-ASCII look-alikes and invisible characters inside the login", () => {
+    const values = [
+      fullwidth("github-actions"),
+      `user${fullwidth("bot")}`,
+      `github-${CYRILLIC_SMALL_A}ctions[bot]`,
+      `github-actions${fullwidth("[bot]")}`,
+      `git${ZERO_WIDTH_SPACE}hub`,
+      `some${NBSP}user`,
+      `some${char(0x2010)}user`,
+      `us${char(0x00e9)}r`,
+      `user${ARABIC_INDIC_THREE}`,
+      `kelvin${char(0x212a)}`,
+      `user${BOM}name`,
+    ];
+    for (const value of values) {
+      assert.deepEqual(problemsFor(envWith({ REOPEN_CLOSED_BY: value })), [REOPEN_CLOSED_BY_PROBLEM], visible(value));
+    }
+  });
+
+  it("reports its problem after the other keys' problems, without echoing the value", () => {
+    const marker = "Zq9EchoMarker";
+    const env = envWith({ GITHUB_REPO: "owner", YOUTRACK_PROJECT: "C U I", REOPEN_CLOSED_BY: `${marker} ${marker}` });
+
+    const problems = problemsFor(env);
+
+    assert.deepEqual(problems, [REPO_SHAPE_PROBLEM, PROJECT_PROBLEM, REOPEN_CLOSED_BY_PROBLEM]);
+    for (const problem of problems) {
+      assert.equal(problem.toLowerCase().includes(marker.toLowerCase()), false, problem);
+    }
+  });
+
+  it("reports its problem together with MAX_WRITES_PER_RUN, in key order", () => {
+    const problems = problemsFor(envWith({ MAX_WRITES_PER_RUN: "41", REOPEN_CLOSED_BY: "-x" }));
+
+    assert.deepEqual(problems, [MAX_WRITES_PROBLEM, REOPEN_CLOSED_BY_PROBLEM]);
+  });
+
+  it("changes no other field, and never turns DRY_RUN off", () => {
+    const config = parseConfig(envWith({ REOPEN_CLOSED_BY: "github-actions[bot]" }));
+
+    assert.deepEqual(config, { ...EXPECTED_CONFIG, reopenClosedBy: "github-actions[bot]" });
+    assert.equal(config.dryRun, true);
   });
 });

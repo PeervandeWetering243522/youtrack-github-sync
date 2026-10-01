@@ -16,6 +16,7 @@ import {
   OWNER_PROBLEM,
   PREFIX_PROBLEM,
   PROJECT_PROBLEM,
+  REOPEN_CLOSED_BY_PROBLEM,
   REPO_PROBLEM,
   REPO_SHAPE_PROBLEM,
   URL_CREDENTIALS_PROBLEM,
@@ -44,6 +45,7 @@ const KNOWN_PROBLEMS: ReadonlySet<string> = new Set([
   ...[GITHUB_TOKEN_PROBLEM, YOUTRACK_TOKEN_PROBLEM],
   ...[OWNER_PROBLEM, REPO_PROBLEM, REPO_SHAPE_PROBLEM, PROJECT_PROBLEM, PREFIX_PROBLEM, MAX_WRITES_PROBLEM],
   ...[URL_INVALID_PROBLEM, URL_HTTPS_PROBLEM, URL_QUERY_PROBLEM, URL_CREDENTIALS_PROBLEM],
+  REOPEN_CLOSED_BY_PROBLEM,
 ]);
 
 /** Building blocks for fuzzed values: separators, URL syntax, numbers, look-alikes, invisibles, tokens. */
@@ -53,6 +55,7 @@ const FUZZ_FRAGMENTS: readonly string[] = [
   ...["false", "FALSE", "true", "0", "40", "41", "-1", "007", "[individual]", "a", "Z", "9", "CUI"],
   ...[NBSP, BOM, ZERO_WIDTH_SPACE, LINE_SEPARATOR, "\n", "\t", char(0), char(0xd800), char(0x1f600)],
   ...[char(0x017f), char(0xff0f), fullwidth("CUI"), GITHUB_TOKEN, YOUTRACK_TOKEN],
+  ...["[bot]", "github-actions[bot]", "[", "]"],
 ];
 
 /** Deterministic PRNG (mulberry32) returning floats in [0, 1). */
@@ -86,6 +89,27 @@ function isPrintableAsciiToken(token: string): boolean {
   return token.length > 0 && Array.from(token).every((c) => c > " " && c <= "~");
 }
 
+const LOGIN_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+const BOT_SUFFIX = "[bot]";
+const MAX_LOGIN_LENGTH = 39;
+
+/**
+ * Independent oracle for REOPEN_CLOSED_BY: 1-39 login characters, not starting with "-" or
+ * "_", then an optional "[bot]" in any ASCII case.
+ */
+function isGitHubLogin(value: string): boolean {
+  const hasSuffix = value.slice(-BOT_SUFFIX.length).toLowerCase() === BOT_SUFFIX && value.length > BOT_SUFFIX.length;
+  const name = hasSuffix ? value.slice(0, -BOT_SUFFIX.length) : value;
+  const characters = Array.from(name);
+  return (
+    characters.length >= 1 &&
+    characters.length <= MAX_LOGIN_LENGTH &&
+    characters[0] !== "-" &&
+    characters[0] !== "_" &&
+    characters.every((c) => LOGIN_CHARACTERS.includes(c))
+  );
+}
+
 /** Properties every accepted config must have, checked against the raw environment. */
 function assertAcceptedConfig(env: EnvSource, config: Config, context: string): void {
   assert.equal(Object.isFrozen(config), true, context);
@@ -103,6 +127,9 @@ function assertAcceptedConfig(env: EnvSource, config: Config, context: string): 
   assert.ok(config.maxWritesPerRun >= 0 && config.maxWritesPerRun <= MAX_WRITES_LIMIT, context);
   // Independent oracle: a regex `i` flag without `u` folds ASCII only, so U+017F never matches "s".
   assert.equal(config.dryRun, !/^false$/i.test(env.DRY_RUN?.trim() ?? ""), context);
+  const reopenClosedBy = env.REOPEN_CLOSED_BY?.trim() ?? "";
+  assert.equal(config.reopenClosedBy, reopenClosedBy === "" ? null : reopenClosedBy, context);
+  assert.ok(config.reopenClosedBy === null || isGitHubLogin(config.reopenClosedBy), context);
 }
 
 /** Every problem is a known, value-free message; no duplicates; ordered by ENV_KEYS. */

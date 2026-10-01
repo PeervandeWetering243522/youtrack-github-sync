@@ -9,6 +9,8 @@
 
 import type { MilestoneIndex } from "../plan/milestones.ts";
 import type { MirrorIndex, MirrorRef } from "../plan/mirrors.ts";
+import type { YouTrackIssue } from "../youtrack.ts";
+import { projectIssueName } from "./tally.ts";
 
 /** A GitHub issue as dependencies need it: its number (URLs) and REST id (parent_issue_id, sub_issue_id). */
 export type IssueRef = Pick<MirrorRef, "id" | "issueNumber">;
@@ -41,17 +43,23 @@ export function withMilestone(resolved: Resolved, epic: number, milestoneNumber:
   return { ...resolved, milestones: new Map([...resolved.milestones, [epic, milestoneNumber]]) };
 }
 
-/** The milestone number of epic `epic`, or missing ("the milestone of YT-<epic>"). */
-export function milestoneFor(resolved: Resolved, epic: number): Dependency<number> {
+/**
+ * The milestone number of epic `epic`, or missing ("the milestone of CUI-<epic>"); `of` is
+ * the issue that depends on it, which names the project.
+ */
+export function milestoneFor(resolved: Resolved, epic: number, of: YouTrackIssue): Dependency<number> {
   const milestoneNumber = resolved.milestones.get(epic);
-  if (milestoneNumber === undefined) return { found: false, missing: `the milestone of YT-${String(epic)}` };
+  if (milestoneNumber === undefined) return { found: false, missing: `the milestone of ${projectIssueName(of, epic)}` };
   return { found: true, value: milestoneNumber };
 }
 
-/** The mirror of YouTrack issue `numberInProject`, or missing ("the mirror of YT-<n>"). */
-export function mirrorFor(resolved: Resolved, numberInProject: number): Dependency<IssueRef> {
+/**
+ * The mirror of YouTrack issue `numberInProject`, or missing ("the mirror of CUI-<n>"); `of`
+ * is the issue that depends on it, which names the project.
+ */
+export function mirrorFor(resolved: Resolved, numberInProject: number, of: YouTrackIssue): Dependency<IssueRef> {
   const ref = resolved.issues.get(numberInProject);
-  if (ref === undefined) return { found: false, missing: `the mirror of YT-${String(numberInProject)}` };
+  if (ref === undefined) return { found: false, missing: `the mirror of ${projectIssueName(of, numberInProject)}` };
   return { found: true, value: ref };
 }
 

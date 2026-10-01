@@ -12,11 +12,11 @@ import type { Candidate } from "./candidates.ts";
 /**
  * One YouTrack issue's mirror as the GitHub list reported it: its number and REST `id`
  * (what sub-issue writes take), state, whether it carries the mirror label, and its
- * milestone, issue type and parent (see GitHubIssue).
+ * title, milestone, issue type, parent and who closed it (see GitHubIssue).
  */
 export type MirrorRef = Pick<
   GitHubIssue,
-  "id" | "state" | "milestoneNumber" | "typeName" | "parentNumber" | "parentIsForeign"
+  "id" | "state" | "title" | "milestoneNumber" | "typeName" | "parentNumber" | "parentIsForeign" | "closedBy"
 > & {
   readonly issueNumber: number;
   readonly hasLabel: boolean;
@@ -35,21 +35,22 @@ export type MirrorIndexResult = {
 /**
  * Build numberInProject -> mirror from GitHub issues (decision A5, A6):
  * - pull requests are ignored;
- * - titles are parsed with parseMirrorTitle;
+ * - titles are parsed with parseMirrorTitle for YouTrack project `project` (N1);
  * - a candidate with the `label` beats one without; among equals the lowest issue
  *   number wins; every extra candidate adds a warning;
  * - an unlabelled winner adds a warning ("matched by title only").
  * Label names compare case-insensitively, as GitHub matches them (docs/03, gotcha 14).
  * Every MirrorRef field comes from the winning issue.
  */
-export function buildMirrorIndex(issues: readonly GitHubIssue[], label: string): MirrorIndexResult {
+export function buildMirrorIndex(issues: readonly GitHubIssue[], label: string, project: string): MirrorIndexResult {
   const index = new Map<number, MirrorRef>();
   const warnings: string[] = [];
-  for (const { numberInProject, winner, ignored } of groupCandidates(mirrorCandidates(issues, label))) {
+  for (const { numberInProject, winner, ignored } of groupCandidates(mirrorCandidates(issues, label, project))) {
+    const name = `${project}-${String(numberInProject)}`;
     index.set(numberInProject, winner);
-    if (!winner.hasLabel) warnings.push(titleOnlyWarning(numberInProject, winner, label));
+    if (!winner.hasLabel) warnings.push(titleOnlyWarning(name, winner, label));
     const count = ignored.length + 1;
-    for (const ref of ignored) warnings.push(duplicateWarning(numberInProject, count, winner, ref));
+    for (const ref of ignored) warnings.push(duplicateWarning(name, count, winner, ref));
   }
   return { index, warnings };
 }
@@ -68,12 +69,16 @@ export function mirrorNumbers(index: MirrorIndex): ReadonlyMap<number, number> {
  * then lowest issue number. An issue listed twice (a page boundary shifted while
  * paging) is kept once, so it is never reported as its own duplicate.
  */
-function mirrorCandidates(issues: readonly GitHubIssue[], label: string): readonly Candidate<MirrorRef>[] {
+function mirrorCandidates(
+  issues: readonly GitHubIssue[],
+  label: string,
+  project: string,
+): readonly Candidate<MirrorRef>[] {
   const wanted = label.toLowerCase();
   const seen = new Set<number>();
   const candidates: Candidate<MirrorRef>[] = [];
   for (const issue of issues) {
-    const numberInProject = issue.isPullRequest ? null : parseMirrorTitle(issue.title);
+    const numberInProject = issue.isPullRequest ? null : parseMirrorTitle(issue.title, project);
     if (numberInProject === null || seen.has(issue.number)) continue;
     seen.add(issue.number);
     const hasLabel = issue.labelNames.some((name) => name.toLowerCase() === wanted);
@@ -88,10 +93,12 @@ function toMirrorRef(issue: GitHubIssue, hasLabel: boolean): MirrorRef {
     id: issue.id,
     state: issue.state,
     hasLabel,
+    title: issue.title,
     milestoneNumber: issue.milestoneNumber,
     typeName: issue.typeName,
     parentNumber: issue.parentNumber,
     parentIsForeign: issue.parentIsForeign,
+    closedBy: issue.closedBy,
   };
 }
 
@@ -101,13 +108,13 @@ function compareCandidates(a: Candidate<MirrorRef>, b: Candidate<MirrorRef>): nu
   return a.ref.issueNumber - b.ref.issueNumber;
 }
 
-/** Only numbers go into warnings, so no issue text reaches the logs. */
-function titleOnlyWarning(numberInProject: number, ref: MirrorRef, label: string): string {
-  return `YT-${String(numberInProject)}: #${String(ref.issueNumber)} matched by title only (no "${label}" label)`;
+/** Only ids and numbers go into warnings ("CUI-5: ..."), so no issue text reaches the logs. */
+function titleOnlyWarning(name: string, ref: MirrorRef, label: string): string {
+  return `${name}: #${String(ref.issueNumber)} matched by title only (no "${label}" label)`;
 }
 
-function duplicateWarning(numberInProject: number, count: number, winner: MirrorRef, ignored: MirrorRef): string {
-  const matches = `YT-${String(numberInProject)}: ${String(count)} GitHub issues match`;
+function duplicateWarning(name: string, count: number, winner: MirrorRef, ignored: MirrorRef): string {
+  const matches = `${name}: ${String(count)} GitHub issues match`;
   const using = `#${String(winner.issueNumber)} (${winner.hasLabel ? "labelled" : "unlabelled"})`;
   return `${matches}; using ${using}, ignoring #${String(ignored.issueNumber)}`;
 }
