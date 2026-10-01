@@ -55,7 +55,11 @@ necessarily the project you are working with.
   is intentionally not committed).
 - `src/runtime.ts`: console logger and sleep shared by the two entrypoints; the sync core must not import it.
 - `src/worker.ts`: Cloudflare `scheduled()` entrypoint (Workers Free, cron every 10 min, no HTTP route).
-- `src/node.ts`: Node entrypoint that reads env vars. Also used for local dry runs and the Debian systemd timer.
+- `src/node.ts`: Node entrypoint that reads env vars. Also used for local dry runs, the Debian
+  systemd timer and the GitHub Action.
+- `action.yml`: composite GitHub Action (W1-W4) that runs `src/node.ts` with its inputs as env;
+  it only warns on GitHub-hosted runners. `test/action/action.test.ts` checks it against
+  `src/config.ts` (keys, defaults, dry run on).
 - `.github/`: CI (`npm run check`, zizmor), the PR-title check, the semantic-release workflow
   (`.releaserc.json`) and Dependabot. `CONTRIBUTING.md` has the branch, PR-title and release
   rules (V1-V3); PR titles are conventional commits and pick the version. `main` is protected
@@ -66,15 +70,17 @@ necessarily the project you are working with.
 
 Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_URL`,
 `YOUTRACK_PROJECT`, `YOUTRACK_EXCLUDE_PREFIX` (`[individual]`), `MAX_WRITES_PER_RUN` (30),
-`DRY_RUN` (on), `REOPEN_CLOSED_BY` (empty: off, R10). The first three vars are required (no
-defaults; `wrangler.jsonc` sets them for the Worker, `.env` for `npm run sync`).
+`DRY_RUN` (on), `REOPEN_CLOSED_BY` (empty: off; the Action sets `github-actions[bot]`, R10).
+The first three vars are required (no defaults; `wrangler.jsonc` sets them for the
+Worker, `.env` for `npm run sync`, the action's inputs for the GitHub Action).
 
 `.env` and `wrangler.jsonc` hold each user's own values and are gitignored. They are copied from
 the committed `.env.example` and `wrangler.example.jsonc`, where the repo and project are blank.
 Never put a real repo, project or token in the example files. `npm run gen:worker-types` reads
 the two example files, not the local ones, so the committed `worker-configuration.d.ts` does not
 depend on anyone's own values. Rerun it after adding a var or binding to `wrangler.example.jsonc`
-(and the var to `.env.example`, `ENV_KEYS` in `src/config.ts` and the README).
+(and the var to `.env.example`, `ENV_KEYS` in `src/config.ts`, an input in `action.yml` and the
+README).
 
 Full project scan every run; no lookback. Every issue and
 epic is mirrored except summaries starting with the exclude prefix (case-insensitive, F1) and

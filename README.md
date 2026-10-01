@@ -15,25 +15,46 @@ version never touches them.
 It is an **interim stopgap** until BUas enables YouTrack's Webhook Triggers app. Once that app
 is available, it replaces this tool, and the Worker (or timer) should be removed.
 
-It runs as a Cloudflare Workers cron job (Free plan, every 10 minutes). The same code also runs
-as a plain Node script, for local dry runs and for a Debian/systemd host in place of the Worker.
+It runs as a Cloudflare Workers cron job (Free plan, every 10 minutes), as a GitHub Action in
+your repo, or as a plain Node script on a Debian/systemd host; see
+[Choosing a deployment](#choosing-a-deployment). The Node script also does local dry runs.
 
 > [!WARNING]
 > **Run only one copy per GitHub repo.** Agree within your group who runs the mirror. A second
-> copy (another Worker, a systemd timer, or a Node run with `DRY_RUN=false`) against the same
-> repo can race the first and create duplicate mirror issues. Dry runs are always safe: they
-> only read.
+> copy (another Worker, a systemd timer, a GitHub Action workflow, or a Node run with
+> `DRY_RUN=false`) against the same repo can race the first and create duplicate mirror issues.
+> Dry runs are always safe: they only read.
 
 ## Contents
 
+- [Choosing a deployment](#choosing-a-deployment): Worker, systemd timer or GitHub Action
 - [Setup](#setup): from a fresh clone to a running Worker, in seven steps
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Configuration](#configuration)
 - [Development](#development)
+- [Alternative host: GitHub Action](#alternative-host-github-action)
 - [Alternative host: Debian + systemd timer](#alternative-host-debian--systemd-timer)
 - [Limits and budget](#limits-and-budget)
 - [Docs](#docs)
+
+## Choosing a deployment
+
+Three ways to run it exist side by side (decision W4). Pick whichever fits what you can set up
+and who you want GitHub to show as the author of the mirror's writes.
+
+|                          | Cloudflare Worker                                                       | systemd timer                                          | GitHub Action                                                                                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Setup**                | Easiest: a free Cloudflare account, no server of your own               | A Debian host you have root on                         | A workflow file on your repo's default branch, and ideally a self-hosted runner (your own, or one your organization shares)                                                           |
+| **Writes attributed to** | Your token's account                                                    | Your token's account                                   | `github-actions[bot]` (with the default token)                                                                                                                                        |
+| **On-demand run**        | None on the deployed Worker; the cron is its only trigger               | `sudo systemctl start youtrack-gh.service` on the host | `workflow_dispatch`: a **Run workflow** button in the repo's Actions tab, for anyone with write access                                                                                |
+| **Ongoing cost**         | Free (Workers Free covers it)                                           | Free (your own hardware)                               | Free on a self-hosted runner, or on any runner in a public repo. In a private repo a GitHub-hosted runner bills your organization's shared Actions minutes, so the action warns there |
+| **Best fit**             | The least to maintain, and you don't mind writes coming from your token | You already run a server and want it alongside         | You want writes from a bot identity or a run button, and have a self-hosted runner                                                                                                    |
+
+Pick one per repo; see the warning above. The [setup](#setup) steps below end in the Worker; for
+the other two, do steps 1 to 5 (a local dry run), then follow
+[GitHub Action](#alternative-host-github-action) or
+[Debian + systemd timer](#alternative-host-debian--systemd-timer).
 
 ## Setup
 
@@ -47,7 +68,9 @@ and 7 deploy the Worker and turn writes on.
 - **A GitHub account with the Write role or higher on the target repo.** Its token does every
   write, so every mirror issue and milestone is created by this account, and GitHub subscribes
   it to each mirror issue. A dedicated account keeps those notifications out of someone's inbox.
-  Without push access, GitHub silently drops labels, milestones and issue types.
+  Without push access, GitHub silently drops labels, milestones and issue types. (The
+  [GitHub Action](#alternative-host-github-action) writes as `github-actions[bot]` instead; you
+  still need a token for local dry runs.)
 - **A target repo owned by an organization that has the issue types Feature, Bug and Task.**
   Issue types exist only on organizations (the BredaUniversityADSAI organization has all three).
 - **A YouTrack account that can read every issue in the project.** The mirror only sees what
@@ -214,6 +237,8 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 | `GitHub dropped the title on update` on every run           | GitHub stored another title than the one sent. Each run spends a write on it; please report the YouTrack summary.                                                   |
 | Duplicate mirror issues                                     | Two copies are running against one repo, or someone edited a mirror's `[ABC-n]` prefix so it no longer matches.                                                     |
 | Nothing in Cron Events or `wrangler tail` after a deploy    | A new cron can take up to 15 minutes to start firing.                                                                                                               |
+| Action: 403 `Resource not accessible by integration`        | The workflow lacks `permissions: issues: write`.                                                                                                                    |
+| Action: `youtrack-gh on a GitHub-hosted runner` warning     | The job runs on a GitHub-hosted runner, which bills Actions minutes. Use `runs-on: self-hosted` if you can.                                                         |
 
 ## How it works
 
@@ -259,9 +284,10 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    - open mirror or milestone, and resolved in YouTrack: **close** it (issues with
      `state_reason: completed`).
    - closed mirror, unresolved in YouTrack again, and closed by the `REOPEN_CLOSED_BY` login:
-     **reopen** it (decision R10). It is unset by default. Set it only to a login whose closes
-     are the sync's own, such as a bot's: with a personal token it would also undo that
-     person's hand closes. A close by any other login stays, and milestones are never reopened.
+     **reopen** it (decision R10). Only the GitHub Action sets that login by default (to
+     `github-actions[bot]`), which undoes closes made with the default `GITHUB_TOKEN`: the
+     Action's own, and any other workflow's in the repo. A close by any other login stays, and
+     milestones are never reopened.
    - anything else: nothing (`unchanged`).
 6. **Writes** serially, 1 s apart, in this order: milestone creates, renames and closes; creates of
    everything except tasks; creates of tasks, parents before children; syncs; closes and
@@ -376,6 +402,8 @@ Where the values come from:
   `wrangler.jsonc`, so the three required vars must be in `.env` (or the environment).
 - **systemd:** `EnvironmentFile=` for vars, `LoadCredential=` for the two tokens (see
   [below](#app-config-and-secrets)).
+- **GitHub Action:** the action's inputs, one per setting (see
+  [GitHub Action](#alternative-host-github-action)).
 
 ## Development
 
@@ -417,10 +445,140 @@ A good run answers `{"outcome":"ok","noRetry":false}`, and the log lines appear 
 `.dev.vars` file exists, values from `.env` no longer reach the Worker's env. Subrequest limits
 are not enforced locally.
 
+## Alternative host: GitHub Action
+
+`action.yml` makes this repo a composite action (decisions W1-W4): it sets up Node 24 on the
+job's runner and runs `src/node.ts`, the same entrypoint as `npm run sync`, with its inputs as
+the settings. With the default token, GitHub shows every write as `github-actions[bot]`, and
+anyone with write access can start a run from the repo's Actions tab.
+
+> [!IMPORTANT]
+> **On a private repo, use a self-hosted runner if you can** (`runs-on: self-hosted`). There,
+> every run on a GitHub-hosted runner bills your organization's Actions minutes, rounded up to
+> a whole minute: about 4,300 minutes a month at every 10 minutes, from a pool other repos
+> share. The action still runs, but logs a warning (decision W3). On a public repo
+> GitHub-hosted runners are free, and GitHub advises against self-hosted runners for public
+> repos, so use `runs-on: ubuntu-latest` there.
+
+Switching from the Worker or the timer: turn that one off first and wait until it has stopped
+(see [below](#alternative-host-debian--systemd-timer) for how), then enable the workflow.
+
+### Workflow
+
+Add this as `.github/workflows/youtrack-mirror.yml` on the target repo's **default branch**
+(GitHub runs scheduled workflows only from there), through whatever pull request rules the repo
+has. Fill in the action's commit SHA, your YouTrack URL and your project:
+
+```yaml
+name: YouTrack mirror
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time, whatever triggered it: two runs creating at once can duplicate a mirror.
+concurrency:
+  group: youtrack-mirror
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync YouTrack to GitHub issues
+    runs-on: self-hosted
+    timeout-minutes: 10
+    permissions:
+      issues: write # create, update and close mirror issues, milestones and sub-issue links
+    steps:
+      - uses: OWNER/youtrack-github-sync@<full-commit-sha> # v0.1.0
+        with:
+          youtrack-token: ${{ secrets.YOUTRACK_TOKEN }}
+          youtrack-base-url: https://youtrack.ai.buas.nl
+          youtrack-project: ABC
+          dry-run: "true"
+```
+
+Then:
+
+1. Add the YouTrack token (setup [step 2](#2-create-the-two-tokens)) as a secret named
+   `YOUTRACK_TOKEN`: in the repo, **Settings > Secrets and variables > Actions > New repository
+   secret**. To keep it out of workflows on other branches, store it as an environment secret
+   instead (an environment limited to the default branch) and add `environment: <its name>`
+   to the `sync` job; each run then shows as a deployment to it.
+2. Do setup [step 4](#4-prepare-the-github-repo) (the label and the issue types).
+3. Start a run from **Actions > YouTrack mirror > Run workflow**. With `dry-run: "true"` it only
+   reads; check its log as in setup [step 5](#5-do-a-dry-run).
+4. Set `dry-run: "false"`. For the first live run, consider `max-writes-per-run: "1"` and check
+   that the issue type and milestone stuck: GitHub's docs don't say whether `GITHUB_TOKEN` may set
+   issue types, and if it may not, the log says `GitHub dropped type ...`.
+
+| Input                     | Setting                   | Default                                     |
+| ------------------------- | ------------------------- | ------------------------------------------- |
+| `youtrack-token`          | `YOUTRACK_TOKEN`          | required                                    |
+| `youtrack-base-url`       | `YOUTRACK_BASE_URL`       | required                                    |
+| `youtrack-project`        | `YOUTRACK_PROJECT`        | required                                    |
+| `github-token`            | `GITHUB_TOKEN`            | the job's own token (`${{ github.token }}`) |
+| `github-repo`             | `GITHUB_REPO`             | the repo running the workflow               |
+| `youtrack-exclude-prefix` | `YOUTRACK_EXCLUDE_PREFIX` | `[individual]`                              |
+| `max-writes-per-run`      | `MAX_WRITES_PER_RUN`      | `30`                                        |
+| `dry-run`                 | `DRY_RUN`                 | `true`: only `false` writes                 |
+| `reopen-closed-by`        | `REOPEN_CLOSED_BY`        | `github-actions[bot]`; empty: never reopen  |
+
+- **Permissions:** the workflow's `permissions:` block decides what the default token may do;
+  the action cannot raise it. `issues: write` covers issues, labels, milestones and sub-issues.
+  With a personal access token in `github-token` (from a secret) instead, writes come from that
+  token's account, as with the Worker; then also set `reopen-closed-by: ""`.
+- **Reopening:** a mirror this action closed is reopened when its YouTrack issue goes back to
+  unresolved (decision R10); one a person closed stays closed. Closes by another workflow in
+  the repo that uses `GITHUB_TOKEN` also show as `github-actions[bot]`, so those mirrors are
+  reopened too while their YouTrack issue is open.
+- **Empty inputs:** an input set to an empty string, such as an unset `${{ vars.X }}`, is a
+  config error, not "use the default" (except `reopen-closed-by`, where empty means off). Leave
+  an input out to get its default.
+- **No zizmor findings:** the action pins `actions/setup-node` by commit SHA and passes inputs to
+  its script only through env.
+- **Runner:** Linux or macOS (the steps use `shell: bash`; Windows only with Git Bash). It must
+  reach your YouTrack and `api.github.com`. `actions/setup-node` downloads Node 24 unless the
+  runner has it cached.
+- **Runs and failures:** the `concurrency` group keeps one run at a time (pending runs wait).
+  The 8-minute run deadline (decision R8) counts from the start of the sync step, and
+  `timeout-minutes: 10` is the hard backstop. A failed sync fails the job; for scheduled runs
+  GitHub emails whoever last changed the cron line.
+
+### Versions and updates
+
+Releases are SemVer tags (`v0.1.0`, `v0.2.0`, ...) with notes on the repo's Releases page
+(decisions V1-V3; [CONTRIBUTING.md](CONTRIBUTING.md) has how they are made). Pin `uses:` to the
+full commit SHA of a release, with its tag as a comment, so nothing changes in your repo until
+you update the pin:
+
+```yaml
+- uses: OWNER/youtrack-github-sync@<commit SHA of the v0.1.0 tag> # v0.1.0
+```
+
+`git ls-remote https://github.com/OWNER/youtrack-github-sync refs/tags/v0.1.0` prints that SHA.
+Dependabot then proposes new releases as PRs that update both the SHA and the comment, with the
+release notes in the PR. Your repo needs a `github-actions` entry in `.github/dependabot.yml`:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+```
+
+While the version is 0.x, a minor bump (0.1 to 0.2) can contain breaking changes: read the
+release notes before merging one. Patch bumps (0.1.0 to 0.1.1) are fixes and updated pins of
+the actions it uses.
+
 ## Alternative host: Debian + systemd timer
 
 > **Never run the Worker and the timer at the same time.** Neither holds a lock, so two hosts
-> can race and create duplicate mirror issues.
+> can race and create duplicate mirror issues. The same goes for the GitHub Action.
 >
 > - **Worker to timer:** deploy `"crons": []` (ideally with `"DRY_RUN": "true"` in the same
 >   deploy, so a late firing only reads). Removing a cron can take up to 15 minutes to reach

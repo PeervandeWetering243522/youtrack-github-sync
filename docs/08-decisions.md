@@ -1,8 +1,8 @@
 # Decisions log
 
 > Answers to [07-open-questions.md](07-open-questions.md), given 2026-09-24; later rows (H, D, F)
-> came with the hierarchy work, and N1-N3, R10 and V1-V3 on 2026-10-01. "Pending" means we're
-> still waiting on confirmation.
+> came with the hierarchy work, and N1-N3, W1-W4, R10 and V1-V3 on 2026-10-01. "Pending" means
+> we're still waiting on confirmation.
 
 | #   | Topic                           | Decision                                                                                                                                                                                                                         | Status              |
 | --- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
@@ -58,7 +58,11 @@
 | N1  | Title prefix                    | Titles are `[<idReadable>] <summary>` (e.g. `[CUI-24] Fix login`), matched by `[<project>-<n>]`, project case-insensitive. Old `[YT-<n>]` titles still match and get renamed (N2). Supersedes the H7 prefix.                     | Decided             |
 | N2  | Titles follow YouTrack          | Every run sets each mirror's and milestone's title, open or closed, to YouTrack's when it differs (issues: same PATCH as milestone/type; milestones: `renameMilestone`). Bodies never change. Supersedes H5/D7 on titles.        | Decided             |
 | N3  | Log names                       | Log lines and warnings name issues by YouTrack id (`CUI-15 #21`), like the titles.                                                                                                                                               | Decided             |
-| R10 | Reopen own closes               | A closed mirror of an unresolved issue is reopened (`state_reason: reopened`) only if `REOPEN_CLOSED_BY` closed it; unset (the default) never reopens. Milestones never (no closer recorded).                                    | Decided             |
+| W1  | GitHub Action packaging         | Composite action (`action.yml`): setup-node pinned by SHA, then `node src/node.ts` with the inputs as env. No runtime deps, so no build; a JS action needs a bundled `dist/`, Docker is Linux-only and slower.                   | Decided             |
+| W2  | Action token                    | `github-token` defaults to `${{ github.token }}` and `github-repo` to `${{ github.repository }}`: writes by `github-actions[bot]`. The workflow's `permissions:` decides what it may do; it needs `issues: write`.               | Decided             |
+| W3  | GitHub-hosted runners           | Allowed; unless the repo is public (free there), a `::warning` recommends a self-hosted runner, as GitHub-hosted runs bill the org's shared minutes (about 4,300 a month at every 10 min). A warning, not a refusal.             | Decided             |
+| W4  | Three hosts                     | Worker, systemd timer and GitHub Action are all supported; the README compares them. Still one host per repo (B15); the workflow's fixed `concurrency` group keeps its own runs from overlapping.                                | Decided             |
+| R10 | Reopen own closes               | A closed mirror of an unresolved issue is reopened (`state_reason: reopened`) only if `REOPEN_CLOSED_BY` closed it. The Action sets it to `github-actions[bot]`; unset elsewhere. Milestones never (no closer recorded).         | Decided             |
 | V1  | Releases                        | semantic-release on every push to `main`: the conventional commits since the last `v*` tag pick the bump (breaking: minor while 0.x), then a tag and a GitHub Release. v0.1.0 is tagged by hand; nothing is committed back.      | Decided             |
 | V2  | Branches                        | `main` changes only through squash-merged PRs from feature branches; the PR title is the conventional commit. Required checks (repo ruleset): Check, Workflow audit, Conventional PR title. Dependent changes go in stacked PRs. | Decided             |
 | V3  | Pinning and updates             | Consumers pin the action by full commit SHA with the version as a comment (`@<sha> # v0.2.0`); Dependabot updates both. Here, Dependabot waits 7 days; action bumps are `fix(deps)` (a patch release).                           | Decided             |
