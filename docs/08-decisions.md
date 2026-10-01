@@ -1,7 +1,8 @@
 # Decisions log
 
-> Answers to [07-open-questions.md](07-open-questions.md), given 2026-09-24. "Pending" means we're
-> still waiting on confirmation.
+> Answers to [07-open-questions.md](07-open-questions.md), given 2026-09-24; later rows (H, D, F)
+> came with the hierarchy work, and V1-V3 on 2026-10-01. "Pending" means we're still waiting on
+> confirmation.
 
 | #   | Topic                           | Decision                                                                                                                                                                                                                         | Status              |
 | --- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
@@ -54,3 +55,6 @@
 | F1  | Title filter                    | Mirror every issue except summaries starting with `YOUTRACK_EXCLUDE_PREFIX` (default `[individual]`, case-insensitive). Supersedes A8 and the [team] part of H2.                                                                 | Decided             |
 | F2  | Exclude prefix added later      | Like R2: the issue is ignored entirely; its mirror is left as it is.                                                                                                                                                             | Decided             |
 | F3  | Exclusion is inherited          | An issue is also excluded when any YouTrack ancestor starts with the exclude prefix (e.g. tasks under an `[individual]` epic). Implemented with the hierarchy work (needs parent data).                                          | Decided             |
+| V1  | Releases                        | semantic-release on every push to `main`: the conventional commits since the last `v*` tag pick the bump (breaking: minor while 0.x), then a tag and a GitHub Release. v0.1.0 is tagged by hand; nothing is committed back.      | Decided             |
+| V2  | Branches                        | `main` changes only through squash-merged PRs from feature branches; the PR title is the conventional commit. Required checks (repo ruleset): Check, Workflow audit, Conventional PR title. Dependent changes go in stacked PRs. | Decided             |
+| V3  | Pinning and updates             | Consumers pin the action by full commit SHA with the version as a comment (`@<sha> # v0.2.0`); Dependabot updates both. Here, Dependabot waits 7 days; action bumps are `fix(deps)` (a patch release).                           | Decided             |

@@ -55,6 +55,10 @@ necessarily the project you are working with.
 - `src/runtime.ts`: console logger and sleep shared by the two entrypoints; the sync core must not import it.
 - `src/worker.ts`: Cloudflare `scheduled()` entrypoint (Workers Free, cron every 10 min, no HTTP route).
 - `src/node.ts`: Node entrypoint that reads env vars. Also used for local dry runs and the Debian systemd timer.
+- `.github/`: CI (`npm run check`, zizmor), the PR-title check, the semantic-release workflow
+  (`.releaserc.json`) and Dependabot. `CONTRIBUTING.md` has the branch, PR-title and release
+  rules (V1-V3); PR titles are conventional commits and pick the version. `main` is protected
+  by a repo ruleset (PRs only, squash only, the three checks); never push to it directly.
 - `docs/`: research and design. Start at `docs/README.md`.
 
 ## Config

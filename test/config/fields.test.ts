@@ -173,7 +173,8 @@ describe("parseConfig: YOUTRACK_BASE_URL", () => {
 
   it("rejects values the WHATWG parser refuses (relative, no host, bad port, bad host)", () => {
     const values = ["youtrack.ai.buas.nl", "/api", "https://", "https://exa mple.com", "https://example.com:99999"];
-    for (const value of [...values, "https://example.com:443:443", "https://xn--/", "https://[::1", "https://user@"]) {
+    // Not "https://xn--/": Node 22's URL parser refuses it, but Node 24's accepts it.
+    for (const value of [...values, "https://example.com:443:443", "https://[::1", "https://user@"]) {
       assert.deepEqual(problemsFor(envWith({ YOUTRACK_BASE_URL: value })), [URL_INVALID_PROBLEM], value);
     }
   });
