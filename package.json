@@ -2,7 +2,7 @@
   "name": "youtrack-gh",
   "version": "0.0.0-development",
   "private": true,
-  "description": "Read-only YouTrack -> GitHub issue mirror (Cloudflare Workers cron / Node); releases are the v* git tags",
+  "description": "Read-only YouTrack -> GitHub issue mirror (Cloudflare Workers cron, GitHub Action or Node); releases are the v* git tags",
   "type": "module",
   "engines": {
     "node": ">=22.18.0"

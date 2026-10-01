@@ -1,0 +1,81 @@
+# Composite action: runs src/node.ts (the same entrypoint as `npm run sync` and the systemd
+# timer) on the job's runner. No npm install: the sync has no runtime dependencies, and Node 24
+# runs the TypeScript sources directly. Decisions W1-W4 in docs/08-decisions.md.
+name: YouTrack to GitHub issues mirror
+description: One-way, read-only mirror of a YouTrack project into GitHub issues, milestones and sub-issues.
+
+inputs:
+  youtrack-token:
+    description: YouTrack permanent token with read access to the project. Pass it from a secret.
+    required: true
+  youtrack-base-url:
+    description: The YouTrack instance URL, e.g. https://youtrack.example.com.
+    required: true
+  youtrack-project:
+    description: The YouTrack project ID (shortName), e.g. CUI. Mirror titles start with [<ID>-<number>].
+    required: true
+  github-token:
+    description: >-
+      Token for the GitHub reads and writes. The default is the job's GITHUB_TOKEN, so writes appear as
+      github-actions[bot]; the workflow must then grant `permissions: issues: write`.
+    required: false
+    default: ${{ github.token }}
+  github-repo:
+    description: The owner/repo to mirror into. The default is the repository running the workflow.
+    required: false
+    default: ${{ github.repository }}
+  youtrack-exclude-prefix:
+    description: An issue whose summary starts with this (case-insensitive), and everything below it, is not mirrored.
+    required: false
+    default: "[individual]"
+  max-writes-per-run:
+    description: The most GitHub writes one run sends (0 to 40); the rest waits for the next run.
+    required: false
+    default: "30"
+  dry-run:
+    description: Only the exact value "false" writes to GitHub. Anything else logs what would be written and writes nothing.
+    required: false
+    default: "true"
+  reopen-closed-by:
+    description: >-
+      A closed mirror whose YouTrack issue is unresolved again is reopened when this GitHub login closed it.
+      The default, github-actions[bot], undoes closes made with the default GITHUB_TOKEN, by this action or by
+      any other workflow in the repo. Empty: never reopen.
+    required: false
+    default: github-actions[bot]
+
+runs:
+  using: composite
+  steps:
+    # A warning, not a refusal (decision W3): on a private repo, GitHub-hosted runs bill the
+    # repository owner's shared Actions minutes, every run rounded up to a whole minute. Public
+    # repos run free on GitHub-hosted runners (and GitHub advises against self-hosted ones there).
+    - name: Recommend a self-hosted runner
+      if: runner.environment == 'github-hosted' && github.event.repository.private != false
+      shell: bash
+      run: >-
+        echo "::warning title=youtrack-gh on a GitHub-hosted runner::On a private repository this run uses
+        your organization's GitHub Actions minutes (a 10-minute schedule bills about 4,300 minutes a month).
+        Use a self-hosted runner (runs-on: self-hosted) if one is available, or run the Cloudflare Worker
+        instead; see the README."
+
+    - name: Set up Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: "24"
+
+    # Inputs reach the sync only through env, never through ${{ }} inside the script, so no
+    # input value is ever interpreted as shell code.
+    - name: Sync YouTrack to GitHub
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPO: ${{ inputs.github-repo }}
+        YOUTRACK_BASE_URL: ${{ inputs.youtrack-base-url }}
+        YOUTRACK_TOKEN: ${{ inputs.youtrack-token }}
+        YOUTRACK_PROJECT: ${{ inputs.youtrack-project }}
+        YOUTRACK_EXCLUDE_PREFIX: ${{ inputs.youtrack-exclude-prefix }}
+        MAX_WRITES_PER_RUN: ${{ inputs.max-writes-per-run }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        REOPEN_CLOSED_BY: ${{ inputs.reopen-closed-by }}
+      run: node "$GITHUB_ACTION_PATH/src/node.ts"
