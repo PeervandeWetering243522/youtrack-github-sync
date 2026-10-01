@@ -261,9 +261,10 @@ Releases are SemVer tags (`v0.1.0`, `v0.2.0`, ...) on the repo's
 [Releases page](https://github.com/PeervandeWetering243522/youtrack-github-sync/releases), with
 notes (decisions V1-V3; [CONTRIBUTING.md](CONTRIBUTING.md) has how they are made). The workflow
 above pins `uses:` to the full commit SHA of a release, with its tag as a comment, so nothing
-changes in your repo until you update the pin.
+changes in your repo until you update the pin. From v0.1.1 on, each release's notes end with its
+commit SHA and the `uses:` line to copy. For v0.1.0,
 `git ls-remote https://github.com/PeervandeWetering243522/youtrack-github-sync refs/tags/v0.1.0`
-prints a tag's SHA.
+prints it.
 
 Dependabot proposes new releases as PRs that update both the SHA and the comment, with the
 release notes in the PR. Your repo needs a `github-actions` entry in `.github/dependabot.yml`:
