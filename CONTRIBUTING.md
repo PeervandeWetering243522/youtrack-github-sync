@@ -7,9 +7,10 @@ Development commands and conventions are in the [README](README.md#development) 
 ## Branches and pull requests
 
 - Work on a feature branch, never on `main`: `git switch -c feat/reopen-own-closes`.
-- Open a pull request into `main`. Three checks must pass: **Check** (`npm run check`),
-  **Workflow audit** (zizmor over the workflows and `action.yml`) and **Conventional PR
-  title**. The branch must be up to date with `main`.
+- Open a pull request into `main`. Three checks must pass: **Check** (passes when the
+  parallel Typecheck, Lint, Format and Test jobs all do, the tests on Node 22 and 24; together
+  they are `npm run check`), **Workflow audit** (zizmor over the workflows and `action.yml`)
+  and **Conventional PR title**. The branch must be up to date with `main`.
 - PRs are **squash-merged**, and the squashed commit takes the PR's title (and its body), so
   the title is what decides the next version. The branch's own commits can be anything. A
   ruleset on `main` enforces this: no direct pushes, force pushes or deletion.
