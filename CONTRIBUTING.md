@@ -39,7 +39,8 @@ To move to 1.0.0, remove that rule; from then on a breaking change bumps the maj
 Every push to `main` runs `.github/workflows/release.yml`. It checks the code again and then
 runs [semantic-release](https://semantic-release.gitbook.io/), which reads the commits since the
 last `v*` tag. When one of them warrants a release, it pushes the next tag (`v0.2.0`) and
-creates a GitHub Release with notes grouped by type. Nothing is committed back to `main`: the
+creates a GitHub Release with notes grouped by type, ending with the release's commit SHA and a
+ready `uses:` line to pin it (`releaseBodyTemplate`). Nothing is committed back to `main`: the
 tag is the version (`package.json` stays at `0.0.0-development`), and the release notes are
 the changelog. Releases are immutable: a published tag is never moved or deleted, so the commit
 SHA that groups pin for a version never changes.
