@@ -6,11 +6,10 @@ with its YouTrack ID (`[ABC-12] Fix login`), and a milestone for each epic. It c
 for every open issue, closes the mirror once the issue is resolved, and keeps each mirror's
 title, milestone, issue type and parent in step with YouTrack. It never writes to YouTrack.
 
-You can run it for your own group's YouTrack project and GitHub repo: both come from settings,
-which you fill in in [step 3](#3-fill-in-env) (for local runs) and
-[step 6](#6-deploy-the-worker) (for the Worker). Your settings live in two gitignored files,
-`.env` and `wrangler.jsonc`, which you copy from the committed examples. A `git pull` of a newer
-version never touches them.
+You can run it for your own group's YouTrack project and GitHub repo: both are settings of the
+host you pick, such as the action's inputs, `wrangler.jsonc` for the Worker or `.env` for local
+runs (see [Configuration](#configuration)). Your own files are gitignored copies of committed
+examples, so updating to a newer version never touches them.
 
 It is an **interim stopgap** until BUas enables YouTrack's Webhook Triggers app. Once that app
 is available, it replaces this tool, and the Worker (or timer) should be removed.
@@ -27,8 +26,10 @@ your repo, or as a plain Node script on a Debian/systemd host; see
 
 ## Contents
 
+- [Features](#features)
+- [Using it day to day](#using-it-day-to-day): for everyone in the group
 - [Choosing a deployment](#choosing-a-deployment): Worker, systemd timer or GitHub Action
-- [Setup](#setup): from a fresh clone to a running Worker, in seven steps
+- [Installation](#installation): which steps each deployment needs
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Configuration](#configuration)
@@ -37,6 +38,46 @@ your repo, or as a plain Node script on a Debian/systemd host; see
 - [Alternative host: Debian + systemd timer](#alternative-host-debian--systemd-timer)
 - [Limits and budget](#limits-and-budget)
 - [Docs](#docs)
+
+## Features
+
+- **One way, read-only on YouTrack:** the only YouTrack call is `GET /api/issues`. GitHub is a
+  mirror; the work stays in YouTrack.
+- **An issue per YouTrack issue,** titled with its ID (`[ABC-12] Fix login`), with the
+  description, a link back to YouTrack and the `youtrack` label. `@mentions` and `#123`
+  references in the description are wrapped in backticks, so nobody gets pinged.
+- **The hierarchy:** epics become milestones; User Story, Bug and Task become the issue types
+  Feature, Bug and Task; tasks become sub-issues of their parent's mirror; every mirror goes in
+  its nearest epic's milestone ([Hierarchy](#hierarchy)).
+- **Kept in step:** every run syncs each mirror's title, milestone, type and parent, open or
+  closed, and each milestone's title. A mirror is closed when its issue is resolved, and with
+  `REOPEN_CLOSED_BY` (on in the GitHub Action) reopened when the issue goes back to unresolved,
+  if the mirror closed it itself.
+- **Leave things out:** an issue whose summary starts with `[individual]` (configurable), and
+  everything below it, is never mirrored.
+- **Safe by default:** dry run until you turn writes on, at most 30 writes per run, retries for
+  network errors, and no duplicates: every run re-reads both sides before it writes.
+- **Three ways to run it:** a free Cloudflare Worker, a GitHub Action (writes as
+  `github-actions[bot]`), or a systemd timer on your own Debian host.
+
+## Using it day to day
+
+For everyone in the group, once someone has set it up:
+
+- **Work in YouTrack.** Create, edit, nest and resolve issues there. Within about 10 minutes
+  GitHub follows: a new mirror, a new title, a new milestone or parent, or a close.
+- **Treat mirrors as read-only.** Assign, label, comment and link PRs on GitHub as you like, but
+  title edits are undone by the next run. Keep the `[ABC-12]` prefix and the `youtrack` label: a
+  mirror without them is no longer recognised and gets a duplicate. The description is copied
+  once, at creation; the YouTrack link always has the current one.
+- **Resolve in YouTrack, not on GitHub.** Closing a mirror, by hand or with `Closes #12` in a
+  PR, does not touch YouTrack. A mirror closed by hand stays closed until someone reopens it.
+- **Keep personal work out** by starting its summary with `[individual]`; its tasks stay out
+  too. An issue that already has a mirror keeps it as it is, no longer synced.
+- **For whoever runs it:** turn writes off and on with `DRY_RUN` (or `dry-run`), start a run
+  from the Actions tab or with `systemctl start`, and read the summary line each run logs
+  ([What a run does](#what-a-run-does), step 7). [Troubleshooting](#troubleshooting) covers the
+  usual errors.
 
 ## Choosing a deployment
 
@@ -51,12 +92,17 @@ and who you want GitHub to show as the author of the mirror's writes.
 | **Ongoing cost**         | Free (Workers Free covers it)                                           | Free (your own hardware)                               | Free on a self-hosted runner, or on any runner in a public repo. In a private repo a GitHub-hosted runner bills your organization's shared Actions minutes, so the action warns there |
 | **Best fit**             | The least to maintain, and you don't mind writes coming from your token | You already run a server and want it alongside         | You want writes from a bot identity or a run button, and have a self-hosted runner                                                                                                    |
 
-Pick one per repo; see the warning above. The [setup](#setup) steps below end in the Worker; for
-the other two, do steps 1 to 5 (a local dry run), then follow
-[GitHub Action](#alternative-host-github-action) or
-[Debian + systemd timer](#alternative-host-debian--systemd-timer).
+Pick one per repo; see the warning above.
 
-## Setup
+## Installation
+
+The numbered steps below are shared; which ones you need depends on the deployment:
+
+| Deployment                 | Steps                                                                                                                                                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub Action**          | No clone needed: the YouTrack token from [step 2](#2-create-the-two-tokens), [step 4](#4-prepare-the-github-repo), then [GitHub Action](#alternative-host-github-action). A local dry run first (steps 1, 3, 5) is optional. |
+| **Cloudflare Worker**      | Steps 1 to 7.                                                                                                                                                                                                                |
+| **Debian + systemd timer** | Steps 1 to 5, then [Debian + systemd timer](#alternative-host-debian--systemd-timer).                                                                                                                                        |
 
 Steps 1 to 5 end in a local dry run, which only reads and is safe to try at any time. Steps 6
 and 7 deploy the Worker and turn writes on.
@@ -97,7 +143,8 @@ itself has no runtime dependencies.
 ### 2. Create the two tokens
 
 **GitHub:** a classic personal access token with the `repo` scope (decision B12), for the
-account above.
+account above. The GitHub Action uses the job's own token instead, so it needs this one only for
+a local dry run.
 
 1. On GitHub, open **Settings > Developer settings > Personal access tokens > Tokens (classic)**
    and choose **Generate new token > Generate new token (classic)**.
