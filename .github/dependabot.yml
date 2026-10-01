@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # The workflows and action.yml (actions/setup-node). "fix(deps)" makes a patch release, so
+  # groups that use the action get the new pin through their own Dependabot.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # New versions wait a week before Dependabot proposes them (supply-chain cooldown).
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Development tools only (the sync has no runtime dependencies), so no release: "chore(deps-dev)".
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    # 10.x needs a newer conventional-changelog-writer than semantic-release 25's notes
+    # generator ships, which fails every release; lift this once the generator supports it.
+    ignore:
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      dev-tools:
+        dependency-type: development

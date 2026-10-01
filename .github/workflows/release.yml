@@ -1,0 +1,50 @@
+name: Release
+
+# Every push to main (a merged PR) runs semantic-release (.releaserc.json): it reads the
+# conventional commits since the last v* tag and, when one of them warrants it, pushes the next
+# version tag and creates its GitHub Release. Nothing is committed back to main.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the version tag and create the GitHub Release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # semantic-release needs every commit and tag
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npm run check
+
+      # semantic-release starts at 1.0.0 when no version tag exists, so the first one, v0.1.0,
+      # is created by hand once; until then this job only checks.
+      - name: Find the last release
+        id: tags
+        run: |
+          if [ -n "$(git tag --list 'v*')" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=No release yet::Create the first one by hand: gh release create v0.1.0 --target main --generate-notes"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release
+        if: steps.tags.outputs.released == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npx --no-install semantic-release

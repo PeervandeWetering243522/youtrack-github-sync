@@ -368,7 +368,8 @@ Where the values come from:
 | `npm run gen:youtrack`               | Regenerate `src/generated/youtrack.ts` from `./youtrack-openapi.json` (see below).               |
 | `npm run gen:worker-types`           | Regenerate `worker-configuration.d.ts` from `wrangler.example.jsonc` and `.env.example`.         |
 
-Run `npm run check` before committing. The tests use a fake `fetch`; they never contact YouTrack
+Changes reach `main` through pull requests, and every merge can make a release; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Run `npm run check` before committing. The tests use a fake `fetch`; they never contact YouTrack
 or GitHub. [CLAUDE.md](CLAUDE.md) describes the source layout and the conventions.
 
 The generated `worker-configuration.d.ts` is committed. `npm run gen:worker-types` builds it from
