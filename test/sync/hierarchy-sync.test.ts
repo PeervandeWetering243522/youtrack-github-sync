@@ -22,16 +22,16 @@ import {
 import type { World } from "./fixtures.ts";
 
 const EPIC = ytRow(33, { type: "Epic", summary: "[team] Epic 33" });
-const MILESTONE_7 = ghMilestone(7, "[YT-33] [team] Epic 33");
+const MILESTONE_7 = ghMilestone(7, "[CUI-33] [team] Epic 33");
 const story = (n: number, parent?: number): ReturnType<typeof ytRow> =>
   ytRow(n, { type: "User Story", ...(parent === undefined ? {} : { parent }) });
 
-/** Stories YT-35 (#21) and YT-36 (#22); task YT-40 (#25) sits under #21 but belongs under YT-36. */
+/** Stories CUI-35 (#21) and CUI-36 (#22); task CUI-40 (#25) sits under #21 but belongs under CUI-36. */
 const REPARENT: World = {
   githubIssues: [
-    ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature" }),
-    ghIssue(22, "[YT-36] [team] Task 36", { type: "Feature" }),
-    ghIssue(25, "[YT-40] [team] Task 40", { type: "Task", parent: 21 }),
+    ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature" }),
+    ghIssue(22, "[CUI-36] [team] Task 36", { type: "Feature" }),
+    ghIssue(25, "[CUI-40] [team] Task 40", { type: "Task", parent: 21 }),
   ],
   youtrackRows: [story(35), story(36), ytRow(40, { type: "Task", parent: 36 })],
 };
@@ -53,13 +53,13 @@ describe("runSync hierarchy sync: parents", () => {
       replace_parent: true,
     });
     assert.deepEqual(result, summary({ scanned: 3, updated: 1, unchanged: 2, fetches: 4 }));
-    assert.ok(messages(lines).includes("move YT-40 #25 under YT-36 #22"));
+    assert.ok(messages(lines).includes("move CUI-40 #25 under CUI-36 #22"));
   });
 
   it("moves a task under a parent created earlier in the same run", async () => {
     // Arrange
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(25, "[YT-40] [team] Task 40", { type: "Task" })],
+      githubIssues: [ghIssue(25, "[CUI-40] [team] Task 40", { type: "Task" })],
       youtrackRows: [story(36), ytRow(40, { type: "Task", parent: 36 })],
     });
 
@@ -78,7 +78,7 @@ describe("runSync hierarchy sync: parents", () => {
   it("caps the move, not fails it, when the new parent's create fails", async () => {
     // Arrange
     const { deps, calls, lines } = harness({
-      githubIssues: [ghIssue(25, "[YT-40] [team] Task 40", { type: "Task" })],
+      githubIssues: [ghIssue(25, "[CUI-40] [team] Task 40", { type: "Task" })],
       youtrackRows: [story(36), ytRow(40, { type: "Task", parent: 36 })],
       override: (call) => (call.method === "POST" && call.url.pathname === ISSUES_PATH ? json(422, {}) : undefined),
     });
@@ -91,7 +91,7 @@ describe("runSync hierarchy sync: parents", () => {
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
     assert.deepEqual(messages(lines, "warn"), [
-      "move YT-40 #25 capped: the mirror of YT-36 was not created in this run",
+      "move CUI-40 #25 capped: the mirror of CUI-36 was not created in this run",
     ]);
   });
 
@@ -99,8 +99,8 @@ describe("runSync hierarchy sync: parents", () => {
     // Arrange
     const { deps, calls, lines } = harness({
       githubIssues: [
-        ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature" }),
-        ghIssue(25, "[YT-40] [team] Task 40", { type: "Task", parent: 21 }),
+        ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature" }),
+        ghIssue(25, "[CUI-40] [team] Task 40", { type: "Task", parent: 21 }),
       ],
       youtrackRows: [story(35), ytRow(40, { type: "Task" })],
     });
@@ -112,13 +112,13 @@ describe("runSync hierarchy sync: parents", () => {
     assert.deepEqual(writeCalls(calls), [`DELETE ${ISSUES_PATH}/21/sub_issue`]);
     assert.deepEqual(onlyBody(calls, "DELETE", `${ISSUES_PATH}/21/sub_issue`), { sub_issue_id: issueId(25) });
     assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
-    assert.ok(messages(lines).includes("detach YT-40 #25 from parent YT-35 #21"));
+    assert.ok(messages(lines).includes("detach CUI-40 #25 from parent CUI-35 #21"));
   });
 
   it("leaves a parent that is not a mirror alone (D2)", async () => {
     // Arrange: #90 is a hand-made issue.
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(25, "[YT-40] [team] Task 40", { type: "Task", parent: 90 })],
+      githubIssues: [ghIssue(25, "[CUI-40] [team] Task 40", { type: "Task", parent: 90 })],
       youtrackRows: [ytRow(40, { type: "Task" })],
     });
 
@@ -131,10 +131,10 @@ describe("runSync hierarchy sync: parents", () => {
   });
 
   it("records a failed move, still runs the next action, and fails the run", async () => {
-    // Arrange: plus the open mirror #50 of resolved YT-50, closed after the move.
+    // Arrange: plus the open mirror #50 of resolved CUI-50, closed after the move.
     const { deps, calls } = harness({
       ...REPARENT,
-      githubIssues: [...(REPARENT.githubIssues ?? []), ghIssue(50, "[YT-50] [team] Task 50")],
+      githubIssues: [...(REPARENT.githubIssues ?? []), ghIssue(50, "[CUI-50] [team] Task 50")],
       youtrackRows: [...(REPARENT.youtrackRows ?? []), ytRow(50, { resolved: RESOLVED_AT })],
       override: (call) =>
         call.url.pathname.endsWith("/sub_issues") ? json(422, { message: "Validation Failed" }) : undefined,
@@ -145,19 +145,19 @@ describe("runSync hierarchy sync: parents", () => {
 
     // Assert
     assert.ok(error instanceof SyncFailedError);
-    assert.match(error.failures[0] ?? "", /^move YT-40 #25 under YT-36 #22 failed: POST .*\/sub_issues -> HTTP 422/);
+    assert.match(error.failures[0] ?? "", /^move CUI-40 #25 under CUI-36 #22 failed: POST .*\/sub_issues -> HTTP 422/);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}/22/sub_issues`, `PATCH ${ISSUES_PATH}/50`]);
     assert.equal(error.summary.closed, 1);
     assert.equal(error.summary.updated, 0);
   });
 
   it("stops after a rate-limited detach and caps the rest", async () => {
-    // Arrange: the detach of YT-40 runs before the close of #50.
+    // Arrange: the detach of CUI-40 runs before the close of #50.
     const { deps, calls, lines } = harness({
       githubIssues: [
-        ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature" }),
-        ghIssue(25, "[YT-40] [team] Task 40", { type: "Task", parent: 21 }),
-        ghIssue(50, "[YT-50] [team] Task 50"),
+        ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature" }),
+        ghIssue(25, "[CUI-40] [team] Task 40", { type: "Task", parent: 21 }),
+        ghIssue(50, "[CUI-50] [team] Task 50"),
       ],
       youtrackRows: [story(35), ytRow(40, { type: "Task" }), ytRow(50, { resolved: RESOLVED_AT })],
       override: (call) =>
@@ -170,7 +170,7 @@ describe("runSync hierarchy sync: parents", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`DELETE ${ISSUES_PATH}/21/sub_issue`]);
-    assert.match(error.failures[0] ?? "", /^detach YT-40 #25 from parent YT-35 #21 failed: DELETE .* -> HTTP 429/);
+    assert.match(error.failures[0] ?? "", /^detach CUI-40 #25 from parent CUI-35 #21 failed: DELETE .* -> HTTP 429/);
     assert.deepEqual(error.summary, summary({ scanned: 3, unchanged: 1, capped: 1, failed: 1, fetches: 4 }));
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
   });
@@ -191,7 +191,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { state: "closed" });
     assert.deepEqual(result, summary({ scanned: 1, milestonesClosed: 1, fetches: 4 }));
-    assert.ok(messages(lines).includes("close milestone YT-33 #7"));
+    assert.ok(messages(lines).includes("close milestone CUI-33 #7"));
   });
 
   it("retries a milestone close once after a 5xx", async () => {
@@ -215,7 +215,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
     // Arrange
     const { deps, calls, lines } = harness({
       milestones: [MILESTONE_7],
-      githubIssues: [ghIssue(21, "[YT-35] [team] Task 35", { state: "closed" })],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35", { state: "closed" })],
       youtrackRows: [EPIC, ytRow(35, { type: "User Story", parent: 33, resolved: RESOLVED_AT })],
     });
 
@@ -226,14 +226,14 @@ describe("runSync hierarchy sync: milestones and types", () => {
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { milestone: 7, type: "Feature" });
     assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
-    assert.ok(messages(lines).includes("update YT-35 #21: set milestone YT-33 #7, set type Feature"));
+    assert.ok(messages(lines).includes("update CUI-35 #21: set milestone CUI-33 #7, set type Feature"));
   });
 
   it("clears a mirror milestone when the issue left its epic", async () => {
     // Arrange
     const { deps, calls, lines } = harness({
       milestones: [MILESTONE_7],
-      githubIssues: [ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature", milestone: 7 })],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature", milestone: 7 })],
       youtrackRows: [EPIC, story(35)],
     });
 
@@ -242,14 +242,14 @@ describe("runSync hierarchy sync: milestones and types", () => {
 
     // Assert
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { milestone: null });
-    assert.ok(messages(lines).includes("update YT-35 #21: clear milestone"));
+    assert.ok(messages(lines).includes("update CUI-35 #21: clear milestone"));
     assert.deepEqual(messages(lines, "warn"), []);
   });
 
   it("sets a milestone created earlier in the same run", async () => {
     // Arrange
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature" })],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature" })],
       youtrackRows: [EPIC, story(35, 33)],
     });
 
@@ -265,7 +265,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
   it("caps the update, not fails it, when that milestone's create fails", async () => {
     // Arrange
     const { deps, calls, lines } = harness({
-      githubIssues: [ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature" })],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature" })],
       youtrackRows: [EPIC, story(35, 33)],
       override: (call) => (call.method === "POST" ? json(422, { message: "Validation Failed" }) : undefined),
     });
@@ -278,14 +278,17 @@ describe("runSync hierarchy sync: milestones and types", () => {
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
     assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
     assert.deepEqual(messages(lines, "warn"), [
-      "update YT-35 #21 capped: the milestone of YT-33 was not created in this run",
+      "update CUI-35 #21 capped: the milestone of CUI-33 was not created in this run",
     ]);
   });
 
   it("runs a mirror's update, move and close in phase order", async () => {
-    // Arrange: resolved task YT-40 (#25, open, untyped, top-level) belongs under YT-36 (#22).
+    // Arrange: resolved task CUI-40 (#25, open, untyped, top-level) belongs under CUI-36 (#22).
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(22, "[YT-36] [team] Task 36", { type: "Feature" }), ghIssue(25, "[YT-40] [team] Task 40")],
+      githubIssues: [
+        ghIssue(22, "[CUI-36] [team] Task 36", { type: "Feature" }),
+        ghIssue(25, "[CUI-40] [team] Task 40"),
+      ],
       youtrackRows: [story(36), ytRow(40, { type: "Task", parent: 36, resolved: RESOLVED_AT })],
     });
 
@@ -305,9 +308,9 @@ describe("runSync hierarchy sync: milestones and types", () => {
     // Arrange: the PATCH answer carries neither the milestone nor the type.
     const { deps, calls, lines } = harness({
       milestones: [MILESTONE_7],
-      githubIssues: [ghIssue(21, "[YT-35] [team] Task 35")],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35")],
       youtrackRows: [EPIC, story(35, 33)],
-      override: (call) => (call.method === "PATCH" ? json(200, ghIssue(21, "[YT-35] [team] Task 35")) : undefined),
+      override: (call) => (call.method === "PATCH" ? json(200, ghIssue(21, "[CUI-35] [team] Task 35")) : undefined),
     });
 
     // Act
@@ -317,13 +320,13 @@ describe("runSync hierarchy sync: milestones and types", () => {
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`]);
     assert.equal(result.updated, 1);
     assert.deepEqual(messages(lines, "warn"), [
-      "YT-35 #21: GitHub dropped milestone #7, type Feature on update; the next run tries again",
+      "CUI-35 #21: GitHub dropped milestone #7, type Feature on update; the next run tries again",
     ]);
   });
 
   it("warns when GitHub answers a milestone clear with the milestone still set", async () => {
     // Arrange
-    const mirror = ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature", milestone: 7 });
+    const mirror = ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature", milestone: 7 });
     const { deps, lines } = harness({
       milestones: [MILESTONE_7],
       githubIssues: [mirror],
@@ -336,14 +339,14 @@ describe("runSync hierarchy sync: milestones and types", () => {
 
     // Assert
     assert.deepEqual(messages(lines, "warn"), [
-      "YT-35 #21: GitHub dropped the milestone removal on update; the next run tries again",
+      "CUI-35 #21: GitHub dropped the milestone removal on update; the next run tries again",
     ]);
   });
 
   it("retries a failed update once (it is idempotent)", async () => {
     // Arrange
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(21, "[YT-35] [team] Task 35")],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35")],
       youtrackRows: [story(35)],
       override: (call, attempt) => (call.method === "PATCH" && attempt === 0 ? json(503, {}) : undefined),
     });

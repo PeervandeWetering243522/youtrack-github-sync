@@ -1,8 +1,8 @@
 /**
  * Shared fixtures for the planner tests (test/plan/*.test.ts): frozen GitHub issues and
- * milestones, YouTrack issues with a Type and a parent, mirror refs, read-only maps, a
- * `plan` shorthand over planActions and a compact view of actions. Everything is frozen
- * or locked, so any mutation by the code under test throws.
+ * milestones, YouTrack issues of project CUI with a Type and a parent, mirror refs, read-only
+ * maps, a `plan` shorthand over planActions and a compact view of actions. Everything is
+ * frozen or locked, so any mutation by the code under test throws.
  */
 
 import assert from "node:assert/strict";
@@ -18,8 +18,18 @@ import type { MirrorIndex, MirrorRef } from "../../src/plan/mirrors.ts";
 import type { YouTrackIssue } from "../../src/youtrack.ts";
 
 export const LABEL = "youtrack";
+/** The configured YouTrack project (YOUTRACK_PROJECT) of every fixture issue. */
+export const PROJECT = "CUI";
 export const EXCLUDE_PREFIX = "[individual]";
 export const RESOLVED_AT = 1_758_000_000_000;
+
+/**
+ * The mirror or milestone title planActions wants for ytIssue(n) with its default summary,
+ * "[CUI-<n>] Issue <n>" (N1). A fixture mirror gets it from mirrors(...) unless it has a title.
+ */
+export function desiredTitle(numberInProject: number): string {
+  return `[${PROJECT}-${String(numberInProject)}] Issue ${String(numberInProject)}`;
+}
 
 // ---------------------------------------------------------------------------
 // GitHub
@@ -42,6 +52,7 @@ export function ghIssue(issueNumber: number, title: string, overrides: Partial<G
     typeName: null,
     parentNumber: null,
     parentIsForeign: false,
+    closedBy: null,
   };
   return Object.freeze({ ...defaults, ...overrides, labelNames });
 }
@@ -58,11 +69,15 @@ export function ghMilestone(
   return Object.freeze({ number: milestoneNumber, title, state });
 }
 
+/** A mirror ref that may still lack its title, which depends on its YouTrack number (see titled). */
+export type MirrorDraft = Omit<MirrorRef, "title"> & Partial<Pick<MirrorRef, "title">>;
+
 /**
- * A mirror ref as buildMirrorIndex makes it: open, labelled, id idOf(n), no milestone, type
- * or parent unless `fields` says otherwise.
+ * A mirror ref as buildMirrorIndex makes it: open, labelled, id idOf(n), no milestone, type,
+ * parent or closer unless `fields` says otherwise. It has no title unless `fields` gives one;
+ * mirrors(...) and titled(...) fill in desiredTitle of its YouTrack number.
  */
-export function mirror(issueNumber: number, fields: Partial<MirrorRef> = {}): MirrorRef {
+export function mirror(issueNumber: number, fields: Partial<MirrorRef> = {}): MirrorDraft {
   return Object.freeze({
     issueNumber,
     id: idOf(issueNumber),
@@ -72,8 +87,17 @@ export function mirror(issueNumber: number, fields: Partial<MirrorRef> = {}): Mi
     typeName: null,
     parentNumber: null,
     parentIsForeign: false,
+    closedBy: null,
     ...fields,
   });
+}
+
+/** The login the reopen tests configure as REOPEN_CLOSED_BY (the GitHub Action's default). */
+export const ACTIONS_BOT = "github-actions[bot]";
+
+/** A closed mirror ref that login `closer` closed (null: no closer reported); otherwise as mirror(...). */
+export function closedMirror(issueNumber: number, closer: string | null, fields: Partial<MirrorRef> = {}): MirrorDraft {
+  return mirror(issueNumber, { state: "closed", closedBy: closer, ...fields });
 }
 
 /** A Map whose mutators throw, since Object.freeze does not stop Map#set. */
@@ -86,17 +110,28 @@ export function lockedMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap
 
 export const NO_MIRRORS: MirrorIndex = lockedMap<number, MirrorRef>([]);
 
-/** A locked MirrorIndex from [numberInProject, ref] pairs. */
-export function mirrors(...entries: readonly (readonly [number, MirrorRef])[]): MirrorIndex {
-  return lockedMap(entries);
+/** `draft` as the whole mirror ref of YouTrack issue `numberInProject`: its own title, else desiredTitle. */
+export function titled(numberInProject: number, draft: MirrorDraft): MirrorRef {
+  return Object.freeze({ ...draft, title: draft.title ?? desiredTitle(numberInProject) });
 }
 
-/** buildMilestoneIndex of frozen `milestones`, with locked maps and frozen warnings. */
+/**
+ * A locked MirrorIndex from [numberInProject, mirror] pairs, each one titled: a mirror the
+ * test gave no title already has the desired one, so it needs no title update.
+ */
+export function mirrors(...entries: readonly (readonly [number, MirrorDraft])[]): MirrorIndex {
+  return lockedMap(
+    entries.map(([numberInProject, draft]) => [numberInProject, titled(numberInProject, draft)] as const),
+  );
+}
+
+/** buildMilestoneIndex for PROJECT of frozen `milestones`, with locked maps and frozen warnings. */
 export function milestoneIndex(...milestones: readonly GitHubMilestone[]): MilestoneIndexResult {
-  const { index, byNumber, warnings } = buildMilestoneIndex(Object.freeze([...milestones]));
+  const { index, byNumber, titleOwners, warnings } = buildMilestoneIndex(Object.freeze([...milestones]), PROJECT);
   return Object.freeze({
     index: lockedMap(index),
     byNumber: lockedMap(byNumber),
+    titleOwners: lockedMap(titleOwners),
     warnings: Object.freeze([...warnings]),
   });
 }
@@ -109,7 +144,7 @@ export const NO_MILESTONES: MilestoneIndexResult = milestoneIndex();
 /** An unresolved issue CUI-<n> with no Type, no parent and no exclude prefix. */
 export function ytIssue(numberInProject: number, overrides: Partial<YouTrackIssue> = {}): YouTrackIssue {
   return Object.freeze({
-    idReadable: `CUI-${String(numberInProject)}`,
+    idReadable: `${PROJECT}-${String(numberInProject)}`,
     numberInProject,
     summary: `Issue ${String(numberInProject)}`,
     description: null,
@@ -143,7 +178,7 @@ export function task(numberInProject: number, overrides: Partial<YouTrackIssue> 
 
 /** Overrides that make CUI-<parent> the Subtask parent. */
 export function under(parent: number): Partial<YouTrackIssue> {
-  return { parentId: `CUI-${String(parent)}` };
+  return { parentId: `${PROJECT}-${String(parent)}` };
 }
 
 /** Overrides for a summary with the exclude prefix (the issue and its descendants are filtered, F1/F3). */
@@ -157,6 +192,8 @@ export type PlanOptions = {
   readonly milestones?: MilestoneIndexResult;
   readonly maxWrites?: number;
   readonly excludePrefix?: string;
+  /** REOPEN_CLOSED_BY; left out: null, so nothing is reopened (the default outside the Action). */
+  readonly reopenClosedBy?: string | null;
 };
 
 export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOptions = {}): Plan {
@@ -166,6 +203,7 @@ export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOpti
     milestones: options.milestones ?? NO_MILESTONES,
     excludePrefix: options.excludePrefix ?? EXCLUDE_PREFIX,
     maxWrites: options.maxWrites ?? 30,
+    reopenClosedBy: options.reopenClosedBy ?? null,
   });
 }
 
@@ -188,15 +226,20 @@ function describeAction(action: Action): string {
   switch (action.kind) {
     case "createMilestone":
       return `createMilestone ${n}`;
+    case "renameMilestone":
+      return `renameMilestone ${n} -> m${String(action.milestone.milestoneNumber)}`;
     case "closeMilestone":
       return `closeMilestone ${n} -> m${String(action.milestone.milestoneNumber)}`;
     case "create":
       return describeCreate(action);
     case "close":
       return `close ${n} -> #${String(action.mirror.issueNumber)}`;
+    case "reopen":
+      return `reopen ${n} -> #${String(action.mirror.issueNumber)}`;
     case "update": {
+      const title = action.title === undefined ? "" : " title";
       const type = action.githubType === undefined ? "" : ` type=${action.githubType}`;
-      return `update ${n} #${String(action.mirror.issueNumber)}${milestoneText(action.milestoneEpic)}${type}`;
+      return `update ${n} #${String(action.mirror.issueNumber)}${title}${milestoneText(action.milestoneEpic)}${type}`;
     }
     case "setParent":
       return `setParent ${n} #${String(action.mirror.issueNumber)} under YT-${String(action.parentYt)}`;
@@ -207,8 +250,10 @@ function describeAction(action: Action): string {
 
 /**
  * Compact view of actions: "create 3", "create 5 type=Task milestone=YT-1 parent=YT-2",
- * "close 5 -> #12", "update 5 #12 milestone=none type=Bug", "setParent 5 #12 under YT-2",
- * "removeParent 5 #12 from #20 (YT-2)", "createMilestone 9", "closeMilestone 9 -> m3".
+ * "close 5 -> #12", "reopen 5 -> #12", "update 5 #12 title milestone=none type=Bug" (the new title itself is not
+ * shown), "setParent 5 #12 under YT-2", "removeParent 5 #12 from #20 (YT-2)",
+ * "createMilestone 9", "renameMilestone 9 -> m3", "closeMilestone 9 -> m3". YT-<n> here is
+ * just YouTrack number n, not a title or log format.
  */
 export function describeActions(actions: readonly Action[]): readonly string[] {
   return actions.map(describeAction);

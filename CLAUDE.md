@@ -30,15 +30,16 @@ necessarily the project you are working with.
   milestones, then YouTrack. `sync/execute.ts` runs the write loop and its stops (cap, fetch
   guard, rate limit, deadline). `sync/execute-write.ts` holds the only GitHub writer (built
   only when `DRY_RUN` is off) and turns write outcomes into counts. `sync/execute-issues.ts`
-  (create, label re-add, close) and `sync/execute-hierarchy.ts` (milestones, update, move,
-  detach) do the writes. `sync/resolved.ts` maps YouTrack numbers to GitHub numbers and ids
+  (create, label re-add, close) and `sync/execute-hierarchy.ts` (milestone create, rename and
+  close, update, move, detach) do the writes. `sync/resolved.ts` maps YouTrack numbers to GitHub numbers and ids
   within a run, `sync/preview.ts` is the dry run, `sync/describe.ts` the log wording both
   share, `sync/tally.ts` counts, and `sync/log.ts` redacts every log line.
 - `src/plan.ts` + `src/plan/`, `src/hierarchy.ts`, `src/mirror.ts`, `src/utils/`: pure decision
   and formatting logic, no I/O. `hierarchy.ts` classifies `Type` values and walks parent links
   (cycle-safe). `plan/exclude.ts` decides which issues are excluded (F1, F3).
-  `plan/desired.ts` works out each mirror's desired milestone, type and parent and how it
-  differs. `plan/mirrors.ts` and `plan/milestones.ts` build the `[YT-n]` indexes,
+  `plan/desired.ts` works out each mirror's desired title, milestone, type and parent and how
+  it differs. `plan/mirrors.ts` and `plan/milestones.ts` build the `[<project>-n]` indexes
+  (legacy `[YT-n]` titles match too, N1),
   and `plan.ts` builds the actions, their order and the cap. New decision logic goes in
   `plan.ts` or `plan/`, not `sync.ts`.
 - `src/http.ts` + `src/http/`: fetch wrapper (User-Agent, timeout, 45-fetch guard, retry-once,
@@ -65,8 +66,8 @@ necessarily the project you are working with.
 
 Secrets: `GITHUB_TOKEN`, `YOUTRACK_TOKEN`. Vars: `GITHUB_REPO`, `YOUTRACK_BASE_URL`,
 `YOUTRACK_PROJECT`, `YOUTRACK_EXCLUDE_PREFIX` (`[individual]`), `MAX_WRITES_PER_RUN` (30),
-`DRY_RUN` (on). The first three vars are required (no defaults; `wrangler.jsonc` sets them for the
-Worker, `.env` for `npm run sync`).
+`DRY_RUN` (on), `REOPEN_CLOSED_BY` (empty: off, R10). The first three vars are required (no
+defaults; `wrangler.jsonc` sets them for the Worker, `.env` for `npm run sync`).
 
 `.env` and `wrangler.jsonc` hold each user's own values and are gitignored. They are copied from
 the committed `.env.example` and `wrangler.example.jsonc`, where the repo and project are blank.
@@ -84,16 +85,18 @@ ignored entirely, existing mirror or milestone left as it is (F2); `isExcluded` 
 issue without one is never mirrored (R9). Plan (implemented, see its "As built" section):
 `docs/09-implementation-plan.md`.
 
-## Hierarchy (H1-H10, D1-D8; docs/10 and docs/11)
+## Hierarchy (H1-H10, D1-D8, N1-N2; docs/10 and docs/11)
 
-Epic -> milestone `[YT-n] <summary>`. User Story -> issue with type Feature, Bug -> issue with
+Epic -> milestone `[<project>-n] <summary>` (the epic's idReadable, N1). User Story -> issue with type Feature, Bug -> issue with
 type Bug, any other type -> issue with no type; these are always top-level (H9). Task -> issue
 with type Task, as a sub-issue of the mirror of its nearest non-epic ancestor that has one, or
 top-level if there is none. Every mirror gets the milestone of its nearest epic, if that epic
 has one (D1). Epics use the same exclude filter (F1, F3) and the same R9 rule as issues, and an
 excluded issue's mirror or milestone is never used as a parent or milestone. Every run
-syncs milestone, type and parent on all mirrors, open or closed (D8). Titles, bodies and
-milestone descriptions never change after creation, and nothing is reopened (D7). Only
+syncs title, milestone, type and parent on all mirrors, open or closed (D8), and the title of
+every milestone (N2). Bodies and milestone descriptions never change after creation, and
+nothing is reopened (D7) except a mirror closed by the `REOPEN_CLOSED_BY` login whose issue is
+unresolved again (R10; never a milestone). Only
 mirror-owned links are changed (D2) and a type is never cleared (D3). A child whose parent
 mirror or milestone is created in the same run waits for it and is capped if that create fails
 or waits itself (D4). Order: milestones, non-task creates, task creates by depth, syncs, closes.

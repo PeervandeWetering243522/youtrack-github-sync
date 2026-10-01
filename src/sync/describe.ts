@@ -1,97 +1,117 @@
 /**
  * How log lines describe planned actions, shared by the dry-run preview and the write phase
- * so both name an action alike. Numbers only; the dry-run preview appends the mirror title to
- * its two create lines (decision R3). A milestone or mirror that is not in the resolution map
- * yet is named "(new)": the dry run creates nothing, so one it would create earlier in the
- * run has no GitHub number (the write phase resolves every dependency before logging).
+ * so both name an action alike. YouTrack ids and GitHub numbers only; the dry-run preview
+ * appends the mirror title to its create and rename lines (decision R3). A milestone or
+ * mirror that is not in the resolution map yet is named "(new)": the dry run creates
+ * nothing, so one it would create earlier in the run has no GitHub number (the write phase
+ * resolves every dependency before logging).
  */
 
 import type { Action } from "../plan.ts";
+import type { YouTrackIssue } from "../youtrack.ts";
 import type { Resolved } from "./resolved.ts";
-import { mirrorName } from "./tally.ts";
+import { mirrorName, projectIssueName } from "./tally.ts";
 
 /** A planned `create` of an issue mirror. */
 export type CreateAction = Extract<Action, { readonly kind: "create" }>;
 /** A planned `close` of an open issue mirror. */
 export type CloseAction = Extract<Action, { readonly kind: "close" }>;
+/** A planned `reopen` of a closed issue mirror (R10). */
+export type ReopenAction = Extract<Action, { readonly kind: "reopen" }>;
+/** A planned `renameMilestone` of an epic milestone. */
+export type RenameMilestoneAction = Extract<Action, { readonly kind: "renameMilestone" }>;
 /** A planned `closeMilestone` of an open epic milestone. */
 export type CloseMilestoneAction = Extract<Action, { readonly kind: "closeMilestone" }>;
-/** A planned `update` of a mirror's milestone and/or type. */
+/** A planned `update` of a mirror's title, milestone and/or type. */
 export type UpdateAction = Extract<Action, { readonly kind: "update" }>;
 /** A planned `setParent` (move under another mirror). */
 export type SetParentAction = Extract<Action, { readonly kind: "setParent" }>;
 /** A planned `removeParent` (detach from the current mirror parent). */
 export type RemoveParentAction = Extract<Action, { readonly kind: "removeParent" }>;
 
-type MirrorAction = CloseAction | UpdateAction | SetParentAction | RemoveParentAction;
+type MirrorAction = CloseAction | ReopenAction | UpdateAction | SetParentAction | RemoveParentAction;
 
 const NOT_YET_NUMBERED = "(new)";
 
-function ytName(numberInProject: number): string {
-  return `YT-${String(numberInProject)}`;
+/** "CUI-33 #7" for issue `numberInProject` of `of`'s project, or "CUI-33 (new)" without a number. */
+function numbered(of: YouTrackIssue, numberInProject: number, githubNumber: number | undefined): string {
+  const number = githubNumber === undefined ? NOT_YET_NUMBERED : `#${String(githubNumber)}`;
+  return `${projectIssueName(of, numberInProject)} ${number}`;
 }
 
-function numbered(numberInProject: number, githubNumber: number | undefined): string {
-  return `${ytName(numberInProject)} ${githubNumber === undefined ? NOT_YET_NUMBERED : `#${String(githubNumber)}`}`;
+/** "CUI-33 #7": epic CUI-33 (of the project of `of`) and its milestone number, or "CUI-33 (new)". */
+export function milestoneName(resolved: Resolved, of: YouTrackIssue, epic: number): string {
+  return numbered(of, epic, resolved.milestones.get(epic));
 }
 
-/** "YT-33 #7": epic YT-33 and its milestone number, or "YT-33 (new)". */
-export function milestoneName(resolved: Resolved, epic: number): string {
-  return numbered(epic, resolved.milestones.get(epic));
+/** "CUI-35 #21": YouTrack issue CUI-35 (of the project of `of`) and its mirror's number, or "CUI-35 (new)". */
+export function issueName(resolved: Resolved, of: YouTrackIssue, numberInProject: number): string {
+  return numbered(of, numberInProject, resolved.issues.get(numberInProject)?.issueNumber);
 }
 
-/** "YT-35 #21": YouTrack issue YT-35 and its mirror's number, or "YT-35 (new)". */
-export function issueName(resolved: Resolved, numberInProject: number): string {
-  return numbered(numberInProject, resolved.issues.get(numberInProject)?.issueNumber);
-}
-
-/** "YT-40 #25": the action's YouTrack issue and its existing mirror. */
+/** "CUI-40 #25": the action's YouTrack issue and its existing mirror. */
 export function mirrorLabel(action: MirrorAction): string {
   return `${mirrorName(action.issue)} #${String(action.mirror.issueNumber)}`;
 }
 
 /**
  * What a create sets besides title, body and label: "" or e.g.
- * " with type Task, milestone YT-33 #7, parent YT-35 #21".
+ * " with type Task, milestone CUI-33 #7, parent CUI-35 #21".
  */
 export function createDetails(resolved: Resolved, action: CreateAction): string {
-  const { githubType, milestoneEpic, parentYt } = action;
+  const { issue, githubType, milestoneEpic, parentYt } = action;
   const parts = [
     ...(githubType === null ? [] : [`type ${githubType}`]),
-    ...(milestoneEpic === null ? [] : [`milestone ${milestoneName(resolved, milestoneEpic)}`]),
-    ...(parentYt === null ? [] : [`parent ${issueName(resolved, parentYt)}`]),
+    ...(milestoneEpic === null ? [] : [`milestone ${milestoneName(resolved, issue, milestoneEpic)}`]),
+    ...(parentYt === null ? [] : [`parent ${issueName(resolved, issue, parentYt)}`]),
   ];
   return parts.length === 0 ? "" : ` with ${parts.join(", ")}`;
 }
 
-/** "update YT-15 #21: set milestone YT-33 #7, set type Task" (or "...: clear milestone"). */
+/** "update CUI-15 #21: set title, set milestone CUI-33 #7, set type Task" (or "...: clear milestone"). */
 export function describeUpdate(resolved: Resolved, action: UpdateAction): string {
-  const { milestoneEpic, githubType } = action;
-  const milestone = milestoneEpic === undefined ? [] : [milestoneChange(resolved, milestoneEpic)];
+  const { title, milestoneEpic, githubType } = action;
+  const titleChange = title === undefined ? [] : ["set title"];
+  const milestone = milestoneEpic === undefined ? [] : [milestoneChange(resolved, action.issue, milestoneEpic)];
   const type = githubType === undefined ? [] : [`set type ${githubType}`];
-  return `update ${mirrorLabel(action)}: ${[...milestone, ...type].join(", ")}`;
+  return `update ${mirrorLabel(action)}: ${[...titleChange, ...milestone, ...type].join(", ")}`;
 }
 
-/** "move YT-40 #25 under YT-36 #22". */
+/** "move CUI-40 #25 under CUI-36 #22". */
 export function describeMove(resolved: Resolved, action: SetParentAction): string {
-  return `move ${mirrorLabel(action)} under ${issueName(resolved, action.parentYt)}`;
+  return `move ${mirrorLabel(action)} under ${issueName(resolved, action.issue, action.parentYt)}`;
 }
 
-/** "detach YT-40 #25 from parent YT-35 #21". */
+/** "detach CUI-40 #25 from parent CUI-35 #21". */
 export function describeDetach(action: RemoveParentAction): string {
-  return `detach ${mirrorLabel(action)} from parent ${numbered(action.parentYt, action.parentNumber)}`;
+  return `detach ${mirrorLabel(action)} from parent ${numbered(action.issue, action.parentYt, action.parentNumber)}`;
 }
 
-/** "close YT-3 #12". */
+/** "close CUI-3 #12". */
 export function describeClose(action: CloseAction): string {
   return `close ${mirrorLabel(action)}`;
 }
 
-/** "close milestone YT-33 #7". */
-export function describeCloseMilestone(action: CloseMilestoneAction): string {
-  return `close milestone ${numbered(action.issue.numberInProject, action.milestone.milestoneNumber)}`;
+/** "reopen CUI-3 #12". */
+export function describeReopen(action: ReopenAction): string {
+  return `reopen ${mirrorLabel(action)}`;
 }
 
-function milestoneChange(resolved: Resolved, epic: number | null): string {
-  return epic === null ? "clear milestone" : `set milestone ${milestoneName(resolved, epic)}`;
+/** "rename milestone CUI-33 #7". */
+export function describeRenameMilestone(action: RenameMilestoneAction): string {
+  return `rename milestone ${milestoneLabel(action)}`;
+}
+
+/** "close milestone CUI-33 #7". */
+export function describeCloseMilestone(action: CloseMilestoneAction): string {
+  return `close milestone ${milestoneLabel(action)}`;
+}
+
+/** "CUI-33 #7": the epic of a milestone action and its existing milestone. */
+function milestoneLabel(action: RenameMilestoneAction | CloseMilestoneAction): string {
+  return `${mirrorName(action.issue)} #${String(action.milestone.milestoneNumber)}`;
+}
+
+function milestoneChange(resolved: Resolved, of: YouTrackIssue, epic: number | null): string {
+  return epic === null ? "clear milestone" : `set milestone ${milestoneName(resolved, of, epic)}`;
 }

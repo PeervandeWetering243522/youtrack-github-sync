@@ -1,8 +1,8 @@
 /**
  * GitHub milestones (the mirrors of YouTrack epics, H1/H7): the typed milestone shape, the
- * paged list read, create and close. Milestones are never renamed, re-described or reopened
- * (D7). Types derive from @octokit/openapi-types. Writes are never called in DRY_RUN;
- * sync.ts enforces that.
+ * paged list read, create, rename and close. A milestone's title follows its epic (N2); it
+ * is never re-described or reopened (D7). Types derive from @octokit/openapi-types. Writes
+ * are never called in DRY_RUN; sync.ts enforces that.
  */
 
 import type { components, operations } from "@octokit/openapi-types";
@@ -86,6 +86,20 @@ export async function createMilestone(
     );
   }
   return parseGitHubMilestone(response.body);
+}
+
+/**
+ * PATCH /repos/{owner}/{repo}/milestones/{n} with {title} and nothing else. retry-once
+ * (idempotent). Throws RangeError before any request unless n is a positive safe integer.
+ */
+export async function renameMilestone(
+  http: HttpClient,
+  target: GitHubTarget,
+  milestoneNumber: number,
+  title: string,
+): Promise<void> {
+  const body = { title } satisfies UpdateMilestoneBody;
+  await http.request(githubRequest(target, "PATCH", milestoneUrl(target, milestoneNumber), "retry-once", body));
 }
 
 /**

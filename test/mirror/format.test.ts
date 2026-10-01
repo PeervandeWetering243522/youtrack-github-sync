@@ -20,12 +20,15 @@ import {
   makeIssue,
 } from "./fixtures.ts";
 
+/** The title prefix of makeIssue's CUI-7, with its separating space (N1). */
+const TITLE_PREFIX = "[CUI-7] ";
+
 describe("formatMirror", () => {
   it("formats title and body with a neutralised description", () => {
     const description = "Ping @bob about #12.\n\n```\n@keep #1\n```";
     const mirror = formatMirror(makeIssue({ description }), BASE_URL);
     assert.deepEqual(mirror, {
-      title: "[YT-7] [team] Fix it",
+      title: "[CUI-7] [team] Fix it",
       body: `Ping \`@bob\` about \`#12\`.\n\n\`\`\`\n@keep #1\n\`\`\`${SEPARATOR}${FOOTER}`,
       titleTruncated: false,
       bodyTruncated: false,
@@ -41,30 +44,38 @@ describe("formatMirror", () => {
   });
 
   it("trims the summary and drops the space when it is empty", () => {
-    assert.equal(formatMirror(makeIssue({ summary: "  [team] Fix  " }), BASE_URL).title, "[YT-7] [team] Fix");
-    assert.equal(formatMirror(makeIssue({ summary: "   " }), BASE_URL).title, "[YT-7]");
+    assert.equal(formatMirror(makeIssue({ summary: "  [team] Fix  " }), BASE_URL).title, "[CUI-7] [team] Fix");
+    assert.equal(formatMirror(makeIssue({ summary: "   " }), BASE_URL).title, "[CUI-7]");
+  });
+
+  it("names the title after the issue's idReadable as YouTrack spells it", () => {
+    for (const idReadable of ["CUI-24", "cui-24", "MY-PROJ-3"]) {
+      const mirror = formatMirror(makeIssue({ idReadable }), BASE_URL);
+      assert.equal(mirror.title, `[${idReadable}] [team] Fix it`, idReadable);
+    }
   });
 
   it("keeps a title of exactly MAX_TITLE_LENGTH", () => {
-    const mirror = formatMirror(makeIssue({ summary: "x".repeat(MAX_TITLE_LENGTH - 7) }), BASE_URL);
+    const mirror = formatMirror(makeIssue({ summary: "x".repeat(MAX_TITLE_LENGTH - TITLE_PREFIX.length) }), BASE_URL);
     assert.equal(mirror.title.length, MAX_TITLE_LENGTH);
     assert.equal(mirror.titleTruncated, false);
     assert.equal(mirror.body, FOOTER);
   });
 
   it("cuts a longer title, ends it with the ellipsis and notes it in the body", () => {
-    const summary = "x".repeat(MAX_TITLE_LENGTH - 6);
+    const summary = "x".repeat(MAX_TITLE_LENGTH - TITLE_PREFIX.length + 1);
     const mirror = formatMirror(makeIssue({ summary }), BASE_URL);
-    assert.equal(mirror.title, `[YT-7] ${summary}`.slice(0, MAX_TITLE_LENGTH - 1) + ELLIPSIS);
+    assert.equal(mirror.title, `${TITLE_PREFIX}${summary}`.slice(0, MAX_TITLE_LENGTH - 1) + ELLIPSIS);
     assert.equal(mirror.title.length, MAX_TITLE_LENGTH);
     assert.equal(mirror.titleTruncated, true);
     assert.equal(mirror.body, `${TITLE_HEAD}${FOOTER}`);
   });
 
   it("never splits a surrogate pair when cutting the title", () => {
-    const full = `[YT-7] ${"a".repeat(247)}😀b`;
-    const mirror = formatMirror(makeIssue({ summary: full.slice(7) }), BASE_URL);
-    assert.equal(mirror.title, full.slice(0, 254) + ELLIPSIS);
+    // The emoji straddles the cut: only its high surrogate would fit in front of the ellipsis.
+    const full = `${TITLE_PREFIX}${"a".repeat(MAX_TITLE_LENGTH - 2 - TITLE_PREFIX.length)}😀b`;
+    const mirror = formatMirror(makeIssue({ summary: full.slice(TITLE_PREFIX.length) }), BASE_URL);
+    assert.equal(mirror.title, full.slice(0, MAX_TITLE_LENGTH - 2) + ELLIPSIS);
     assert.doesNotMatch(mirror.title, LONE_SURROGATE);
   });
 

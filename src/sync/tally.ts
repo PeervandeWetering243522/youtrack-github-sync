@@ -12,7 +12,9 @@ export type StopReason = "fetch-guard" | "rate-limit";
 export type Tally = {
   readonly created: number;
   readonly closed: number;
-  /** Sync writes done: `update`, `setParent` and `removeParent` (docs/11 §1.7). */
+  /** Closed mirrors reopened because their YouTrack issue is unresolved again (R10). */
+  readonly reopened: number;
+  /** Sync writes done: `update`, `setParent`, `removeParent` and `renameMilestone` (docs/11 §1.7, N2). */
   readonly updated: number;
   readonly milestonesCreated: number;
   readonly milestonesClosed: number;
@@ -28,12 +30,13 @@ export type Tally = {
 };
 
 /** The counting fields of a Tally, one of which an action adds 1 to when it is done. */
-export type Counter = "created" | "closed" | "updated" | "milestonesCreated" | "milestonesClosed";
+export type Counter = "created" | "closed" | "reopened" | "updated" | "milestonesCreated" | "milestonesClosed";
 
 /** The empty Tally: nothing done, capped or failed. */
 export const NOTHING: Tally = {
   created: 0,
   closed: 0,
+  reopened: 0,
   updated: 0,
   milestonesCreated: 0,
   milestonesClosed: 0,
@@ -56,6 +59,7 @@ export function combine(a: Tally, b: Tally): Tally {
   return {
     created: a.created + b.created,
     closed: a.closed + b.closed,
+    reopened: a.reopened + b.reopened,
     updated: a.updated + b.updated,
     milestonesCreated: a.milestonesCreated + b.milestonesCreated,
     milestonesClosed: a.milestonesClosed + b.milestonesClosed,
@@ -66,7 +70,17 @@ export function combine(a: Tally, b: Tally): Tally {
   };
 }
 
-/** How issues are named in log lines; numbers only, like the mirror title prefix. */
+/** How issues are named in log lines: the YouTrack id ("CUI-15"), like the mirror title prefix (N1). */
 export function mirrorName(issue: YouTrackIssue): string {
-  return `YT-${String(issue.numberInProject)}`;
+  return issue.idReadable;
+}
+
+/**
+ * How log lines name issue `numberInProject` of the same project as `issue`, e.g. the epic
+ * or parent an action depends on: "CUI-33". Decision R4 guarantees that every scanned
+ * idReadable is `<project>-<numberInProject>`.
+ */
+export function projectIssueName(issue: YouTrackIssue, numberInProject: number): string {
+  const project = issue.idReadable.slice(0, issue.idReadable.lastIndexOf("-"));
+  return `${project}-${String(numberInProject)}`;
 }

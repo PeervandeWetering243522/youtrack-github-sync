@@ -8,9 +8,9 @@
 
 import { MIRROR_LABEL } from "../github/client.ts";
 import type { GitHubTarget } from "../github/client.ts";
-import { addLabel, closeIssue, createIssue, updateIssue } from "../github/issues.ts";
+import { addLabel, closeIssue, createIssue, reopenIssue, updateIssue } from "../github/issues.ts";
 import type { CreateIssueBody, GitHubIssue, IssueUpdate } from "../github/issues.ts";
-import { closeMilestone, createMilestone } from "../github/milestones.ts";
+import { closeMilestone, createMilestone, renameMilestone } from "../github/milestones.ts";
 import type { GitHubMilestone, NewMilestone } from "../github/milestones.ts";
 import { addSubIssue, removeSubIssue } from "../github/sub-issues.ts";
 import { FetchBudgetExceededError, HttpError } from "../http.ts";
@@ -31,14 +31,16 @@ export const WRITE_PAUSE_MS = 1_000;
 export type GitHubWriter = {
   readonly create: (body: CreateIssueBody) => Promise<GitHubIssue>;
   readonly close: (issueNumber: number) => Promise<void>;
+  readonly reopen: (issueNumber: number) => Promise<void>;
   readonly addLabel: (issueNumber: number) => Promise<void>;
-  /** PATCH milestone and/or type; resolves to the issue GitHub answered with. */
+  /** PATCH title, milestone and/or type; resolves to the issue GitHub answered with. */
   readonly update: (issueNumber: number, patch: IssueUpdate) => Promise<GitHubIssue>;
   /** Puts issue `childId` (REST id) under #parentNumber, replacing any current parent (replace_parent). */
   readonly addSubIssue: (parentNumber: number, childId: number) => Promise<void>;
   /** Takes issue `childId` (REST id) out from under #parentNumber. */
   readonly removeSubIssue: (parentNumber: number, childId: number) => Promise<void>;
   readonly createMilestone: (milestone: NewMilestone) => Promise<GitHubMilestone>;
+  readonly renameMilestone: (milestoneNumber: number, title: string) => Promise<void>;
   readonly closeMilestone: (milestoneNumber: number) => Promise<void>;
   /** Writes attempted so far; each one counts against MAX_WRITES_PER_RUN. */
   readonly count: () => number;
@@ -87,11 +89,13 @@ export function githubWriter(
   return {
     create: (body) => send(() => createIssue(http, target, body)),
     close: (issueNumber) => send(() => closeIssue(http, target, issueNumber)),
+    reopen: (issueNumber) => send(() => reopenIssue(http, target, issueNumber)),
     addLabel: (issueNumber) => send(() => addLabel(http, target, issueNumber, MIRROR_LABEL)),
     update: (issueNumber, patch) => send(() => updateIssue(http, target, issueNumber, patch)),
     addSubIssue: (parentNumber, childId) => send(() => addSubIssue(http, target, parentNumber, childId, true)),
     removeSubIssue: (parentNumber, childId) => send(() => removeSubIssue(http, target, parentNumber, childId)),
     createMilestone: (milestone) => send(() => createMilestone(http, target, milestone)),
+    renameMilestone: (milestoneNumber, title) => send(() => renameMilestone(http, target, milestoneNumber, title)),
     closeMilestone: (milestoneNumber) => send(() => closeMilestone(http, target, milestoneNumber)),
     count: () => writes,
   };

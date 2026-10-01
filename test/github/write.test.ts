@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { GitHubTarget } from "../../src/github/client.ts";
-import { addLabel, closeIssue, createIssue } from "../../src/github/issues.ts";
+import { addLabel, closeIssue, createIssue, reopenIssue } from "../../src/github/issues.ts";
 import type { CreateIssueBody } from "../../src/github/issues.ts";
 import {
   DEFAULT_ISSUE_ID,
   EXPECTED_HEADERS,
   ISSUES_URL,
-  NO_HIERARCHY,
+  NO_EXTRAS,
   TARGET,
   TOKEN,
   createFakeHttp,
@@ -67,7 +67,7 @@ describe("createIssue", () => {
       state: "open",
       labelNames: ["youtrack"],
       isPullRequest: false,
-      ...NO_HIERARCHY,
+      ...NO_EXTRAS,
     });
   });
 
@@ -336,6 +336,68 @@ describe("closeIssue", () => {
   it("refuses a dot-segment owner before sending the PATCH", async () => {
     const fake = createFakeHttp([{ body: null }]);
     await assert.rejects(closeIssue(fake.http, { owner: "..", repo: "r", token: TOKEN }, 4), RangeError);
+    assert.equal(fake.requests.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reopenIssue (R10)
+// ---------------------------------------------------------------------------
+
+describe("reopenIssue", () => {
+  it("PATCHes the issue with exactly state open / reopened and retry-once", async () => {
+    // Arrange
+    const fake = createFakeHttp([{ body: issueJson({ number: 7, state: "open" }) }]);
+
+    // Act
+    await reopenIssue(fake.http, TARGET, 7);
+
+    // Assert
+    assert.equal(fake.requests.length, 1);
+    const request = requestAt(fake.requests, 0);
+    assert.equal(request.method, "PATCH");
+    assert.equal(request.url, `${ISSUES_URL}/7`);
+    assert.deepEqual(request.headers, EXPECTED_HEADERS);
+    assert.equal(request.retry, "retry-once");
+    assert.deepEqual(request.body, { state: "open", state_reason: "reopened" });
+    assert.equal(JSON.stringify(request.body), '{"state":"open","state_reason":"reopened"}');
+  });
+
+  it("does not validate the PATCH response body", async () => {
+    const fake = createFakeHttp([{ body: null }]);
+    await reopenIssue(fake.http, TARGET, 7);
+    assert.equal(fake.requests.length, 1);
+  });
+
+  it("propagates an HttpError from the client", async () => {
+    const failure = httpError(410);
+    const fake = createFakeHttp([], failure);
+    await assert.rejects(reopenIssue(fake.http, TARGET, 7), (error: Error) => error === failure);
+  });
+
+  for (const issueNumber of [0, -0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+    it(`rejects issue number ${Object.is(issueNumber, -0) ? "-0" : String(issueNumber)} before sending anything`, async () => {
+      const fake = createFakeHttp([]);
+      await assert.rejects(reopenIssue(fake.http, TARGET, issueNumber), RangeError);
+      assert.equal(fake.requests.length, 0);
+    });
+  }
+
+  it("accepts the largest safe issue number", async () => {
+    const fake = createFakeHttp([{ body: null }]);
+    await reopenIssue(fake.http, TARGET, Number.MAX_SAFE_INTEGER);
+    assert.equal(requestAt(fake.requests, 0).url, `${ISSUES_URL}/9007199254740991`);
+  });
+
+  it("percent-encodes owner and repo in the PATCH URL", async () => {
+    const fake = createFakeHttp([{ body: null }]);
+    await reopenIssue(fake.http, { owner: "o w", repo: "r?x", token: TOKEN }, 4);
+    assert.equal(requestAt(fake.requests, 0).url, "https://api.github.com/repos/o%20w/r%3Fx/issues/4");
+  });
+
+  it("refuses a dot-segment repo before sending the PATCH", async () => {
+    const fake = createFakeHttp([{ body: null }]);
+    await assert.rejects(reopenIssue(fake.http, { owner: "o", repo: "..", token: TOKEN }, 4), RangeError);
     assert.equal(fake.requests.length, 0);
   });
 });

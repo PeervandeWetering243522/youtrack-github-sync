@@ -27,7 +27,10 @@ export type FormattedMirror = {
   readonly bodyTruncated: boolean;
 };
 
-const MIRROR_TITLE = /^\[YT-(\d+)\]/;
+/** `[<ID>-<n>]` at the start of a title: the ID part and the digits. */
+const MIRROR_TITLE = /^\[([A-Za-z0-9_-]+)-(\d+)\]/;
+/** The ID part of titles made before mirrors were named after the project (N1); still matched. */
+const LEGACY_TITLE_ID = "YT";
 const TITLE_NOTICE = "Title character limit hit, see the full YouTrack issue: ";
 const LINK_LINE = "Mirrored from YouTrack: ";
 const SEPARATOR = "\n\n---\n";
@@ -38,13 +41,28 @@ export function youtrackIssueUrl(baseUrl: string, idReadable: string): string {
   return `${baseUrl}/issue/${idReadable}`;
 }
 
-/** `^\[YT-(\d+)\]` -> numberInProject, else null. Positive safe integers only. */
-export function parseMirrorTitle(title: string): number | null {
-  const digits = MIRROR_TITLE.exec(title)?.[1];
-  if (digits === undefined) return null;
-  // Leading zeros are tolerated ("[YT-007]" -> 7); 0 and unsafe integers are not.
+/**
+ * `[<project>-<n>]` at the start of `title` -> n, else null (N1). The project is compared
+ * case-insensitively (ASCII only), as decision R4 compares idReadable; the legacy `[YT-<n>]`
+ * of older mirrors matches too, so they are found and renamed rather than duplicated.
+ * Positive safe integers only.
+ */
+export function parseMirrorTitle(title: string, project: string): number | null {
+  const match = MIRROR_TITLE.exec(title);
+  if (match === null) return null;
+  const [, id = "", digits = ""] = match;
+  if (id !== LEGACY_TITLE_ID && asciiLowerCase(id) !== asciiLowerCase(project)) return null;
+  // Leading zeros are tolerated ("[CUI-007]" -> 7); 0 and unsafe integers are not.
   const value = Number(digits);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * The mirror title of `issue`: `[<idReadable>] <summary>` (N1), cut as formatMirror cuts it.
+ * The sync compares it with a mirror's or milestone's current title on every run (N2).
+ */
+export function mirrorTitle(issue: Pick<YouTrackIssue, "idReadable" | "summary">): string {
+  return formatTitle(issue.idReadable, issue.summary).text;
 }
 
 /** Summary starts with `prefix`, case-insensitive, ignoring leading whitespace. */
@@ -65,8 +83,9 @@ export function neutraliseReferences(markdown: string): string {
 }
 
 /**
- * Title: `[YT-<n>] <summary>`, at most MAX_TITLE_LENGTH UTF-16 units, never
- * splitting a surrogate pair; when cut, ends with ELLIPSIS.
+ * Title: `[<idReadable>] <summary>` (N1, e.g. "[CUI-7] Fix login"), at most
+ * MAX_TITLE_LENGTH UTF-16 units, never splitting a surrogate pair; when cut, ends with
+ * ELLIPSIS. Only the title is kept in sync later (N2); the body never changes.
  *
  * Body (decisions A4, A9):
  *   [if title cut]  "Title character limit hit, see the full YouTrack issue: <url>\n\n"
@@ -83,7 +102,7 @@ export function neutraliseReferences(markdown: string): string {
  */
 export function formatMirror(issue: YouTrackIssue, youtrackBaseUrl: string): FormattedMirror {
   const url = youtrackIssueUrl(youtrackBaseUrl, issue.idReadable);
-  const title = formatTitle(issue.numberInProject, issue.summary);
+  const title = formatTitle(issue.idReadable, issue.summary);
   const head = title.truncated ? `${TITLE_NOTICE}${url}\n\n` : "";
   const body = formatBody(head, issue.description, url);
   return {
@@ -99,12 +118,17 @@ export function formatMirror(issue: YouTrackIssue, youtrackBaseUrl: string): For
 
 type Fitted = { readonly text: string; readonly truncated: boolean };
 
-function formatTitle(numberInProject: number, summary: string): Fitted {
-  const prefix = `[YT-${String(numberInProject)}]`;
+function formatTitle(idReadable: string, summary: string): Fitted {
+  const prefix = `[${idReadable}]`;
   const trimmed = summary.trim();
   const full = trimmed === "" ? prefix : `${prefix} ${trimmed}`;
   if (full.length <= MAX_TITLE_LENGTH) return { text: full, truncated: false };
   return { text: cutUtf16(full, MAX_TITLE_LENGTH - ELLIPSIS.length) + ELLIPSIS, truncated: true };
+}
+
+/** Lower-cases A-Z only, so no Unicode case mapping (e.g. U+212A KELVIN SIGN -> "k") can forge a match. */
+function asciiLowerCase(text: string): string {
+  return text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
 }
 
 function formatBody(head: string, description: string | null, url: string): Fitted {

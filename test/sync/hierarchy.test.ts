@@ -29,7 +29,7 @@ const EPIC = ytRow(33, { type: "Epic", summary: "[team] Epic 33" });
 const STORY = ytRow(35, { type: "User Story", summary: "[team] Story 35", parent: 33 });
 const TASK = ytRow(40, { type: "Task", summary: "[team] Task 40", parent: 35 });
 
-/** Fails the create of the issue whose mirror title starts with `prefix`, e.g. "[YT-35]". */
+/** Fails the create of the issue whose mirror title starts with `prefix`, e.g. "[CUI-35]". */
 const failCreateOf =
   (prefix: string): Override =>
   (call) =>
@@ -53,9 +53,9 @@ describe("runSync hierarchy creates", () => {
     assert.deepEqual(result, summary({ scanned: 3, created: 2, milestonesCreated: 1, fetches: 6 }));
     assert.deepEqual(messages(lines, "warn"), []);
     assert.deepEqual(messages(lines).slice(0, 3), [
-      "create milestone YT-33 -> #201",
-      "create YT-35 with type Feature, milestone YT-33 #201 -> #101",
-      "create YT-40 with type Task, milestone YT-33 #201, parent YT-35 #101 -> #102",
+      "create milestone CUI-33 -> #201",
+      "create CUI-35 with type Feature, milestone CUI-33 #201 -> #101",
+      "create CUI-40 with type Task, milestone CUI-33 #201, parent CUI-35 #101 -> #102",
     ]);
   });
 
@@ -69,7 +69,7 @@ describe("runSync hierarchy creates", () => {
     // Assert
     const milestone = bodyOf(calls.find((call) => call.method === "POST" && call.url.pathname === MILESTONES_PATH));
     assert.deepEqual(milestone, {
-      title: "[YT-33] [team] Epic 33",
+      title: "[CUI-33] [team] Epic 33",
       description: `Details of task 33\n\n---\nMirrored from YouTrack: ${YOUTRACK_BASE_URL}/issue/CUI-33`,
     });
   });
@@ -84,14 +84,14 @@ describe("runSync hierarchy creates", () => {
     // Assert
     const [story, task] = createBodies(calls);
     assert.deepEqual(story, {
-      title: "[YT-35] [team] Story 35",
+      title: "[CUI-35] [team] Story 35",
       body: `Details of task 35\n\n---\nMirrored from YouTrack: ${YOUTRACK_BASE_URL}/issue/CUI-35`,
       labels: [MIRROR_LABEL],
       milestone: 201,
       type: "Feature",
     });
     assert.deepEqual(task, {
-      title: "[YT-40] [team] Task 40",
+      title: "[CUI-40] [team] Task 40",
       body: `Details of task 40\n\n---\nMirrored from YouTrack: ${YOUTRACK_BASE_URL}/issue/CUI-40`,
       labels: [MIRROR_LABEL],
       milestone: 201,
@@ -103,8 +103,8 @@ describe("runSync hierarchy creates", () => {
   it("takes an existing milestone number and parent id from the reads", async () => {
     // Arrange
     const { deps, calls } = harness({
-      milestones: [ghMilestone(7, "[YT-33] [team] Epic 33")],
-      githubIssues: [ghIssue(21, "[YT-35] [team] Story 35", { type: "Feature", milestone: 7 })],
+      milestones: [ghMilestone(7, "[CUI-33] [team] Epic 33")],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Story 35", { type: "Feature", milestone: 7 })],
       youtrackRows: [EPIC, STORY, TASK],
     });
 
@@ -134,8 +134,8 @@ describe("runSync hierarchy creates", () => {
   it("warns once, with no extra write, when GitHub drops milestone, type and parent on create", async () => {
     // Arrange
     const { deps, calls, lines } = harness({
-      milestones: [ghMilestone(7, "[YT-33] [team] Epic 33")],
-      githubIssues: [ghIssue(21, "[YT-35] [team] Story 35", { type: "Feature", milestone: 7 })],
+      milestones: [ghMilestone(7, "[CUI-33] [team] Epic 33")],
+      githubIssues: [ghIssue(21, "[CUI-35] [team] Story 35", { type: "Feature", milestone: 7 })],
       youtrackRows: [EPIC, STORY, TASK],
       createDrops: ["milestone", "type", "parent_issue_id"],
     });
@@ -146,7 +146,7 @@ describe("runSync hierarchy creates", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.deepEqual(messages(lines, "warn"), [
-      "YT-40 #101: GitHub dropped milestone #7, type Task, parent #21 on create; the next run's sync repairs this",
+      "CUI-40 #101: GitHub dropped milestone #7, type Task, parent #21 on create; the next run's sync repairs this",
     ]);
     assert.equal(result.created, 1);
     assert.equal(result.failed, 0);
@@ -155,10 +155,10 @@ describe("runSync hierarchy creates", () => {
 
 describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
   it("caps a task, not fails it, when its parent's create fails, and runs the rest", async () => {
-    // Arrange: creates run YT-35, YT-50 (issues), then YT-40 (task).
+    // Arrange: creates run CUI-35, CUI-50 (issues), then CUI-40 (task).
     const { deps, calls, lines } = harness({
       youtrackRows: [ytRow(35, { type: "User Story" }), TASK, ytRow(50)],
-      override: failCreateOf("[YT-35]"),
+      override: failCreateOf("[CUI-35]"),
     });
 
     // Act
@@ -166,11 +166,13 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
 
     // Assert
     assert.ok(error instanceof SyncFailedError);
-    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-35] [team] Task 35", "[YT-50] [team] Task 50"]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-35] [team] Task 35", "[CUI-50] [team] Task 50"]);
     assert.equal(error.failures.length, 1);
-    assert.match(error.failures[0] ?? "", /^create YT-35 failed: POST .* -> HTTP 422/);
+    assert.match(error.failures[0] ?? "", /^create CUI-35 failed: POST .* -> HTTP 422/);
     assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, capped: 1, failed: 1, fetches: 5 }));
-    assert.deepEqual(messages(lines, "warn"), ["create YT-40 capped: the mirror of YT-35 was not created in this run"]);
+    assert.deepEqual(messages(lines, "warn"), [
+      "create CUI-40 capped: the mirror of CUI-35 was not created in this run",
+    ]);
   });
 
   it("caps the epic's story and the story's task when the milestone create fails", async () => {
@@ -183,11 +185,11 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
-    assert.match(error.failures[0] ?? "", /^create milestone YT-33 failed: POST .*\/milestones -> HTTP 422/);
+    assert.match(error.failures[0] ?? "", /^create milestone CUI-33 failed: POST .*\/milestones -> HTTP 422/);
     assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 4 }));
     assert.deepEqual(messages(lines, "warn"), [
-      "create YT-35 capped: the milestone of YT-33 was not created in this run",
-      "create YT-40 capped: the milestone of YT-33 was not created in this run",
+      "create CUI-35 capped: the milestone of CUI-33 was not created in this run",
+      "create CUI-40 capped: the milestone of CUI-33 was not created in this run",
     ]);
   });
 
@@ -205,7 +207,7 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.equal(writeCalls(calls).length, 1);
-    assert.match(error.failures[0] ?? "", /^create milestone YT-33 failed: POST .* failed: fetch failed/);
+    assert.match(error.failures[0] ?? "", /^create milestone CUI-33 failed: POST .* failed: fetch failed/);
   });
 
   it("stops on a rate-limited milestone create; what waits for it is capped by the stop", async () => {
@@ -244,10 +246,10 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
 });
 
 describe("runSync plan warnings", () => {
-  it("logs milestone duplicates and YouTrack parent cycles, numbers only", async () => {
+  it("logs milestone duplicates and YouTrack parent cycles, ids and numbers only", async () => {
     // Arrange
     const { deps, lines } = harness({
-      milestones: [ghMilestone(8, "[YT-33] [team] Epic 33"), ghMilestone(7, "[YT-33] copy")],
+      milestones: [ghMilestone(8, "[CUI-33] [team] Epic 33"), ghMilestone(7, "[CUI-33] copy")],
       youtrackRows: [EPIC, ytRow(60, { parent: 61, summary: "[team] secret 60" }), ytRow(61, { parent: 60 })],
     });
 
@@ -256,8 +258,8 @@ describe("runSync plan warnings", () => {
 
     // Assert
     assert.deepEqual(messages(lines, "warn"), [
-      "YT-33: 2 GitHub milestones match; using milestone #7, ignoring milestone #8",
-      "YT-61: parent chain loops back to YT-60",
+      "CUI-33: 2 GitHub milestones match; using milestone #7, ignoring milestone #8",
+      "CUI-61: parent chain loops back to CUI-60",
     ]);
     assert.ok(!messages(lines, "warn").some((line) => line.includes("secret")));
     assert.equal(messages(lines).at(-1), formatSummary(result, "ok"));

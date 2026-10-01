@@ -15,10 +15,11 @@ import {
   executeCloseMilestone,
   executeCreateMilestone,
   executeRemoveParent,
+  executeRenameMilestone,
   executeSetParent,
   executeUpdate,
 } from "./execute-hierarchy.ts";
-import { executeClose, executeCreate } from "./execute-issues.ts";
+import { executeClose, executeCreate, executeReopen } from "./execute-issues.ts";
 import type { Step, WriteContext } from "./execute-write.ts";
 import type { Resolved } from "./resolved.ts";
 import { combine, NOTHING } from "./tally.ts";
@@ -79,10 +80,14 @@ function executeAction(action: Action, context: WriteContext, resolved: Resolved
       return executeCreateMilestone(action.issue, context, resolved);
     case "create":
       return executeCreate(action, context, resolved);
+    case "renameMilestone":
+      return unchangedMap(resolved, executeRenameMilestone(action, context));
     case "closeMilestone":
       return unchangedMap(resolved, executeCloseMilestone(action, context));
     case "close":
       return unchangedMap(resolved, executeClose(action, context));
+    case "reopen":
+      return unchangedMap(resolved, executeReopen(action, context));
     case "update":
       return unchangedMap(resolved, executeUpdate(action, context, resolved));
     case "setParent":

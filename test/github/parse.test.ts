@@ -6,7 +6,7 @@ import { parseGitHubIssue } from "../../src/github/issues.ts";
 import type { GitHubIssue } from "../../src/github/issues.ts";
 import { parseJson } from "../../src/json.ts";
 import type { JsonObject, JsonValue } from "../../src/json.ts";
-import { issueJson, NO_HIERARCHY, schemaError, TARGET, withoutKey } from "./fixtures.ts";
+import { issueJson, NO_EXTRAS, NO_HIERARCHY, schemaError, TARGET, withoutKey } from "./fixtures.ts";
 
 /** parseGitHubIssue against the fixture repository. */
 function parse(value: JsonValue): GitHubIssue {
@@ -33,7 +33,7 @@ describe("parseGitHubIssue", () => {
       state: "open",
       labelNames: ["youtrack"],
       isPullRequest: false,
-      ...NO_HIERARCHY,
+      ...NO_EXTRAS,
     };
     assert.deepEqual(issue, expected);
   });
@@ -115,7 +115,8 @@ describe("parseGitHubIssue", () => {
     // Arrange: JSON.parse creates own "__proto__" properties; nothing may be read through them.
     const raw = parseJson(
       '{"id":1,"number":1,"title":"t","state":"open","labels":[{"__proto__":{"name":"youtrack"}}],' +
-        '"__proto__":{"pull_request":{},"milestone":{"number":3},"type":{"name":"Task"},"parent_issue_url":"x"}}',
+        '"__proto__":{"pull_request":{},"milestone":{"number":3},"type":{"name":"Task"},"parent_issue_url":"x",' +
+        '"closed_by":{"login":"github-actions[bot]"}}}',
     );
 
     // Act
@@ -126,6 +127,7 @@ describe("parseGitHubIssue", () => {
     assert.deepEqual(issue.labelNames, []);
     const { milestoneNumber, typeName, parentNumber, parentIsForeign } = issue;
     assert.deepEqual({ milestoneNumber, typeName, parentNumber, parentIsForeign }, NO_HIERARCHY);
+    assert.equal(issue.closedBy, null);
     const fresh: JsonObject = {};
     assert.equal(fresh["pull_request"], undefined);
   });

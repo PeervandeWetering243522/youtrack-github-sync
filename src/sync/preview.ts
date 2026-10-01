@@ -1,9 +1,10 @@
 /**
  * The dry-run preview (DRY_RUN on): one "[dry-run] would ..." line per planned action,
  * counted as the write phase counts a done one. It gets neither a writer nor an HTTP
- * client, so it cannot send anything. Lines carry numbers only, except the two create lines,
- * which end with the mirror title (decision R3). A milestone or mirror created earlier in
- * the run is named "(new)", since it has no GitHub number yet.
+ * client, so it cannot send anything. Lines carry ids and numbers only, except the create
+ * lines and the lines that set a title, which end with the mirror title (decision R3). A
+ * milestone or mirror created earlier in the run is named "(new)", since it has no GitHub
+ * number yet.
  */
 
 import { formatMirror } from "../mirror.ts";
@@ -14,6 +15,8 @@ import {
   describeCloseMilestone,
   describeDetach,
   describeMove,
+  describeRenameMilestone,
+  describeReopen,
   describeUpdate,
 } from "./describe.ts";
 import type { Logger } from "./log.ts";
@@ -50,6 +53,8 @@ function preview(action: Action, context: PreviewContext): { readonly text: stri
         text: `create milestone ${mirrorName(action.issue)}: ${title(action, context)}`,
         counter: "milestonesCreated",
       };
+    case "renameMilestone":
+      return { text: `${describeRenameMilestone(action)}: ${action.title}`, counter: "updated" };
     case "closeMilestone":
       return { text: describeCloseMilestone(action), counter: "milestonesClosed" };
     case "create": {
@@ -58,8 +63,12 @@ function preview(action: Action, context: PreviewContext): { readonly text: stri
     }
     case "close":
       return { text: describeClose(action), counter: "closed" };
-    case "update":
-      return { text: describeUpdate(resolved, action), counter: "updated" };
+    case "reopen":
+      return { text: describeReopen(action), counter: "reopened" };
+    case "update": {
+      const newTitle = action.title === undefined ? "" : `: ${action.title}`;
+      return { text: `${describeUpdate(resolved, action)}${newTitle}`, counter: "updated" };
+    }
     case "setParent":
       return { text: describeMove(resolved, action), counter: "updated" };
     case "removeParent":

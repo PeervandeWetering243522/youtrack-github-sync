@@ -33,7 +33,7 @@ import type { Override, World } from "./fixtures.ts";
 
 describe("runSync write cap", () => {
   it("sends the actions that fit, in order, then stops without a warning", async () => {
-    // Arrange: YT-1 and YT-2 fit in a cap of 2; YT-3 comes after them and waits.
+    // Arrange: CUI-1 and CUI-2 fit in a cap of 2; CUI-3 comes after them and waits.
     const { deps, calls, lines } = harness({ youtrackRows: [ytRow(1), ytRow(2), ytRow(3)] });
 
     // Act
@@ -41,7 +41,7 @@ describe("runSync write cap", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`]);
-    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-1] [team] Task 1", "[YT-2] [team] Task 2"]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-1] [team] Task 1", "[CUI-2] [team] Task 2"]);
     assert.equal(result.created, 2);
     assert.equal(result.capped, 1);
     assert.equal(result.failed, 0);
@@ -56,14 +56,14 @@ describe("runSync write cap", () => {
     const result = await runSync(config({ maxWritesPerRun: 1 }), deps);
 
     // Assert
-    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[YT-2] [team] Task 2"]);
+    assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-2] [team] Task 2"]);
     assert.deepEqual(result, summary({ scanned: 3, unchanged: 1, created: 1, capped: 1, fetches: 4 }));
   });
 
   it("creates before it closes under a cap of 1, even for a lower issue number (docs/11 §1.4)", async () => {
-    // Arrange: #50 is the open mirror of resolved YT-1; YT-2 needs a create.
+    // Arrange: #50 is the open mirror of resolved CUI-1; CUI-2 needs a create.
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(50, "[YT-1] [team] Task 1")],
+      githubIssues: [ghIssue(50, "[CUI-1] [team] Task 1")],
       youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2)],
     });
 
@@ -96,12 +96,12 @@ describe("runSync write cap", () => {
 
 describe("runSync write failures", () => {
   const failFirstCreate: Override = (call) =>
-    isCreate(call) && titleOf(call).startsWith("[YT-1]") ? json(422, { message: "Validation Failed" }) : undefined;
+    isCreate(call) && titleOf(call).startsWith("[CUI-1]") ? json(422, { message: "Validation Failed" }) : undefined;
 
   it("records a failed create, runs the rest, then throws", async () => {
     // Arrange
     const world: World = {
-      githubIssues: [ghIssue(12, "[YT-3] [team] Task 3")],
+      githubIssues: [ghIssue(12, "[CUI-3] [team] Task 3")],
       youtrackRows: [ytRow(1), ytRow(2), ytRow(3, { resolved: RESOLVED_AT })],
       override: failFirstCreate,
     };
@@ -114,7 +114,7 @@ describe("runSync write failures", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
     assert.equal(error.failures.length, 1);
-    assert.match(error.failures[0] ?? "", /^create YT-1 failed: POST https:\/\/api\.github\.com\/.* -> HTTP 422/);
+    assert.match(error.failures[0] ?? "", /^create CUI-1 failed: POST https:\/\/api\.github\.com\/.* -> HTTP 422/);
     assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, closed: 1, failed: 1, fetches: 6 }));
   });
 
@@ -128,14 +128,14 @@ describe("runSync write failures", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(error.summary, "failed") });
-    assert.match(messages(lines, "error")[0] ?? "", /^create YT-1 failed: /);
-    assert.ok(messages(lines, "info").includes("create YT-2 -> #101"));
+    assert.match(messages(lines, "error")[0] ?? "", /^create CUI-1 failed: /);
+    assert.ok(messages(lines, "info").includes("create CUI-2 -> #101"));
   });
 
   it("records a failed close and continues", async () => {
     // Arrange
     const { deps, calls } = harness({
-      githubIssues: [ghIssue(12, "[YT-1] [team] Task 1"), ghIssue(13, "[YT-2] [team] Task 2")],
+      githubIssues: [ghIssue(12, "[CUI-1] [team] Task 1"), ghIssue(13, "[CUI-2] [team] Task 2")],
       youtrackRows: [ytRow(1, { resolved: RESOLVED_AT }), ytRow(2, { resolved: RESOLVED_AT })],
       override: (call) => (call.url.pathname.endsWith("/12") ? json(404, { message: "Not Found" }) : undefined),
     });
@@ -145,7 +145,7 @@ describe("runSync write failures", () => {
 
     // Assert
     assert.ok(error instanceof SyncFailedError);
-    assert.match(error.failures[0] ?? "", /^close YT-1 #12 failed: PATCH .* -> HTTP 404/);
+    assert.match(error.failures[0] ?? "", /^close CUI-1 #12 failed: PATCH .* -> HTTP 404/);
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`, `PATCH ${ISSUES_PATH}/13`]);
     assert.equal(error.summary.closed, 1);
   });
@@ -163,13 +163,13 @@ describe("runSync write failures", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.equal(calls.filter(isCreate).length, 1);
-    assert.match(error.failures[0] ?? "", /^create YT-1 failed: POST .* failed: fetch failed/);
+    assert.match(error.failures[0] ?? "", /^create CUI-1 failed: POST .* failed: fetch failed/);
   });
 
   it("retries a close once after a 5xx and counts it as done", async () => {
     // Arrange
     const { deps, calls, sleeps } = harness({
-      githubIssues: [ghIssue(12, "[YT-1] [team] Task 1")],
+      githubIssues: [ghIssue(12, "[CUI-1] [team] Task 1")],
       youtrackRows: [ytRow(1, { resolved: RESOLVED_AT })],
       override: (call, attempt) =>
         call.method === "PATCH" && attempt === 0 ? json(503, { message: "busy" }) : undefined,
@@ -228,7 +228,7 @@ describe("runSync read failures", () => {
 
   it("rethrows a GitHub milestone that is not shaped like one", async () => {
     // Arrange
-    const { deps, calls } = harness({ ...MIXED_WORLD, milestones: [{ number: 1, title: "[YT-1] x", state: "gone" }] });
+    const { deps, calls } = harness({ ...MIXED_WORLD, milestones: [{ number: 1, title: "[CUI-1] x", state: "gone" }] });
 
     // Act
     const error = await rejection(runSync(config(), deps));
@@ -282,7 +282,7 @@ describe("runSync secrets", () => {
   const leakyWorld: World = {
     youtrackRows: [ytRow(1, { summary: `[team] leaked ${GITHUB_TOKEN}` }), ytRow(2)],
     override: (call) =>
-      isCreate(call) && titleOf(call).startsWith("[YT-2]")
+      isCreate(call) && titleOf(call).startsWith("[CUI-2]")
         ? json(422, { message: `bad ${YOUTRACK_TOKEN} and ${GITHUB_TOKEN}` })
         : undefined,
   };
@@ -316,7 +316,7 @@ describe("runSync secrets", () => {
 
     // Assert
     assertNoTokens(messages(lines));
-    assert.ok(messages(lines).includes("[dry-run] would create YT-1: [YT-1] [team] leaked [redacted]"));
+    assert.ok(messages(lines).includes("[dry-run] would create CUI-1: [CUI-1] [team] leaked [redacted]"));
   });
 
   it("never logs a token when a read fails", async () => {

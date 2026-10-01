@@ -32,8 +32,8 @@ export type GitHubTypeName = "Feature" | "Bug" | "Task";
 /** The YouTrack `Type` value names that have a mapping (H1). Matched exactly and case-sensitively. */
 export const YOUTRACK_TYPES = { epic: "Epic", userStory: "User Story", bug: "Bug", task: "Task" } as const;
 
-/** One parent cycle: `closer`'s parent link returns to `lowest`, the cycle's lowest numberInProject. */
-type CycleLink = { readonly closer: number; readonly lowest: number };
+/** One parent cycle: `closer`'s parent link returns to `lowest`, the cycle's lowest-numbered issue. */
+type CycleLink = { readonly closer: YouTrackIssue; readonly lowest: YouTrackIssue };
 
 /**
  * The scanned issues indexed for parent walks. Build it with buildHierarchy and read
@@ -151,13 +151,13 @@ export function depth(hierarchy: Hierarchy, issue: YouTrackIssue): number {
 
 /**
  * One warning per parent cycle, ascending by its lowest issue number:
- * "YT-<n>: parent chain loops back to YT-<m>", where YT-<m> is the lowest-numbered issue
- * on the cycle and YT-<n> the issue whose parent link returns to it (the same issue for a
- * self-parent). Numbers only, never issue text.
+ * "CUI-<n>: parent chain loops back to CUI-<m>", where CUI-<m> is the lowest-numbered issue
+ * on the cycle and CUI-<n> the issue whose parent link returns to it (the same issue for a
+ * self-parent). YouTrack ids only, never issue text.
  */
 export function hierarchyWarnings(hierarchy: Hierarchy): readonly string[] {
   return hierarchy.cycles.map(
-    ({ closer, lowest }) => `YT-${String(closer)}: parent chain loops back to YT-${String(lowest)}`,
+    ({ closer, lowest }) => `${closer.idReadable}: parent chain loops back to ${lowest.idReadable}`,
   );
 }
 
@@ -263,7 +263,7 @@ function findCycles(
     for (const issue of path) done.add(issue);
     if (cycle !== null) cycles.push(cycle);
   }
-  return cycles.sort((a, b) => a.lowest - b.lowest);
+  return cycles.sort((a, b) => a.lowest.numberInProject - b.lowest.numberInProject);
 }
 
 /**
@@ -305,5 +305,5 @@ function toCycle(members: readonly YouTrackIssue[], entry: YouTrackIssue, last: 
     }
     previous = issue;
   }
-  return { members, closer: closer.numberInProject, lowest: low.numberInProject };
+  return { members, closer, lowest: low };
 }

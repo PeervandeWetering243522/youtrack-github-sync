@@ -167,7 +167,7 @@ describe("planActions: inherited exclusion (F3)", () => {
   it("filters a task without the prefix under an excluded story, and counts it as filtered", () => {
     const issues = [epic(1), story(2, { ...under(1), ...FILTERED }), task(3, under(2))];
 
-    const result = plan(issues, { milestones: milestoneIndex(ghMilestone(3, "[YT-1] Epic")) });
+    const result = plan(issues, { milestones: milestoneIndex(ghMilestone(3, "[CUI-1] Issue 1")) });
 
     assert.deepEqual(result.actions, []);
     assert.deepEqual(counts(result), { scanned: 3, filtered: 2, unchanged: 1, capped: 0 });
@@ -185,6 +185,7 @@ describe("planActions: inherited exclusion (F3)", () => {
   });
 
   it("never closes the milestone or mirrors of an excluded tree once it is resolved (F2)", () => {
+    // The milestone's legacy title is outdated too, and is not renamed either.
     const issues = [epic(1, { ...FILTERED, ...RESOLVED }), story(2, { ...under(1), ...RESOLVED }), task(3, under(2))];
     const index = mirrors([2, mirror(12)], [3, mirror(13, { typeName: "Task" })]);
 
@@ -211,8 +212,8 @@ describe("planActions: inherited exclusion (F3)", () => {
     assert.deepEqual(describeActions(result.actions), ["create 6 type=Feature", "create 7 type=Feature"]);
     assert.deepEqual(counts(result), { scanned: 5, filtered: 3, unchanged: 0, capped: 0 });
     assert.deepEqual(result.warnings, [
-      "YT-4: parent chain loops back to YT-3",
-      "YT-7: parent chain loops back to YT-6",
+      "CUI-4: parent chain loops back to CUI-3",
+      "CUI-7: parent chain loops back to CUI-6",
     ]);
   });
 

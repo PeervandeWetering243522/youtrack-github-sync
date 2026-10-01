@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { formatSummary, runSync } from "../../src/sync.ts";
 import {
+  bodiesOf,
   config,
   createBodies,
   ghIssue,
@@ -21,29 +22,32 @@ import {
 import type { World } from "./fixtures.ts";
 
 /**
- * One world that needs every action kind (docs/11 §1.3), in execution order (§1.4):
- * YT-33 resolved epic, open milestone #7      -> closeMilestone
- * YT-34 new epic                              -> createMilestone (#201 in a real run)
- * YT-35 new story under YT-34                 -> create, Feature, milestone of YT-34 (#101)
- * YT-40 new task under YT-35                  -> create, Task, milestone of YT-34, parent YT-35 (#102)
- * YT-41 task #25 top-level, under YT-36 (#22) -> setParent
- * YT-42 task #26 under #22, no parent now     -> removeParent
- * YT-43 bug #27 under YT-33, no milestone     -> update: milestone #7, type Bug
- * YT-45 story #29 under YT-34                 -> update: milestone of YT-34
- * YT-46 task #30 top-level, under YT-35       -> update: milestone of YT-34, then setParent
- * YT-44 resolved story, open mirror #28       -> close
- * YT-36 story #22                             -> unchanged
+ * One world that needs every action kind except reopen (R10, covered by test/sync/reopen.test.ts)
+ * (docs/11 §1.3, N2), in execution order (§1.4):
+ * CUI-33 resolved epic, open milestone #7 with a  -> renameMilestone, then closeMilestone
+ *        legacy [YT-33] title
+ * CUI-34 new epic                                 -> createMilestone (#201 in a real run)
+ * CUI-35 new story under CUI-34                   -> create, Feature, milestone of CUI-34 (#101)
+ * CUI-40 new task under CUI-35                    -> create, Task, milestone of CUI-34, parent CUI-35 (#102)
+ * CUI-41 task #25 top-level, under CUI-36 (#22)   -> setParent
+ * CUI-42 task #26 under #22, no parent now        -> removeParent
+ * CUI-43 bug #27 under CUI-33, no milestone, a    -> update: title, milestone #7, type Bug
+ *        legacy [YT-43] title
+ * CUI-45 story #29 under CUI-34                   -> update: milestone of CUI-34
+ * CUI-46 task #30 top-level, under CUI-35         -> update: milestone of CUI-34, then setParent
+ * CUI-44 resolved story, open mirror #28          -> close
+ * CUI-36 story #22                                -> unchanged
  */
 const EVERY_KIND: World = {
   milestones: [ghMilestone(7, "[YT-33] [team] Epic 33")],
   githubIssues: [
-    ghIssue(22, "[YT-36] [team] Task 36", { type: "Feature" }),
-    ghIssue(25, "[YT-41] [team] Task 41", { type: "Task" }),
-    ghIssue(26, "[YT-42] [team] Task 42", { type: "Task", parent: 22 }),
+    ghIssue(22, "[CUI-36] [team] Task 36", { type: "Feature" }),
+    ghIssue(25, "[CUI-41] [team] Task 41", { type: "Task" }),
+    ghIssue(26, "[CUI-42] [team] Task 42", { type: "Task", parent: 22 }),
     ghIssue(27, "[YT-43] [team] Task 43"),
-    ghIssue(28, "[YT-44] [team] Task 44", { type: "Feature" }),
-    ghIssue(29, "[YT-45] [team] Task 45", { type: "Feature" }),
-    ghIssue(30, "[YT-46] [team] Task 46", { type: "Task" }),
+    ghIssue(28, "[CUI-44] [team] Task 44", { type: "Feature" }),
+    ghIssue(29, "[CUI-45] [team] Task 45", { type: "Feature" }),
+    ghIssue(30, "[CUI-46] [team] Task 46", { type: "Task" }),
   ],
   youtrackRows: [
     ytRow(33, { type: "Epic", summary: "[team] Epic 33", resolved: RESOLVED_AT }),
@@ -64,14 +68,14 @@ const COUNTS = {
   scanned: 11,
   created: 2,
   closed: 1,
-  updated: 6,
+  updated: 7,
   milestonesCreated: 1,
   milestonesClosed: 1,
   unchanged: 1,
 } as const;
 
 describe("runSync hierarchy, dry run", () => {
-  it("previews every action kind in execution order, with titles for creates only", async () => {
+  it("previews every action kind but reopen in execution order, with titles for creates and title changes only", async () => {
     // Arrange
     const { deps, lines } = harness(EVERY_KIND);
 
@@ -80,17 +84,18 @@ describe("runSync hierarchy, dry run", () => {
 
     // Assert: a milestone or mirror created in this run has no GitHub number yet ("(new)").
     assert.deepEqual(messages(lines), [
-      "[dry-run] would close milestone YT-33 #7",
-      "[dry-run] would create milestone YT-34: [YT-34] [team] Epic 34",
-      "[dry-run] would create YT-35 with type Feature, milestone YT-34 (new): [YT-35] [team] Task 35",
-      "[dry-run] would create YT-40 with type Task, milestone YT-34 (new), parent YT-35 (new): [YT-40] [team] Task 40",
-      "[dry-run] would move YT-41 #25 under YT-36 #22",
-      "[dry-run] would detach YT-42 #26 from parent YT-36 #22",
-      "[dry-run] would update YT-43 #27: set milestone YT-33 #7, set type Bug",
-      "[dry-run] would update YT-45 #29: set milestone YT-34 (new)",
-      "[dry-run] would update YT-46 #30: set milestone YT-34 (new)",
-      "[dry-run] would move YT-46 #30 under YT-35 (new)",
-      "[dry-run] would close YT-44 #28",
+      "[dry-run] would rename milestone CUI-33 #7: [CUI-33] [team] Epic 33",
+      "[dry-run] would close milestone CUI-33 #7",
+      "[dry-run] would create milestone CUI-34: [CUI-34] [team] Epic 34",
+      "[dry-run] would create CUI-35 with type Feature, milestone CUI-34 (new): [CUI-35] [team] Task 35",
+      "[dry-run] would create CUI-40 with type Task, milestone CUI-34 (new), parent CUI-35 (new): [CUI-40] [team] Task 40",
+      "[dry-run] would move CUI-41 #25 under CUI-36 #22",
+      "[dry-run] would detach CUI-42 #26 from parent CUI-36 #22",
+      "[dry-run] would update CUI-43 #27: set title, set milestone CUI-33 #7, set type Bug: [CUI-43] [team] Task 43",
+      "[dry-run] would update CUI-45 #29: set milestone CUI-34 (new)",
+      "[dry-run] would update CUI-46 #30: set milestone CUI-34 (new)",
+      "[dry-run] would move CUI-46 #30 under CUI-35 (new)",
+      "[dry-run] would close CUI-44 #28",
       formatSummary(result, "ok"),
     ]);
   });
@@ -120,7 +125,7 @@ describe("runSync hierarchy, dry run", () => {
     assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 3 }));
     assert.equal(
       messages(lines).at(-1),
-      "yt-gh-sync ok scanned=11 created=2 closed=1 updated=6 milestonesCreated=1 milestonesClosed=1 skipped=1 capped=0 failed=0 filtered=0 unchanged=1 labelsReAdded=0 fetches=3 dryRun=true",
+      "yt-gh-sync ok scanned=11 created=2 closed=1 reopened=0 updated=7 milestonesCreated=1 milestonesClosed=1 skipped=1 capped=0 failed=0 filtered=0 unchanged=1 labelsReAdded=0 fetches=3 dryRun=true",
     );
   });
 });
@@ -136,6 +141,7 @@ describe("runSync hierarchy, writes enabled", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [
       `PATCH ${MILESTONES_PATH}/7`,
+      `PATCH ${MILESTONES_PATH}/7`,
       `POST ${MILESTONES_PATH}`,
       `POST ${ISSUES_PATH}`,
       `POST ${ISSUES_PATH}`,
@@ -147,7 +153,7 @@ describe("runSync hierarchy, writes enabled", () => {
       `POST ${ISSUES_PATH}/101/sub_issues`,
       `PATCH ${ISSUES_PATH}/28`,
     ]);
-    assert.deepEqual(result, summary({ ...COUNTS, fetches: 14 }));
+    assert.deepEqual(result, summary({ ...COUNTS, fetches: 15 }));
   });
 
   it("links same-run creates by the numbers and ids GitHub answered with", async () => {
@@ -180,14 +186,21 @@ describe("runSync hierarchy, writes enabled", () => {
     // Act
     await runSync(config(), deps);
 
-    // Assert
-    assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { state: "closed" });
+    // Assert: milestone #7 is renamed, then closed, each with its own PATCH.
+    assert.deepEqual(bodiesOf(calls, "PATCH", `${MILESTONES_PATH}/7`), [
+      { title: "[CUI-33] [team] Epic 33" },
+      { state: "closed" },
+    ]);
     assert.deepEqual(onlyBody(calls, "POST", `${ISSUES_PATH}/22/sub_issues`), {
       sub_issue_id: issueId(25),
       replace_parent: true,
     });
     assert.deepEqual(onlyBody(calls, "DELETE", `${ISSUES_PATH}/22/sub_issue`), { sub_issue_id: issueId(26) });
-    assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/27`), { milestone: 7, type: "Bug" });
+    assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/27`), {
+      title: "[CUI-43] [team] Task 43",
+      milestone: 7,
+      type: "Bug",
+    });
   });
 
   it("logs one line per write with the resolved numbers, then the ok summary", async () => {
@@ -199,17 +212,18 @@ describe("runSync hierarchy, writes enabled", () => {
 
     // Assert
     assert.deepEqual(messages(lines), [
-      "close milestone YT-33 #7",
-      "create milestone YT-34 -> #201",
-      "create YT-35 with type Feature, milestone YT-34 #201 -> #101",
-      "create YT-40 with type Task, milestone YT-34 #201, parent YT-35 #101 -> #102",
-      "move YT-41 #25 under YT-36 #22",
-      "detach YT-42 #26 from parent YT-36 #22",
-      "update YT-43 #27: set milestone YT-33 #7, set type Bug",
-      "update YT-45 #29: set milestone YT-34 #201",
-      "update YT-46 #30: set milestone YT-34 #201",
-      "move YT-46 #30 under YT-35 #101",
-      "close YT-44 #28",
+      "rename milestone CUI-33 #7",
+      "close milestone CUI-33 #7",
+      "create milestone CUI-34 -> #201",
+      "create CUI-35 with type Feature, milestone CUI-34 #201 -> #101",
+      "create CUI-40 with type Task, milestone CUI-34 #201, parent CUI-35 #101 -> #102",
+      "move CUI-41 #25 under CUI-36 #22",
+      "detach CUI-42 #26 from parent CUI-36 #22",
+      "update CUI-43 #27: set title, set milestone CUI-33 #7, set type Bug",
+      "update CUI-45 #29: set milestone CUI-34 #201",
+      "update CUI-46 #30: set milestone CUI-34 #201",
+      "move CUI-46 #30 under CUI-35 #101",
+      "close CUI-44 #28",
       formatSummary(result, "ok"),
     ]);
   });

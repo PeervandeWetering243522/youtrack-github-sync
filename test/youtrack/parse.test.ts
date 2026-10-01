@@ -257,7 +257,7 @@ describe("parseYouTrackIssue", () => {
     }
   });
 
-  // [YT-0] / [YT--3] titles are never read back by parseMirrorTitle (positive only),
+  // [CUI-0] / [CUI--3] titles are never read back by parseMirrorTitle (positive only),
   // so accepting these would create a new duplicate mirror on every run.
   const nonPositiveNumbers: readonly { readonly label: string; readonly value: number }[] = [
     { label: "0", value: 0 },

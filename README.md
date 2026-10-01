@@ -1,10 +1,10 @@
 # youtrack-gh
 
 A read-only, one-way mirror from a YouTrack project to GitHub issues. Every 10 minutes it reads
-the whole project and keeps a matching `[YT-<n>]` issue in a GitHub repo for each YouTrack issue,
-and a milestone for each epic. It creates a mirror for every open issue, closes the mirror once the
-issue is resolved, and keeps each mirror's milestone, issue type and parent in step with YouTrack.
-It never writes to YouTrack.
+the whole project and keeps a matching issue in a GitHub repo for each YouTrack issue, titled
+with its YouTrack ID (`[ABC-12] Fix login`), and a milestone for each epic. It creates a mirror
+for every open issue, closes the mirror once the issue is resolved, and keeps each mirror's
+title, milestone, issue type and parent in step with YouTrack. It never writes to YouTrack.
 
 You can run it for your own group's YouTrack project and GitHub repo: both come from settings,
 which you fill in in [step 3](#3-fill-in-env) (for local runs) and
@@ -21,7 +21,7 @@ as a plain Node script, for local dry runs and for a Debian/systemd host in plac
 > [!WARNING]
 > **Run only one copy per GitHub repo.** Agree within your group who runs the mirror. A second
 > copy (another Worker, a systemd timer, or a Node run with `DRY_RUN=false`) against the same
-> repo can race the first and create duplicate `[YT-n]` issues. Dry runs are always safe: they
+> repo can race the first and create duplicate mirror issues. Dry runs are always safe: they
 > only read.
 
 ## Contents
@@ -138,12 +138,12 @@ With `DRY_RUN=true` this reads GitHub and YouTrack and logs one `[dry-run] would
 write it would make, then a summary line. It sends no GitHub write:
 
 ```text
-[dry-run] would create milestone YT-40: [YT-40] Data pipeline
-[dry-run] would create YT-41 with type Feature, milestone YT-40 (new): [YT-41] Ingest the data
-[dry-run] would create YT-42 with type Task, milestone YT-40 (new), parent YT-41 (new): [YT-42] Clean the data
-[dry-run] would update YT-15 #21: set type Task
-[dry-run] would close YT-3 #12
-yt-gh-sync ok scanned=40 created=2 closed=1 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=3 dryRun=true
+[dry-run] would create milestone ABC-40: [ABC-40] Data pipeline
+[dry-run] would create ABC-41 with type Feature, milestone ABC-40 (new): [ABC-41] Ingest the data
+[dry-run] would create ABC-42 with type Task, milestone ABC-40 (new), parent ABC-41 (new): [ABC-42] Clean the data
+[dry-run] would update ABC-15 #21: set title, set type Task: [ABC-15] Write the parser
+[dry-run] would close ABC-3 #12
+yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=3 dryRun=true
 ```
 
 Check that `scanned` matches the number of issues in the project, and that the planned writes
@@ -151,6 +151,10 @@ are what you expect. The dry run shows exactly what the next real run would do, 
 included. On a new repo that means one create per open issue and epic that is not excluded, up to
 `MAX_WRITES_PER_RUN` (30); the rest show up as `capped` and are created by later runs, 10
 minutes apart. If the run fails, see [Troubleshooting](#troubleshooting).
+
+Upgrading from a version that titled mirrors `[YT-<n>]`: the first run renames every mirror and
+milestone to `[<PROJECT>-<n>]`, one write each (decisions N1, N2), so it may take a few runs.
+Nothing is duplicated.
 
 ### 6. Deploy the Worker
 
@@ -197,18 +201,19 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 
 ## Troubleshooting
 
-| Symptom                                                           | Likely cause                                                                                                                                                        |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ConfigError: Invalid configuration: ...`                         | A setting is missing or invalid. The message lists every problem. For `npm run sync`, the three required vars must be in `.env`; it does not read `wrangler.jsonc`. |
-| GitHub answers 401                                                | The GitHub token is wrong or has expired.                                                                                                                           |
-| GitHub answers 403 and mentions SAML                              | The token is not authorized for the organization's single sign-on (step 2).                                                                                         |
-| GitHub answers 404 for the repo                                   | A private repo answers 404, not 403, when the token is wrong or expired, or its account has no access. Check `GITHUB_REPO` too.                                     |
-| YouTrack answers 401 `Invalid token`                              | The YouTrack token is wrong or was revoked.                                                                                                                         |
-| YouTrack answers 400 `invalid_query`                              | `YOUTRACK_PROJECT` is not a project the token's account can see.                                                                                                    |
-| `scanned` is lower than the number of issues in the project       | The token's account cannot see some issues (visibility restrictions).                                                                                               |
-| `GitHub dropped ... on create` warnings, or `label YT-n #m` lines | The token's account lacks the Write role, or the organization lacks an issue type. The next run tries again.                                                        |
-| Duplicate `[YT-n]` issues                                         | Two copies are running against one repo, or someone edited a mirror's `[YT-n]` title so it no longer matches.                                                       |
-| Nothing in Cron Events or `wrangler tail` after a deploy          | A new cron can take up to 15 minutes to start firing.                                                                                                               |
+| Symptom                                                     | Likely cause                                                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ConfigError: Invalid configuration: ...`                   | A setting is missing or invalid. The message lists every problem. For `npm run sync`, the three required vars must be in `.env`; it does not read `wrangler.jsonc`. |
+| GitHub answers 401                                          | The GitHub token is wrong or has expired.                                                                                                                           |
+| GitHub answers 403 and mentions SAML                        | The token is not authorized for the organization's single sign-on (step 2).                                                                                         |
+| GitHub answers 404 for the repo                             | A private repo answers 404, not 403, when the token is wrong or expired, or its account has no access. Check `GITHUB_REPO` too.                                     |
+| YouTrack answers 401 `Invalid token`                        | The YouTrack token is wrong or was revoked.                                                                                                                         |
+| YouTrack answers 400 `invalid_query`                        | `YOUTRACK_PROJECT` is not a project the token's account can see.                                                                                                    |
+| `scanned` is lower than the number of issues in the project | The token's account cannot see some issues (visibility restrictions).                                                                                               |
+| `GitHub dropped ...` warnings, or `label ABC-n #m` lines    | The token's account lacks the Write role, or the organization lacks an issue type. The next run tries again.                                                        |
+| `GitHub dropped the title on update` on every run           | GitHub stored another title than the one sent. Each run spends a write on it; please report the YouTrack summary.                                                   |
+| Duplicate mirror issues                                     | Two copies are running against one repo, or someone edited a mirror's `[ABC-n]` prefix so it no longer matches.                                                     |
+| Nothing in Cron Events or `wrangler tail` after a deploy    | A new cron can take up to 15 minutes to start firing.                                                                                                               |
 
 ## How it works
 
@@ -217,13 +222,15 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
 ### What a run does
 
 1. **Lists every GitHub issue** in the repo (`state=all`, no label filter), dropping pull
-   requests. An issue whose title starts with `[YT-<n>]` is the mirror of YouTrack issue `n`.
-   One with the `youtrack` label wins. A title match without the label still counts as the
-   mirror, and a warning is logged. If several issues match, the lowest number wins (warning).
-   For each mirror it keeps the REST `id`, milestone, issue type and parent.
+   requests. An issue whose title starts with `[<PROJECT>-<n>]` (the project in any case) is the
+   mirror of YouTrack issue `n`; so is one with the `[YT-<n>]` of older versions, which the run
+   then renames (decision N1). One with the `youtrack` label wins. A title match without the
+   label still counts as the mirror, and a warning is logged. If several issues match, the
+   lowest number wins (warning). For each mirror it keeps the REST `id`, title, milestone,
+   issue type and parent.
 2. **Lists every GitHub milestone** (`state=all`). A milestone whose title starts with
-   `[YT-<n>]` is the milestone of YouTrack epic `n`. If several match, the lowest number wins
-   (warning). Any other milestone counts as hand-made.
+   `[<PROJECT>-<n>]` (or `[YT-<n>]`) is the milestone of YouTrack epic `n`. If several match,
+   the lowest number wins (warning). Any other milestone counts as hand-made.
 3. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
    `project: <YOUTRACK_PROJECT> sort by: {issue id} asc`, 100 per page), including each issue's `Type` field
    and its Subtask parent. There is no lookback window. The run fails on any row whose
@@ -239,19 +246,26 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    (decision F2). Every other issue goes on to planning.
 5. **Plans**, using the [hierarchy mapping](#hierarchy) below:
    - no mirror (for an epic: no milestone) and unresolved in YouTrack: **create** it. An issue
-     is `[YT-<n>] <summary>` with the `youtrack` label, and its issue type, milestone and (tasks
-     only) parent go in the same request. The body is the description with `@mentions` and
+     is `[<PROJECT>-<n>] <summary>` with the `youtrack` label, and its issue type, milestone and
+     (tasks only) parent go in the same request. The body is the description with `@mentions` and
      `#123`-style references wrapped in backticks, plus a link back to YouTrack. A milestone
      gets the same title, the body as its description, and no due date.
    - no mirror and already resolved: nothing (`unchanged`). Issues and epics that are resolved
      before they are ever mirrored never get a mirror (decision R9).
-   - every existing mirror, open or closed: **sync** its milestone, type and parent with
-     YouTrack (an update, a move or a detach).
+   - every existing mirror, open or closed: **sync** its title, milestone, type and parent with
+     YouTrack (an update, a move or a detach). Title, milestone and type go in one update.
+   - every existing milestone, open or closed: **rename** it when its epic's title changed
+     (decision N2).
    - open mirror or milestone, and resolved in YouTrack: **close** it (issues with
      `state_reason: completed`).
+   - closed mirror, unresolved in YouTrack again, and closed by the `REOPEN_CLOSED_BY` login:
+     **reopen** it (decision R10). It is unset by default. Set it only to a login whose closes
+     are the sync's own, such as a bot's: with a personal token it would also undo that
+     person's hand closes. A close by any other login stays, and milestones are never reopened.
    - anything else: nothing (`unchanged`).
-6. **Writes** serially, 1 s apart, in this order: milestone creates and closes; creates of
-   everything except tasks; creates of tasks, parents before children; syncs; closes. Within a
+6. **Writes** serially, 1 s apart, in this order: milestone creates, renames and closes; creates of
+   everything except tasks; creates of tasks, parents before children; syncs; closes and
+   reopens. Within a
    group the oldest (lowest issue number) goes first. At most `MAX_WRITES_PER_RUN` writes run
    per run. Whatever does not fit is `capped` and picked up by the next run, and nothing later
    jumps ahead. Every action costs one write. If GitHub drops the label on create, it is
@@ -263,25 +277,26 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
 7. **Logs one line per write and one summary line**, for example:
 
    ```text
-   create milestone YT-40 -> #1
-   create YT-41 with type Feature, milestone YT-40 #1 -> #30
-   create YT-42 with type Task, milestone YT-40 #1, parent YT-41 #30 -> #31
-   update YT-15 #21: set type Task
-   close YT-3 #12
-   yt-gh-sync ok scanned=40 created=2 closed=1 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=8 dryRun=false
+   create milestone ABC-40 -> #1
+   create ABC-41 with type Feature, milestone ABC-40 #1 -> #30
+   create ABC-42 with type Task, milestone ABC-40 #1, parent ABC-41 #30 -> #31
+   update ABC-15 #21: set title, set type Task
+   close ABC-3 #12
+   yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=8 dryRun=false
    ```
 
-   The headline counts come first. `updated` counts updates, moves and detaches, and `skipped`
-   = `filtered` + `unchanged`. The other write lines look like `close milestone YT-33 #7`,
-   `update YT-15 #21: set milestone YT-33 #7`, `update YT-15 #21: clear milestone`,
-   `move YT-42 #31 under YT-36 #22`, `detach YT-42 #31 from parent YT-41 #30` and
-   `label YT-41 #30` (label re-added).
+   The headline counts come first. `updated` counts updates, moves, detaches and milestone
+   renames, and `skipped` = `filtered` + `unchanged`. The other write lines look like
+   `rename milestone ABC-33 #7`, `close milestone ABC-33 #7`,
+   `update ABC-15 #21: set milestone ABC-33 #7`, `update ABC-15 #21: clear milestone`,
+   `move ABC-42 #31 under ABC-36 #22`, `detach ABC-42 #31 from parent ABC-41 #30` and
+   `label ABC-41 #30` (label re-added).
 
 ### Hierarchy
 
 | YouTrack `Type`   | GitHub                                                                | Issue type |
 | ----------------- | --------------------------------------------------------------------- | ---------- |
-| Epic              | milestone `[YT-<n>] <summary>`, no due date                           | -          |
+| Epic              | milestone `[<PROJECT>-<n>] <summary>`, no due date                    | -          |
 | User Story        | issue                                                                 | Feature    |
 | Bug               | issue                                                                 | Bug        |
 | Task              | sub-issue of its parent's mirror, or a top-level issue if it has none | Task       |
@@ -297,7 +312,7 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
   another mirror is detached.
 - **Parent links** come from YouTrack's Subtask link. A parent in another project ends the
   walk. A parent cycle, which YouTrack should never hold, is ignored for milestones and
-  parents and logged as `YT-<n>: parent chain loops back to YT-<m>`. The exclude filter still
+  parents and logged as `ABC-<n>: parent chain loops back to ABC-<m>`. The exclude filter still
   follows it: if any issue on a cycle has the exclude prefix, the whole cycle and everything
   below it is excluded.
 - **Excluded issues** are never used as a milestone or parent: everything below one is
@@ -310,9 +325,16 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
 ### What it never does
 
 YouTrack is only ever read: the only call is `GET /api/issues`. On GitHub the tool never
-reopens an issue or milestone, never changes a title, body or milestone description after
-creation, never comments, never reorders sub-issues, never clears an issue type, never creates
-labels and never touches pull requests. Relates links and sprints are not mirrored.
+reopens a milestone, never reopens an issue that the `REOPEN_CLOSED_BY` login did not close
+(and reopens nothing when it is unset, decision R10), never changes a body or milestone
+description after creation (titles do follow YouTrack, decision N2), never comments, never
+reorders sub-issues, never clears an issue type, never creates labels and never touches pull
+requests. Relates links and sprints are not mirrored. A mirror whose YouTrack issue is deleted
+is left as it is.
+
+Mirrors are recognised by the project ID in their titles. If a YouTrack admin changes the
+project's ID (say `ABC` to `XYZ`), update `YOUTRACK_PROJECT`, and first rename the old
+`[ABC-n]` prefixes to `[XYZ-n]` by hand, or every mirror and milestone is created again.
 
 ### Failures
 
@@ -326,21 +348,22 @@ waits for a failed create is `capped`, not failed. Tokens are never logged.
 
 Dry run is on by default: only `DRY_RUN=false` turns it off. With it on, the run reads both
 sides and logs one `[dry-run] would ...` line per planned write, but sends no GitHub write at
-all. The create lines end with the title. A milestone or mirror that the run would create
+all. The create lines, and the lines that change a title, end with the new title. A milestone or mirror that the run would create
 earlier shows as `(new)`. See [step 5](#5-do-a-dry-run) for an example.
 
 ## Configuration
 
-| Name                      | Kind   | Default        | Notes                                                                                                                          |
-| ------------------------- | ------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN`            | secret | required       | Classic PAT with the `repo` scope (decision B12).                                                                              |
-| `YOUTRACK_TOKEN`          | secret | required       | YouTrack permanent token.                                                                                                      |
-| `GITHUB_REPO`             | var    | required       | The mirror repo, as `owner/repo`.                                                                                              |
-| `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. For BUas: `https://youtrack.ai.buas.nl`.                              |
-| `YOUTRACK_PROJECT`        | var    | required       | Project shortName (the prefix of its issue IDs), starting with a letter or digit.                                              |
-| `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` | Case-insensitive summary prefix that keeps an issue or epic, and everything below it, out of the mirror. Not blank when set.   |
-| `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. Every write counts 1: create, close, update, move, detach, milestone create or close, label re-add. |
-| `DRY_RUN`                 | var    | on             | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                          |
+| Name                      | Kind   | Default        | Notes                                                                                                                                                                   |
+| ------------------------- | ------ | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN`            | secret | required       | Classic PAT with the `repo` scope (decision B12).                                                                                                                       |
+| `YOUTRACK_TOKEN`          | secret | required       | YouTrack permanent token.                                                                                                                                               |
+| `GITHUB_REPO`             | var    | required       | The mirror repo, as `owner/repo`.                                                                                                                                       |
+| `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. For BUas: `https://youtrack.ai.buas.nl`.                                                                       |
+| `YOUTRACK_PROJECT`        | var    | required       | Project shortName (the prefix of its issue IDs), starting with a letter or digit.                                                                                       |
+| `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` | Case-insensitive summary prefix that keeps an issue or epic, and everything below it, out of the mirror. Not blank when set.                                            |
+| `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. Every write counts 1: create, close, reopen, update, move, detach, milestone create, rename or close, label re-add.                          |
+| `DRY_RUN`                 | var    | on             | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                                                                   |
+| `REOPEN_CLOSED_BY`        | var    | empty (off)    | A GitHub login, such as `github-actions[bot]`: a closed mirror it closed is reopened once its YouTrack issue is unresolved (R10). Leave it empty with a personal token. |
 
 Invalid config fails the run before any request is made, listing every problem at once.
 Variables the tool does not know, such as the retired `YOUTRACK_TITLE_PREFIX`, are ignored.
@@ -397,7 +420,7 @@ are not enforced locally.
 ## Alternative host: Debian + systemd timer
 
 > **Never run the Worker and the timer at the same time.** Neither holds a lock, so two hosts
-> can race and create duplicate `[YT-n]` issues.
+> can race and create duplicate mirror issues.
 >
 > - **Worker to timer:** deploy `"crons": []` (ideally with `"DRY_RUN": "true"` in the same
 >   deploy, so a late firing only reads). Removing a cron can take up to 15 minutes to reach

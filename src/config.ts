@@ -12,6 +12,7 @@ export const ENV_KEYS = [
   "YOUTRACK_EXCLUDE_PREFIX",
   "MAX_WRITES_PER_RUN",
   "DRY_RUN",
+  "REOPEN_CLOSED_BY",
 ] as const;
 
 export type EnvKey = (typeof ENV_KEYS)[number];
@@ -35,6 +36,11 @@ export type Config = {
   readonly excludePrefix: string;
   readonly maxWritesPerRun: number;
   readonly dryRun: boolean;
+  /**
+   * GitHub login whose closes the sync undoes when the YouTrack issue is unresolved again,
+   * e.g. "github-actions[bot]" (decision R10); null: closed mirrors are never reopened.
+   */
+  readonly reopenClosedBy: string | null;
 };
 
 export const DEFAULT_EXCLUDE_PREFIX = "[individual]";
@@ -65,6 +71,7 @@ export class ConfigError extends Error {
  *   trim if set.
  * - MAX_WRITES_PER_RUN: optional, default DEFAULT_MAX_WRITES_PER_RUN; integer 0..MAX_WRITES_LIMIT.
  * - DRY_RUN: optional; only the exact string "false" (case-insensitive, trimmed) disables it.
+ * - REOPEN_CLOSED_BY: optional; blank means off; otherwise a GitHub login (decision R10).
  * Keys outside ENV_KEYS, such as the retired YOUTRACK_TITLE_PREFIX, are ignored.
  */
 export function parseConfig(env: EnvSource): Config {
@@ -75,6 +82,7 @@ export function parseConfig(env: EnvSource): Config {
   const project = andThen(requireValue("YOUTRACK_PROJECT", env.YOUTRACK_PROJECT), parseProject);
   const excludePrefix = optionalValue(env.YOUTRACK_EXCLUDE_PREFIX, DEFAULT_EXCLUDE_PREFIX, parseExcludePrefix);
   const maxWrites = optionalValue(env.MAX_WRITES_PER_RUN, DEFAULT_MAX_WRITES_PER_RUN, parseMaxWrites);
+  const reopenClosedBy = parseReopenClosedBy(env.REOPEN_CLOSED_BY);
 
   if (
     !githubToken.ok ||
@@ -83,9 +91,19 @@ export function parseConfig(env: EnvSource): Config {
     !youtrackToken.ok ||
     !project.ok ||
     !excludePrefix.ok ||
-    !maxWrites.ok
+    !maxWrites.ok ||
+    !reopenClosedBy.ok
   ) {
-    const results = [githubToken, repository, baseUrl, youtrackToken, project, excludePrefix, maxWrites];
+    const results = [
+      githubToken,
+      repository,
+      baseUrl,
+      youtrackToken,
+      project,
+      excludePrefix,
+      maxWrites,
+      reopenClosedBy,
+    ];
     throw new ConfigError(results.flatMap((result) => (result.ok ? [] : result.problems)));
   }
 
@@ -99,6 +117,7 @@ export function parseConfig(env: EnvSource): Config {
     excludePrefix: excludePrefix.value,
     maxWritesPerRun: maxWrites.value,
     dryRun: parseDryRun(env.DRY_RUN),
+    reopenClosedBy: reopenClosedBy.value,
   });
 }
 
@@ -113,6 +132,11 @@ type TokenKey = Extract<EnvKey, "GITHUB_TOKEN" | "YOUTRACK_TOKEN">;
 const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const GITHUB_REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const YOUTRACK_PROJECT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/**
+ * A user login (letters, digits, hyphens, and "_" for Enterprise Managed Users) or an app's bot
+ * login such as "github-actions[bot]". Case-insensitive, like the R10 comparison.
+ */
+const GITHUB_LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})(?:\[bot\])?$/i;
 /** Printable ASCII, "!" (0x21) to "~" (0x7e): no space, control or non-ASCII characters. */
 const TOKEN_PATTERN = /^[\x21-\x7e]+$/;
 const DIGITS_PATTERN = /^\d+$/;
@@ -226,6 +250,18 @@ function parseMaxWrites(value: string): FieldResult<number> {
   return isInRange
     ? valid(count)
     : invalid(`MAX_WRITES_PER_RUN must be a whole number from 0 to ${String(MAX_WRITES_LIMIT)}`);
+}
+
+/**
+ * Unset or blank: null, never reopen (the default everywhere but the GitHub Action, whose
+ * input sets "github-actions[bot]"). Otherwise a GitHub login, trimmed.
+ */
+function parseReopenClosedBy(raw: string | undefined): FieldResult<string | null> {
+  const value = raw?.trim() ?? "";
+  if (value === "") return valid(null);
+  return GITHUB_LOGIN_PATTERN.test(value)
+    ? valid(value)
+    : invalid('REOPEN_CLOSED_BY must be a GitHub login, such as "github-actions[bot]", or empty');
 }
 
 /** Dry-run stays on unless the value is exactly "false" (trimmed, case-insensitive). */

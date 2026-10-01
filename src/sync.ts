@@ -77,7 +77,9 @@ export type RunSummary = {
   readonly created: number;
   /** Open mirrors closed because their YouTrack issue is resolved. */
   readonly closed: number;
-  /** Mirror sync writes: `update` (milestone and/or type), `setParent` and `removeParent`. */
+  /** Closed mirrors reopened because their YouTrack issue is unresolved again (R10). */
+  readonly reopened: number;
+  /** Sync writes: `update` (title, milestone and/or type), `setParent`, `removeParent` and `renameMilestone`. */
   readonly updated: number;
   /** Milestones created for epics. */
   readonly milestonesCreated: number;
@@ -120,7 +122,7 @@ export class SyncFailedError extends Error {
 
 /**
  * One line for `wrangler tail` / journalctl, e.g.
- * `yt-gh-sync ok scanned=29 created=5 closed=3 updated=2 milestonesCreated=1 milestonesClosed=0 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=3 dryRun=true`
+ * `yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=2 milestonesCreated=1 milestonesClosed=0 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=3 dryRun=true`
  * `outcome` is "ok" or "failed". The headline counts come first, then the breakdown
  * (decision R5, extended by docs/11 §1.7).
  */
@@ -141,7 +143,8 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
  *    - createMilestone / create (unresolved only, decision R9): POST, never retried; a create
  *      sends milestone, type and parent_issue_id; if its response lacks MIRROR_LABEL and
  *      writes remain, addLabel (counts as a write); other dropped fields are warned about;
- *    - closeMilestone / close / update / setParent / removeParent: retried once;
+ *    - renameMilestone / closeMilestone / close / reopen / update / setParent / removeParent:
+ *      retried once;
  *    - an action whose milestone or parent was not created in this run is capped with a
  *      warning and execution continues (D4);
  *    - a failed write (HttpError / NetworkError) is recorded and execution continues. That
@@ -177,6 +180,7 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
     milestones: inputs.milestones,
     excludePrefix: config.excludePrefix,
     maxWrites: config.maxWritesPerRun,
+    reopenClosedBy: config.reopenClosedBy,
   });
   for (const warning of plan.warnings) log.warn(warning);
   const seed = seedResolved(inputs.mirrors, inputs.milestones.index);
@@ -196,6 +200,7 @@ const SUMMARY_FIELDS = [
   "scanned",
   "created",
   "closed",
+  "reopened",
   "updated",
   "milestonesCreated",
   "milestonesClosed",
@@ -236,6 +241,7 @@ function toSummary(dryRun: boolean, counts: PlanCounts, tally: Tally, fetches: n
     scanned: counts.scanned,
     created: tally.created,
     closed: tally.closed,
+    reopened: tally.reopened,
     updated: tally.updated,
     milestonesCreated: tally.milestonesCreated,
     milestonesClosed: tally.milestonesClosed,
@@ -265,10 +271,11 @@ async function readInputs(run: RunContext): Promise<Inputs> {
   try {
     const target = githubTarget(run.config);
     const githubIssues = await listAllIssues(run.http, target);
-    const { index, warnings } = buildMirrorIndex(githubIssues, MIRROR_LABEL);
+    const project = run.config.youtrackProject;
+    const { index, warnings } = buildMirrorIndex(githubIssues, MIRROR_LABEL, project);
     for (const warning of warnings) run.log.warn(warning);
     // The milestone index warnings reach the log through Plan.warnings.
-    const milestones = buildMilestoneIndex(await listAllMilestones(run.http, target));
+    const milestones = buildMilestoneIndex(await listAllMilestones(run.http, target), project);
     const youtrackIssues = await fetchProjectIssues(run.http, youtrackSource(run.config));
     return { mirrors: index, milestones, youtrackIssues };
   } catch (error) {

@@ -39,8 +39,9 @@ export type CreateIssueBody = OctokitCreateIssueBody & { readonly parent_issue_i
 /** Request body of PATCH /repos/{owner}/{repo}/issues/{n}. */
 export type UpdateIssueBody = NonNullable<operations["issues/update"]["requestBody"]>["content"]["application/json"];
 
-/** What updateIssue changes: the milestone by number (null clears it) and the issue type by name. */
+/** What updateIssue changes: the title, the milestone by number (null clears it) and the issue type by name. */
 export type IssueUpdate = {
+  readonly title?: string;
   readonly milestone?: number | null;
   readonly type?: GitHubTypeName;
 };
@@ -64,6 +65,8 @@ export type GitHubIssue = Readonly<Pick<IssueSchema, "number" | "title">> & {
   readonly parentNumber: number | null;
   /** parent_issue_url is set but outside the target repository (parentNumber is then null). */
   readonly parentIsForeign: boolean;
+  /** `closed_by.login` verbatim, or null when GitHub reports no closer (open issues, old closes). */
+  readonly closedBy: string | null;
 };
 
 /** The only status that proves POST /issues created a new issue (docs/03, gotcha 15). */
@@ -105,6 +108,7 @@ export function parseGitHubIssue(value: JsonValue, target: GitHubTarget): GitHub
     milestoneNumber: parseMilestoneNumber(value["milestone"], issueNumber),
     typeName: parseTypeName(value["type"], issueNumber),
     ...parseParent(value["parent_issue_url"], target, issueNumber),
+    closedBy: parseClosedBy(value["closed_by"], issueNumber),
   };
 }
 
@@ -143,11 +147,11 @@ export async function createIssue(http: HttpClient, target: GitHubTarget, body: 
 }
 
 /**
- * PATCH /repos/{owner}/{repo}/issues/{n} with the milestone and/or type of `patch`; a key
- * left out is not sent. retry-once (idempotent). Returns the issue from the response, whose
- * milestoneNumber and typeName show whether GitHub applied the change (it drops both
- * silently without push access). Throws RangeError before any request for a bad issue or
- * milestone number, or for a patch with neither key.
+ * PATCH /repos/{owner}/{repo}/issues/{n} with the title, milestone and/or type of `patch`; a
+ * key left out is not sent. retry-once (idempotent). Returns the issue from the response,
+ * whose title, milestoneNumber and typeName show whether GitHub applied the change (it drops
+ * milestone and type silently without push access). Throws RangeError before any request
+ * for a bad issue or milestone number, or for a patch with none of the keys.
  */
 export async function updateIssue(
   http: HttpClient,
@@ -169,6 +173,15 @@ export async function closeIssue(http: HttpClient, target: GitHubTarget, issueNu
   await http.request(githubRequest(target, "PATCH", issueUrl(target, issueNumber), "retry-once", body));
 }
 
+/**
+ * PATCH /repos/{owner}/{repo}/issues/{n} with {state:"open", state_reason:"reopened"}. retry-once.
+ * Like closeIssue, throws RangeError before any request if n is not a positive safe integer.
+ */
+export async function reopenIssue(http: HttpClient, target: GitHubTarget, issueNumber: number): Promise<void> {
+  const body = { state: "open", state_reason: "reopened" } as const satisfies UpdateIssueBody;
+  await http.request(githubRequest(target, "PATCH", issueUrl(target, issueNumber), "retry-once", body));
+}
+
 /** POST /repos/{owner}/{repo}/issues/{n}/labels with {labels:[label]}. retry-once (idempotent). */
 export async function addLabel(
   http: HttpClient,
@@ -186,14 +199,15 @@ export async function addLabel(
 
 /** A new body with only the keys `patch` sets. */
 function updateBody(patch: IssueUpdate): IssueUpdate {
-  const { milestone, type } = patch;
-  if (milestone === undefined && type === undefined) {
-    throw new RangeError("GitHub issue update needs a milestone or type to change");
+  const { title, milestone, type } = patch;
+  if (title === undefined && milestone === undefined && type === undefined) {
+    throw new RangeError("GitHub issue update needs a title, milestone or type to change");
   }
   if (milestone !== undefined && milestone !== null) {
     positiveInteger("GitHub milestone number", milestone);
   }
   return {
+    ...(title === undefined ? {} : { title }),
     ...(milestone === undefined ? {} : { milestone }),
     ...(type === undefined ? {} : { type }),
   } satisfies UpdateIssueBody;
@@ -269,6 +283,21 @@ function parseTypeName(value: JsonValue | undefined, issueNumber: number): strin
     return name;
   }
   throw issueError(issueNumber, `"type.name" must be a string, got ${describeJson(name)}`);
+}
+
+/** Missing or null: no closer. Otherwise a user object with a string `login`, kept verbatim. */
+function parseClosedBy(value: JsonValue | undefined, issueNumber: number): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!isJsonObject(value)) {
+    throw issueError(issueNumber, `"closed_by" must be an object or null, got ${describeJson(value)}`);
+  }
+  const login = value["login"];
+  if (isString(login)) {
+    return login;
+  }
+  throw issueError(issueNumber, `"closed_by.login" must be a string, got ${describeJson(login)}`);
 }
 
 /**

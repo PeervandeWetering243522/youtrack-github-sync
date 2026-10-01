@@ -6,8 +6,8 @@ import {
   assertCountsAddUp,
   describeActions,
   FILTERED,
-  lockedMap,
   mirror,
+  mirrors,
   plan,
   resolvedIssue,
   ytIssue,
@@ -19,9 +19,9 @@ import {
 describe("planActions: write cap", () => {
   it("takes every action when their costs exactly fill the cap", () => {
     const issues = [ytIssue(1), ytIssue(2), resolvedIssue(3)];
-    const mirrors = lockedMap([[3, mirror(20)]]);
+    const index = mirrors([3, mirror(20)]);
 
-    const result = plan(issues, { mirrors, maxWrites: 3 });
+    const result = plan(issues, { mirrors: index, maxWrites: 3 });
 
     assert.deepEqual(describeActions(result.actions), ["create 1", "create 2", "close 3 -> #20"]);
     assert.equal(result.capped, 0);
@@ -30,9 +30,9 @@ describe("planActions: write cap", () => {
 
   it("stops at the first action that does not fit; it and the rest count as capped", () => {
     const issues = [ytIssue(1), ytIssue(2), resolvedIssue(3), ytIssue(4)];
-    const mirrors = lockedMap([[3, mirror(20)]]);
+    const index = mirrors([3, mirror(20)]);
 
-    const result = plan(issues, { mirrors, maxWrites: 2 });
+    const result = plan(issues, { mirrors: index, maxWrites: 2 });
 
     assert.deepEqual(describeActions(result.actions), ["create 1", "create 2"]);
     assert.equal(result.capped, 2);
@@ -53,9 +53,9 @@ describe("planActions: write cap", () => {
 
   it("does not let a later action jump ahead of one that does not fit", () => {
     const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3)];
-    const mirrors = lockedMap([[2, mirror(20)]]);
+    const index = mirrors([2, mirror(20)]);
 
-    const result = plan(issues, { mirrors, maxWrites: 1 });
+    const result = plan(issues, { mirrors: index, maxWrites: 1 });
 
     // Order: create 1, create 3, close 2. Only the first fits; the rest are capped in order.
     assert.deepEqual(describeActions(result.actions), ["create 1"]);
@@ -66,13 +66,13 @@ describe("planActions: write cap", () => {
   it("plans nothing and caps every action when maxWrites is 0", () => {
     const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3, FILTERED)];
 
-    const result = plan(issues, { mirrors: lockedMap([[2, mirror(20)]]), maxWrites: 0 });
+    const result = plan(issues, { mirrors: mirrors([2, mirror(20)]), maxWrites: 0 });
 
     assert.deepEqual(result, { actions: [], scanned: 3, filtered: 1, unchanged: 0, capped: 2, warnings: [] });
   });
 
   it("reports nothing capped when maxWrites is 0 but nothing needs doing", () => {
-    const result = plan([ytIssue(1)], { mirrors: lockedMap([[1, mirror(9)]]), maxWrites: 0 });
+    const result = plan([ytIssue(1)], { mirrors: mirrors([1, mirror(9)]), maxWrites: 0 });
 
     assert.deepEqual(result, { actions: [], scanned: 1, filtered: 0, unchanged: 1, capped: 0, warnings: [] });
   });
@@ -94,7 +94,7 @@ describe("planActions: write cap", () => {
   it("takes the first action in execution order under a cap of 1: creates before closes", () => {
     const issues = [resolvedIssue(1), ytIssue(2)];
 
-    const result = plan(issues, { mirrors: lockedMap([[1, mirror(101)]]), maxWrites: 1 });
+    const result = plan(issues, { mirrors: mirrors([1, mirror(101)]), maxWrites: 1 });
 
     assert.deepEqual(describeActions(result.actions), ["create 2"]);
     assert.equal(result.capped, 1);
@@ -102,12 +102,9 @@ describe("planActions: write cap", () => {
 
   it("takes the oldest close first when only closes are due", () => {
     const issues = [resolvedIssue(2), resolvedIssue(1)];
-    const mirrors = lockedMap([
-      [1, mirror(101)],
-      [2, mirror(102)],
-    ]);
+    const index = mirrors([1, mirror(101)], [2, mirror(102)]);
 
-    const result = plan(issues, { mirrors, maxWrites: 1 });
+    const result = plan(issues, { mirrors: index, maxWrites: 1 });
 
     assert.deepEqual(describeActions(result.actions), ["close 1 -> #101"]);
     assert.equal(result.capped, 1);
@@ -116,7 +113,7 @@ describe("planActions: write cap", () => {
   it("takes every action under an unlimited cap", () => {
     const issues = [resolvedIssue(1), resolvedIssue(2), ytIssue(3)];
 
-    const result = plan(issues, { mirrors: lockedMap([[1, mirror(101)]]), maxWrites: Number.POSITIVE_INFINITY });
+    const result = plan(issues, { mirrors: mirrors([1, mirror(101)]), maxWrites: Number.POSITIVE_INFINITY });
 
     assert.deepEqual(describeActions(result.actions), ["create 3", "close 1 -> #101"]);
     assert.equal(result.capped, 0);
@@ -132,17 +129,25 @@ describe("planActions: write cap", () => {
     assert.equal(result.capped, 1);
   });
 
+  it("counts each title update as one write, after the creates (N2)", () => {
+    const issues = [ytIssue(1), ytIssue(2), ytIssue(3)];
+    const index = mirrors([1, mirror(11, { title: "[YT-1] Issue 1" })], [2, mirror(12, { title: "[YT-2] Issue 2" })]);
+
+    const result = plan(issues, { mirrors: index, maxWrites: 2 });
+
+    assert.deepEqual(describeActions(result.actions), ["create 3", "update 1 #11 title"]);
+    assert.equal(result.capped, 1);
+    assertCountsAddUp(result);
+  });
+
   it("plans the longest in-order prefix that fits, for every cap from 0 to 8", () => {
     const issues = [ytIssue(1), resolvedIssue(2), ytIssue(3), resolvedIssue(4), ytIssue(5), resolvedIssue(6)];
-    const mirrors = lockedMap([
-      [4, mirror(20)],
-      [6, mirror(21)],
-    ]);
-    const everything = describeActions(plan(issues, { mirrors, maxWrites: Number.POSITIVE_INFINITY }).actions);
+    const index = mirrors([4, mirror(20)], [6, mirror(21)]);
+    const everything = describeActions(plan(issues, { mirrors: index, maxWrites: Number.POSITIVE_INFINITY }).actions);
     assert.deepEqual(everything, ["create 1", "create 3", "create 5", "close 4 -> #20", "close 6 -> #21"]);
 
     for (let maxWrites = 0; maxWrites <= 8; maxWrites += 1) {
-      const result = plan(issues, { mirrors, maxWrites });
+      const result = plan(issues, { mirrors: index, maxWrites });
 
       const count = Math.min(maxWrites, everything.length);
       const used = result.actions.reduce((total, action) => total + writeCost(action), 0);

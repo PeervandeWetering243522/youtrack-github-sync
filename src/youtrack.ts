@@ -154,7 +154,7 @@ function isJsonObjectOrNull(value: JsonValue | undefined): value is JsonObject |
 }
 
 /**
- * The mirror identity is `[YT-<numberInProject>]`, and parseMirrorTitle (mirror.ts)
+ * The mirror identity is `[<project>-<numberInProject>]`, and parseMirrorTitle (mirror.ts)
  * reads back positive integers only. A 0 or negative number would give a mirror
  * that is never recognised, so every run would create another duplicate.
  */
