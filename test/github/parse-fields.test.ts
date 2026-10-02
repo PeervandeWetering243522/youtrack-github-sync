@@ -360,6 +360,7 @@ describe("parseGitHubIssue: hierarchy fields together", () => {
       parentNumber: 24,
       parentIsForeign: false,
       closedBy: null,
+      assignees: [],
     };
     assert.deepEqual(issue, expected);
   });

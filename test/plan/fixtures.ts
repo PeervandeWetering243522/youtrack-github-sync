@@ -53,6 +53,7 @@ export function ghIssue(issueNumber: number, title: string, overrides: Partial<G
     parentNumber: null,
     parentIsForeign: false,
     closedBy: null,
+    assignees: Object.freeze([]),
   };
   return Object.freeze({ ...defaults, ...overrides, labelNames });
 }
