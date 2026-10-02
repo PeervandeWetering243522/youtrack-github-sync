@@ -51,6 +51,7 @@ export const ISSUE_KEYS = [
   "updated",
   "type",
   "parentId",
+  "assignee",
 ] as const;
 
 /** The hierarchy keys of a row with no parent and no Type entry, as JSON text for hand-written rows. */
@@ -68,6 +69,19 @@ export function typeField(value: string | null): JsonObject {
     value: value === null ? null : { name: value, $type: "EnumBundleElement" },
     $type: "SingleEnumIssueCustomField",
   };
+}
+
+/**
+ * A User value shaped like a live `value(name,login,email)` answer (docs/12): `name` is the
+ * full name, and YouTrack adds keys that were not asked for. Placeholder people only.
+ */
+export function youtrackUser(login: string, email: string | null): JsonObject {
+  return { login, email, name: `Jane Doe ${login}`, fullName: `Jane Doe ${login}`, banned: false, $type: "User" };
+}
+
+/** The `Assignee` entry of a live answer: single-user by default, `value` passed through as given. */
+export function assigneeField(value: JsonValue, $type = "SingleUserIssueCustomField", name = "Assignee"): JsonObject {
+  return { name, value, $type };
 }
 
 // The hierarchy keys of the three rows below are neutral (no parent, no Type entry), not
