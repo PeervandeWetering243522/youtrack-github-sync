@@ -21,6 +21,8 @@ export const VALID_ENV: EnvSource = {
   YOUTRACK_EXCLUDE_PREFIX: "[individual]",
   MAX_WRITES_PER_RUN: "30",
   DRY_RUN: "true",
+  SYNC_ASSIGNEES: "true",
+  ASSIGNEE_MAP: "",
 };
 
 export const EXPECTED_CONFIG: Config = {
@@ -34,6 +36,8 @@ export const EXPECTED_CONFIG: Config = {
   maxWritesPerRun: 30,
   dryRun: true,
   reopenClosedBy: null,
+  syncAssignees: true,
+  assigneeMap: new Map(),
 };
 
 const REQUIRED_KEYS = [
@@ -63,6 +67,28 @@ export const PREFIX_PROBLEM = "YOUTRACK_EXCLUDE_PREFIX must not be empty when se
 export const MAX_WRITES_PROBLEM = `MAX_WRITES_PER_RUN must be a whole number from 0 to ${String(MAX_WRITES_LIMIT)}`;
 export const REOPEN_CLOSED_BY_PROBLEM =
   'REOPEN_CLOSED_BY must be a GitHub login, such as "github-actions[bot]", or empty';
+export const SYNC_ASSIGNEES_PROBLEM = 'SYNC_ASSIGNEES must be "true" or "false"';
+
+/** The ASSIGNEE_MAP problems, by entry position among the non-blank entries (1-based). */
+export function mapFormProblem(position: number): string {
+  return `ASSIGNEE_MAP entry ${String(position)} must have the form <youtrack-login>=<github-login>`;
+}
+
+export function mapKeyProblem(position: number): string {
+  return `ASSIGNEE_MAP entry ${String(position)}: the YouTrack login must not be empty or contain spaces`;
+}
+
+export function mapValueProblem(position: number): string {
+  return `ASSIGNEE_MAP entry ${String(position)}: the GitHub login must be a user login or "-"`;
+}
+
+export function mapRepeatProblem(first: number, repeat: number): string {
+  return `ASSIGNEE_MAP entries ${String(first)} and ${String(repeat)} have the same YouTrack login`;
+}
+
+/** Matches every ASSIGNEE_MAP problem above, whatever the positions. */
+export const MAP_PROBLEM_PATTERN =
+  /^ASSIGNEE_MAP (?:entry \d+ must have the form <youtrack-login>=<github-login>|entry \d+: the YouTrack login must not be empty or contain spaces|entry \d+: the GitHub login must be a user login or "-"|entries \d+ and \d+ have the same YouTrack login)$/;
 
 /** One character from its code point, so every odd character in these tests is named, not invisible. */
 export function char(codePoint: number): string {
