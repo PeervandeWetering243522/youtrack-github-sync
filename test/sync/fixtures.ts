@@ -53,6 +53,8 @@ const BASE_CONFIG: Config = {
   maxWritesPerRun: 30,
   dryRun: false,
   reopenClosedBy: null,
+  syncAssignees: true,
+  assigneeMap: new Map(),
 };
 
 export function config(overrides: Partial<Config> = {}): Config {

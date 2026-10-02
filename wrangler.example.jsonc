@@ -19,7 +19,8 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
-    "redact_query_string": false,
+    // Assignee lookups put an email in the query string; keep it out of logs and traces.
+    "redact_query_string": true,
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,
@@ -34,7 +35,8 @@
   },
 
   // Non-secret config. Secrets GITHUB_TOKEN and YOUTRACK_TOKEN are set with
-  // `wrangler secret put <NAME>` and never live in this file.
+  // `wrangler secret put <NAME>` and never live in this file. So is the optional ASSIGNEE_MAP
+  // (personal data, see .env.example): `wrangler secret put ASSIGNEE_MAP`.
   "vars": {
     // Your mirror repository, "owner/repo", e.g. "BredaUniversityADSAI/my-group-repo".
     "GITHUB_REPO": "",
@@ -46,5 +48,7 @@
     "MAX_WRITES_PER_RUN": "30",
     // Only "false" sends writes. Keep "true" until a dry run's log looks right (README, step 7).
     "DRY_RUN": "true",
+    // "false" leaves GitHub assignees alone; "true" syncs them from YouTrack's Assignee field.
+    "SYNC_ASSIGNEES": "true",
   },
 }

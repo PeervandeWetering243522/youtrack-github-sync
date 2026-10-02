@@ -43,6 +43,19 @@ inputs:
       any other workflow in the repo. Empty: never reopen.
     required: false
     default: github-actions[bot]
+  sync-assignees:
+    description: >-
+      "true" gives each open mirror the GitHub accounts of its YouTrack issue's assignees; "false" leaves
+      assignees alone. Any other value, empty included, fails the run.
+    required: false
+    default: "true"
+  assignee-map:
+    description: >-
+      Optional youtrack-login=github-login pairs on one line, separated by commas, checked first when
+      matching assignees; "-" as the GitHub login means never assign that person. Pass it from a secret,
+      such as secrets.ASSIGNEE_MAP: run logs print inputs, and the map holds personal data. Empty: no map.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -78,4 +91,6 @@ runs:
         MAX_WRITES_PER_RUN: ${{ inputs.max-writes-per-run }}
         DRY_RUN: ${{ inputs.dry-run }}
         REOPEN_CLOSED_BY: ${{ inputs.reopen-closed-by }}
+        SYNC_ASSIGNEES: ${{ inputs.sync-assignees }}
+        ASSIGNEE_MAP: ${{ inputs.assignee-map }}
       run: node "$GITHUB_ACTION_PATH/src/node.ts"

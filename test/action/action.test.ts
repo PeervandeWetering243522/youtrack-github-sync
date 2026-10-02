@@ -9,7 +9,14 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { DEFAULT_EXCLUDE_PREFIX, DEFAULT_MAX_WRITES_PER_RUN, ENV_KEYS, parseConfig } from "../../src/config.ts";
+import {
+  ConfigError,
+  DEFAULT_EXCLUDE_PREFIX,
+  DEFAULT_MAX_WRITES_PER_RUN,
+  DEFAULT_SYNC_ASSIGNEES,
+  ENV_KEYS,
+  parseConfig,
+} from "../../src/config.ts";
 
 const ACTION_URL = new URL("../../action.yml", import.meta.url);
 const LINES = readFileSync(ACTION_URL, "utf8").split(/\r?\n/);
@@ -89,6 +96,13 @@ function input(name: string): Input {
   const found = INPUTS.find((candidate) => candidate.name === name);
   assert.ok(found, `action.yml declares input ${name}`);
   return found;
+}
+
+/** An input's declaration lines (description included), joined. */
+function inputText(name: string): string {
+  const start = LINES.indexOf(`  ${name}:`);
+  assert.ok(start !== -1, `action.yml declares input ${name}`);
+  return block(LINES, start, 2).join("\n");
 }
 
 function step(name: string): Step {
@@ -172,6 +186,32 @@ describe("action.yml: inputs", () => {
   it("turns reopening off when the workflow sets reopen-closed-by to an empty string", () => {
     // GitHub passes an input set to "" as an empty env value, which the config reads as off.
     assert.equal(parseConfig({ ...REQUIRED_ENV, REOPEN_CLOSED_BY: "" }).reopenClosedBy, null);
+  });
+
+  it("syncs assignees unless the workflow sets sync-assignees to false (U1)", () => {
+    const sync = input("sync-assignees");
+
+    assert.equal(sync.required, false);
+    assert.equal(sync.default, "true");
+    assert.equal(sync.default, String(DEFAULT_SYNC_ASSIGNEES));
+    assert.equal(parseConfig({ ...REQUIRED_ENV, SYNC_ASSIGNEES: sync.default }).syncAssignees, true);
+    assert.equal(parseConfig({ ...REQUIRED_ENV, SYNC_ASSIGNEES: "false" }).syncAssignees, false);
+  });
+
+  it("fails the run when the workflow sets sync-assignees to an empty string", () => {
+    assert.throws(
+      () => parseConfig({ ...REQUIRED_ENV, SYNC_ASSIGNEES: "" }),
+      (error) => error instanceof ConfigError && error.problems.join() === 'SYNC_ASSIGNEES must be "true" or "false"',
+    );
+  });
+
+  it("has no assignee map unless the workflow passes assignee-map, which it takes from a secret (U14)", () => {
+    const map = input("assignee-map");
+
+    assert.equal(map.required, false);
+    assert.equal(map.default, "");
+    assert.equal(parseConfig({ ...REQUIRED_ENV, ASSIGNEE_MAP: map.default }).assigneeMap.size, 0);
+    assert.match(inputText("assignee-map"), /\bsecret\b/);
   });
 });
 
