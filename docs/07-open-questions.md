@@ -68,3 +68,53 @@
 | TypeScript                            | `.ts` import specifiers, erasable syntax only, `tsc --noEmit` as the only dev tool besides wrangler                            | 04, 05 |
 | Node host                             | Node 24 LTS via NodeSource, run with `node --env-file-if-exists` ...                                                           | 05     |
 | systemd                               | `Type=oneshot`, `OnCalendar=*:0/10`, `TimeoutStartSec=5min`, secrets via `LoadCredential=`                                     | 05     |
+
+## D. Assignees (from [12](12-assignees.md), 2026-10-02)
+
+Research only: assign each mirror to the GitHub account of its YouTrack assignee, matched by the
+BUas student ID in logins and emails. Details and evidence in
+[12](12-assignees.md#open-questions-for-the-user).
+
+**All answered 2026-10-02** in [08](08-decisions.md) as U1-U17. 18 (emails) is settled by U17:
+hidden emails are only an inference (see 12), so the login comes first and the email is a
+fallback. 25 is U14, 26 is U15, 27 is U16.
+
+16. **Opt-in.** Off on every host, on in the Action only (like R10), or always on? Always on
+    changes the README's "assign as you like" contract and is a `feat!`. _Rec: off everywhere._
+17. **Matching source.** The ID in the GitHub login (from the repo's assignable list), plus an
+    explicit map, plus a commit-email cross-check (needs `contents: read`), or a map only?
+    _Rec: login ID on the assignable list._ See
+    [12](12-assignees.md#from-a-student-id-to-a-github-account).
+18. **YouTrack identifier.** Login only (don't request the email), login cross-checked with the
+    email when visible, both required, or either one when only one carries an ID? Emails may be
+    hidden from some tokens. _Rec: login, with the cross-check._
+19. **Ambiguous or unmatched users** (staff, shared IDs, login and email disagreeing). Skip, prefer
+    the email ID, or prefer the login ID? Warn per issue, once per run, or as a summary count?
+    _Rec: skip, one aggregated warning per run, ids only._
+20. **Who owns GitHub assignees.** YouTrack wins (replace), add only, mirror-owned (only logins that
+    map to a YouTrack user), or set on create only? _Rec: mirror-owned, never bots._
+21. **Which write.** In the create body and sync PATCH, in the sync PATCH only, or separate
+    `POST`/`DELETE /issues/{n}/assignees` (for a new mirror, possibly right after the create, like
+    A5)? A bad login can 422 a whole create or PATCH (community reports). _Rec: separate calls,
+    checked against the assignable list._
+22. **Unassigned in YouTrack, or reassigned to someone unmatched.** Leave GitHub alone (like D3),
+    clear owned assignees, or clear all? A renamed field reads as "nobody assigned". _Rec: leave
+    alone, and warn loudly when the field is missing._
+23. **Closed mirrors.** Open only, or all (like D8)? _Rec: open only._
+24. **Logs.** Counts and markers only, YouTrack ids with matched or unmatched, or full logins?
+    Logins carry student IDs. _Rec: markers and ids, with logins scrubbed from 422 bodies._
+25. **Explicit map** for staff and logins without an ID, as a repo variable or in the workflow
+    file? _Rec: defer._
+26. **Field name and multi-user fields.** Fixed `Assignee`, a config var checked to be a user
+    field, or detect by type? For multi-user fields: all, the first, or fail? A missing field
+    should fail loudly either way.
+27. **Assignable-list read fails.** Fatal like the other reads, or warn and skip assignee sync?
+28. **Rollout.** Dry run, then `max-writes-per-run: "1"`, and tell the team first? _Rec: yes._
+29. **A live authenticated test on a throwaway repo** (silent drop vs 422, the per-issue check,
+    the actor on `GITHUB_TOKEN` events)? It needs real GitHub writes, so only you can allow it.
+30. **For a BUas YouTrack admin:** auth module, whether students can edit username and email,
+    email verification, whether the identity provider overwrites edits, Contributor or Developer
+    for student projects, and any 2026.x upgrade plans. Ask, or assume self-asserted IDs?
+31. **Sources that need an owner or new endpoints** (Enterprise Cloud, SAML, a verified domain, Hub
+    VCS usernames, issue events). Ask an org owner, or out of scope? _Rec: out of scope._
+32. **Epic assignees.** Ignore, or push down to children? _Rec: ignore._
