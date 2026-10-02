@@ -68,8 +68,21 @@ type StepResult =
   | { readonly kind: "pooled"; readonly logins: readonly string[]; readonly skipped: boolean }
   | { readonly kind: "waits"; readonly step: LookupStep; readonly email: string };
 
-/** loginKey -> the assignable list's spelling. */
-type Assignable = ReadonlyMap<string, string>;
+/** The assignable list as the chain reads it, built once per list (see assignableIndex). */
+type Assignable = {
+  /** loginKey -> the list's first spelling of it, in list order. */
+  readonly byKey: ReadonlyMap<string, string>;
+  /** The logins of byKey that carry a single student ID, with that ID, in list order (step b). */
+  readonly withIds: readonly { readonly login: string; readonly id: string }[];
+};
+
+/**
+ * Every index built so far, by the identity of its list. The sync stage passes one assignable
+ * array for the whole run, so the chain, which runs per person and again per lookup, indexes it
+ * and runs the ID regex over it once (the Workers CPU limit), not once per call. Invisible to
+ * callers: the lists are readonly, and a WeakMap lets them go.
+ */
+const ASSIGNABLE_INDEXES = new WeakMap<readonly string[], Assignable>();
 
 /** A-Z lowercased; the key of persons, the map and owned logins. */
 export function loginKey(login: string): string {
@@ -127,13 +140,21 @@ export function matchAll(persons: readonly PersonIdentity[], context: MatchConte
   return outcomes;
 }
 
-/** loginKey -> the list's first spelling of it, in list order. */
+/** The index of `logins`, built on the first call for that list and reused after. */
 function assignableIndex(logins: readonly string[]): Assignable {
-  const index = new Map<string, string>();
+  const cached = ASSIGNABLE_INDEXES.get(logins);
+  if (cached !== undefined) return cached;
+  const byKey = new Map<string, string>();
   for (const login of logins) {
     const key = loginKey(login);
-    if (!index.has(key)) index.set(key, login);
+    if (!byKey.has(key)) byKey.set(key, login);
   }
+  const withIds = [...byKey.values()].flatMap((login) => {
+    const id = singleStudentId(login);
+    return id === null ? [] : [{ login, id }];
+  });
+  const index: Assignable = { byKey, withIds };
+  ASSIGNABLE_INDEXES.set(logins, index);
   return index;
 }
 
@@ -142,7 +163,7 @@ function mapStep(person: PersonIdentity, map: ManualMap, assignable: Assignable)
   const target = map.get(loginKey(person.login));
   if (target === undefined) return null;
   if (target === null) return { kind: "blocked" };
-  const login = assignable.get(loginKey(target));
+  const login = assignable.byKey.get(loginKey(target));
   return login === undefined ? { kind: "map-target-not-assignable" } : { kind: "matched", login, step: "map" };
 }
 
@@ -155,10 +176,7 @@ function stepResult(
   if (step === "login-id") {
     const ids = studentIds(person);
     if (ids.length === 0) return { kind: "pooled", logins: [], skipped: false };
-    const withId = [...assignable.values()].filter((login) => {
-      const id = singleStudentId(login);
-      return id !== null && ids.includes(id);
-    });
+    const withId = assignable.withIds.filter(({ id }) => ids.includes(id)).map(({ login }) => login);
     return { kind: "pooled", logins: pooled(withId, assignable), skipped: false };
   }
   if (lookups.off.has(step)) return { kind: "pooled", logins: [], skipped: false };
@@ -172,7 +190,8 @@ function stepResult(
 
 /** The logins that are in the assignable list (A-Z case ignored), spelled as it spells them, deduplicated. */
 function pooled(logins: readonly string[], assignable: Assignable): readonly string[] {
-  return [...new Set(logins.map((login) => assignable.get(loginKey(login))).filter((login) => login !== undefined))];
+  const spelled = logins.map((login) => assignable.byKey.get(loginKey(login)));
+  return [...new Set(spelled.filter((login) => login !== undefined))];
 }
 
 /** Lowercases A-Z only: toLowerCase() also maps e.g. the Kelvin sign U+212A to "k". */

@@ -16,6 +16,10 @@ export type Tally = {
   readonly reopened: number;
   /** Sync writes done: `update`, `setParent`, `removeParent` and `renameMilestone` (docs/11 §1.7, N2). */
   readonly updated: number;
+  /** `addAssignees` writes done (one write may name several logins; docs/13 §5). */
+  readonly assigneesAdded: number;
+  /** `removeAssignees` writes done. */
+  readonly assigneesRemoved: number;
   readonly milestonesCreated: number;
   readonly milestonesClosed: number;
   readonly labelsReAdded: number;
@@ -30,7 +34,15 @@ export type Tally = {
 };
 
 /** The counting fields of a Tally, one of which an action adds 1 to when it is done. */
-export type Counter = "created" | "closed" | "reopened" | "updated" | "milestonesCreated" | "milestonesClosed";
+export type Counter =
+  | "created"
+  | "closed"
+  | "reopened"
+  | "updated"
+  | "assigneesAdded"
+  | "assigneesRemoved"
+  | "milestonesCreated"
+  | "milestonesClosed";
 
 /** The empty Tally: nothing done, capped or failed. */
 export const NOTHING: Tally = {
@@ -38,6 +50,8 @@ export const NOTHING: Tally = {
   closed: 0,
   reopened: 0,
   updated: 0,
+  assigneesAdded: 0,
+  assigneesRemoved: 0,
   milestonesCreated: 0,
   milestonesClosed: 0,
   labelsReAdded: 0,
@@ -61,6 +75,8 @@ export function combine(a: Tally, b: Tally): Tally {
     closed: a.closed + b.closed,
     reopened: a.reopened + b.reopened,
     updated: a.updated + b.updated,
+    assigneesAdded: a.assigneesAdded + b.assigneesAdded,
+    assigneesRemoved: a.assigneesRemoved + b.assigneesRemoved,
     milestonesCreated: a.milestonesCreated + b.milestonesCreated,
     milestonesClosed: a.milestonesClosed + b.milestonesClosed,
     labelsReAdded: a.labelsReAdded + b.labelsReAdded,

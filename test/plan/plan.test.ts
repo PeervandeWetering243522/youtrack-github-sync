@@ -340,6 +340,7 @@ describe("planActions: immutability", () => {
       excludePrefix: EXCLUDE_PREFIX,
       maxWrites: 30,
       reopenClosedBy: null,
+      assignees: null,
     });
 
     assert.deepEqual(issues, issuesBefore);

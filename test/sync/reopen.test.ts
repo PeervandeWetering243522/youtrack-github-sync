@@ -261,6 +261,9 @@ describe("formatSummary: reopened (R10)", () => {
   it("prints reopened right after closed", () => {
     const line = formatSummary(summary({ scanned: 9, closed: 2, reopened: 3, updated: 1 }), "ok");
 
-    assert.match(line, /^yt-gh-sync ok scanned=9 created=0 closed=2 reopened=3 updated=1 milestonesCreated=0 /);
+    assert.match(
+      line,
+      /^yt-gh-sync ok scanned=9 created=0 closed=2 reopened=3 updated=1 assigneesAdded=0 assigneesRemoved=0 milestonesCreated=0 /,
+    );
   });
 });

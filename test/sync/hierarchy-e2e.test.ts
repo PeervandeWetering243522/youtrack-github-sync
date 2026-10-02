@@ -125,7 +125,7 @@ describe("runSync hierarchy, dry run", () => {
     assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 3 }));
     assert.equal(
       messages(lines).at(-1),
-      "yt-gh-sync ok scanned=11 created=2 closed=1 reopened=0 updated=7 milestonesCreated=1 milestonesClosed=1 skipped=1 capped=0 failed=0 filtered=0 unchanged=1 labelsReAdded=0 fetches=3 dryRun=true",
+      "yt-gh-sync ok scanned=11 created=2 closed=1 reopened=0 updated=7 assigneesAdded=0 assigneesRemoved=0 milestonesCreated=1 milestonesClosed=1 skipped=1 capped=0 failed=0 filtered=0 unchanged=1 labelsReAdded=0 fetches=3 dryRun=true",
     );
   });
 });

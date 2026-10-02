@@ -176,7 +176,8 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   };
 }
 
-const BODY_EXCERPT_CHARS = 500;
+/** HttpError.bodyExcerpt keeps at most this many characters of a body (src/sync/execute-assignees.ts trims at it). */
+export const BODY_EXCERPT_CHARS = 500;
 const INVALID_JSON_EXCERPT_CHARS = 200;
 /** Largest delay setTimeout / AbortSignal.timeout honour (2^31 - 1 ms, about 24.8 days). */
 const MAX_TIMER_MS = 2_147_483_647;

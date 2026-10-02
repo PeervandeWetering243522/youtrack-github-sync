@@ -55,7 +55,18 @@ describe("formatSummary", () => {
     // Assert
     assert.equal(
       line,
-      "yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=6 milestonesCreated=2 milestonesClosed=1 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=7 fetches=8 dryRun=true",
+      "yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=6 assigneesAdded=0 assigneesRemoved=0 milestonesCreated=2 milestonesClosed=1 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=7 fetches=8 dryRun=true",
+    );
+  });
+
+  it("prints the assignee write counts right after updated (docs/13 §5)", () => {
+    // Act
+    const line = formatSummary({ ...sample, dryRun: false, assigneesAdded: 3, assigneesRemoved: 1 }, "ok");
+
+    // Assert
+    assert.equal(
+      line,
+      "yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=6 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=2 milestonesClosed=1 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=7 fetches=8 dryRun=false",
     );
   });
 
