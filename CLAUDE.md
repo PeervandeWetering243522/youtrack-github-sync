@@ -135,8 +135,9 @@ their YouTrack login or `buas.nl` email, then the commit author of their emails,
 public-email search. Only logins in the repo's assignable list count; two candidates make the
 person ambiguous. At most 5 lookups per run (fewer under a high write cap), rotated every
 10 minutes. Mirror-owned (U4): the mirror adds and removes only GitHub logins it matches to a
-YouTrack user seen as an assignee anywhere in the scanned project; staff, bots and unmatched
-people are never touched. Unassigned or unmatched in YouTrack leaves GitHub alone (U6). Writes
+YouTrack user seen as an assignee anywhere in the scanned project (users outside the eligible
+issues by the map and step b only, no lookups); staff, bots, unmatched people and anyone
+YouTrack names on no issue are never touched. Unassigned or unmatched in YouTrack leaves GitHub alone (U6). Writes
 are separate `POST`/`DELETE .../assignees` calls in a last phase, add before remove, never in
 the create body or the PATCH (U5); the answer is checked and a mismatch only warns. The
 assignable list and the lookups are never fatal (U16). One aggregated warning names left-out

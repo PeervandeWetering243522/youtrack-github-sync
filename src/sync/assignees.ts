@@ -1,6 +1,7 @@
 /**
- * The assignee stage of a run (docs/13 §2.2-2.5, §2.10; U3, U6, U15-U17), between the reads and
- * the plan: which YouTrack users of the eligible issues get which assignable GitHub login. It
+ * The assignee stage of a run (docs/13 §2.2-2.5, §2.10; U3, U4, U6, U15-U17), between the reads
+ * and the plan: which YouTrack users of the eligible issues get which assignable GitHub login,
+ * and which logins the mirror owns (those and the no-lookup matches of every scanned user). It
  * sends read 4 (the assignable list) and read 5 (the lookups), and catches every error of both:
  * an unreadable list skips assignee sync with one warning (U16); a failed lookup turns its step
  * off, skips that email or stops the lookups (§2.5), and is never fatal and never a failed write
@@ -25,7 +26,7 @@ import type { HttpClient } from "../http.ts";
 import type { AssigneeSync } from "../plan.ts";
 import { lookupBudget, lookupOrder, nextLookup, rotationIndex } from "../plan/assignee-lookups.ts";
 import type { PlannedLookup } from "../plan/assignee-lookups.ts";
-import { loginKey, matchAll, NO_LOOKUPS, withAnswer, withStepOff } from "../plan/assignee-match.ts";
+import { loginKey, LOOKUPS_OFF, matchAll, NO_LOOKUPS, withAnswer, withStepOff } from "../plan/assignee-match.ts";
 import type { LookupAnswer, LookupState, LookupStep, MatchBasis, MatchOutcome } from "../plan/assignee-match.ts";
 import { assigneeEligible } from "../plan/assignee-scope.ts";
 import { assigneeWarning, desiredAssignees, noneMatchedWarning, ownedLogins } from "../plan/assignees.ts";
@@ -104,7 +105,7 @@ export async function readAssignees(run: AssigneeRun, inputs: AssigneeInputs): P
   const outcomes = matchAll(persons, { ...basis, lookups: lookups.state });
   const warnings = [assigneeWarning(persons, outcomes, lookups.notes), noneMatchedWarning(persons, outcomes)];
   return {
-    sync: assigneeSync(eligible, outcomes),
+    sync: assigneeSync(eligible, outcomes, ownedOf(youtrackIssues, outcomes, basis)),
     identities: [...seen, ...list.users.map(({ login }) => login), ...answeredLogins(lookups.state)],
     warnings: warnings.filter((warning) => warning !== null),
   };
@@ -144,14 +145,34 @@ function personsOf(issues: readonly ScannedIssue[]): readonly NamedPerson[] {
   return [...persons.values()];
 }
 
-/** desiredAssignees per eligible issue (left out when empty) and the run's owned logins (§2.6). */
-function assigneeSync(eligible: readonly ScannedIssue[], outcomes: ReadonlyMap<string, MatchOutcome>): AssigneeSync {
+/** desiredAssignees per eligible issue (left out when empty), with the run's owned logins. */
+function assigneeSync(
+  eligible: readonly ScannedIssue[],
+  outcomes: ReadonlyMap<string, MatchOutcome>,
+  owned: ReadonlySet<string>,
+): AssigneeSync {
   const desired = new Map<number, readonly string[]>();
   for (const issue of eligible) {
     const logins = desiredAssignees(usersOf(issue), outcomes);
     if (logins.length > 0) desired.set(issue.numberInProject, logins);
   }
-  return { desired, owned: ownedLogins(outcomes) };
+  return { desired, owned };
+}
+
+/**
+ * The owned logins (U4, §2.6): every login matched to a person of the eligible issues, plus
+ * every login the map or step b matches to a user of any scanned Assignee value (resolved
+ * issues, closed mirrors and epics too), so an old assignee whose open issues all went to
+ * someone else is still removed. Those users get no lookup: one only a lookup would match is
+ * not owned, and someone YouTrack names on no issue at all cannot be owned.
+ */
+function ownedOf(
+  scanned: readonly ScannedIssue[],
+  outcomes: ReadonlyMap<string, MatchOutcome>,
+  basis: MatchBasis,
+): ReadonlySet<string> {
+  const others = matchAll(personsOf(scanned), { ...basis, lookups: LOOKUPS_OFF });
+  return new Set([...ownedLogins(outcomes), ...ownedLogins(others)]);
 }
 
 /** The logins of the assignable list's Users, as GitHub spells them (Bots and others never match). */

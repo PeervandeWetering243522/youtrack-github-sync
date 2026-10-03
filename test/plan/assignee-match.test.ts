@@ -12,6 +12,7 @@ import {
   evaluateChain,
   finalOutcome,
   loginKey,
+  LOOKUPS_OFF,
   matchAll,
   NO_LOOKUPS,
   withAnswer,
@@ -334,6 +335,26 @@ describe("matchAll", () => {
         ["jdoe123456", { kind: "matched", login: "JaneDoe123456", step: "login-id" }],
         ["jdoe-123456", { kind: "matched", login: "JaneDoe123456", step: "login-id" }],
         ["staffuser", { kind: "not-looked-up" }],
+      ],
+    );
+  });
+});
+
+describe("LOOKUPS_OFF", () => {
+  it("settles every person by the map and step b alone, never waiting for a lookup", () => {
+    const person = { login: "jane.doe", email: "jane.doe@example.org" };
+
+    const outcomes = matchAll(
+      [JDOE, STAFF, person],
+      context({ map: mapOf(["staffuser", "staffgh"]), lookups: LOOKUPS_OFF }),
+    );
+
+    assert.deepEqual(
+      [...outcomes],
+      [
+        ["jdoe123456", { kind: "matched", login: "JaneDoe123456", step: "login-id" }],
+        ["staffuser", { kind: "matched", login: "staffgh", step: "map" }],
+        ["jane.doe", { kind: "unmatched" }],
       ],
     );
   });

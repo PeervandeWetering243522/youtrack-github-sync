@@ -176,7 +176,7 @@ describe("runSync assignees: matching and writes", () => {
   });
 
   it("adds after the create and removes an owned login on reassignment, add first (U4)", async () => {
-    // Arrange: CUI-5 moved from jdoe to jroe in YouTrack; jdoe still holds CUI-6, so is owned.
+    // Arrange: CUI-5 moved from jdoe to jroe in YouTrack; jdoe still holds CUI-6.
     const world: World = {
       githubIssues: [
         ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(JANE_GH)] }),
@@ -201,7 +201,90 @@ describe("runSync assignees: matching and writes", () => {
     assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, fetches: 6 }));
   });
 
-  it("keeps staff, Bots and a matching student nobody in YouTrack holds this run (U4)", async () => {
+  it("removes the old assignee when the only issues YouTrack still gives them are resolved (U4)", async () => {
+    // Arrange: CUI-12 moved from jdoe to jroe; jdoe holds only CUI-6, resolved, mirror closed.
+    const world: World = {
+      githubIssues: [
+        ghIssue(21, "[CUI-12] [team] Task 12", { assignees: [ghAssignee(JANE_GH)] }),
+        ghIssue(22, "[CUI-6] [team] Task 6", { state: "closed", assignees: [ghAssignee(JANE_GH)] }),
+      ],
+      youtrackRows: [ytRow(6, { resolved: RESOLVED_AT, assignees: [JDOE] }), ytRow(12, { assignees: [JROE] })],
+      assignable: ASSIGNABLE,
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(21)}`, `DELETE ${assigneesPath(21)}`]);
+    assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(21)), [{ assignees: [ROE_GH] }]);
+    assert.deepEqual(bodiesOf(calls, "DELETE", assigneesPath(21)), [{ assignees: [JANE_GH] }]);
+    assert.deepEqual(messages(lines, "warn"), []);
+    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, fetches: 6 }));
+  });
+
+  it("removes a student who left from the mirrors given to others while YouTrack still names them (U4)", async () => {
+    // Arrange: jdoe left and CUI-5 went to jroe; YouTrack still names jdoe on epic CUI-4 and on
+    // unresolved CUI-8, whose mirror was closed by hand. jane.doe, matched by the map alone, left
+    // too: CUI-7 went to jroe, and she holds only resolved CUI-9.
+    const world: World = {
+      githubIssues: [
+        ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(JANE_GH), ghAssignee("staffuser")] }),
+        ghIssue(14, "[CUI-7] [team] Task 7", { assignees: [ghAssignee(ROE_GH), ghAssignee("OtherDev")] }),
+        ghIssue(15, "[CUI-8] [team] Task 8", { state: "closed", assignees: [ghAssignee(JANE_GH)] }),
+      ],
+      youtrackRows: [
+        ytRow(4, { type: "Epic", assignees: [JDOE] }),
+        ytRow(5, { assignees: [JROE] }),
+        ytRow(7, { assignees: [JROE] }),
+        ytRow(8, { assignees: [JDOE] }),
+        ytRow(9, { resolved: RESOLVED_AT, assignees: [{ login: "jane.doe" }] }),
+      ],
+      assignable: [...ASSIGNABLE, ghAssignee("OtherDev")],
+    };
+    const map = new Map([["jane.doe", "otherdev"]]);
+    const { deps, calls } = harness(world);
+
+    // Act
+    await runSync(config({ assigneeMap: map }), deps);
+
+    // Assert
+    assert.deepEqual(reads(calls), FOUR_READS);
+    const assigneeWrites = writeCalls(calls).filter((call) => call.endsWith("/assignees"));
+    assert.deepEqual(assigneeWrites, [
+      `POST ${assigneesPath(12)}`,
+      `DELETE ${assigneesPath(12)}`,
+      `DELETE ${assigneesPath(14)}`,
+    ]);
+    assert.deepEqual(bodiesOf(calls, "DELETE", assigneesPath(12)), [{ assignees: [JANE_GH] }]);
+    assert.deepEqual(bodiesOf(calls, "DELETE", assigneesPath(14)), [{ assignees: ["OtherDev"] }]);
+  });
+
+  it("sends no lookup for someone who holds no eligible issue, so one only a lookup matches is not owned", async () => {
+    // Arrange: CUI-5 moved to jroe; the old assignee holds only resolved CUI-6 and has no ID.
+    const world: World = {
+      githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(JANE_GH)] })],
+      youtrackRows: [
+        ytRow(5, { assignees: [JROE] }),
+        ytRow(6, { resolved: RESOLVED_AT, assignees: [{ login: "jane.doe", email: "jane.doe@example.com" }] }),
+      ],
+      assignable: ASSIGNABLE,
+      commitAuthors: new Map([["jane.doe@example.com", JANE_GH]]),
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`]);
+    assert.deepEqual(messages(lines, "warn"), []);
+  });
+
+  it("keeps staff, Bots and a matching student who holds no YouTrack issue at all, so cannot be owned (U4)", async () => {
     // Arrange
     const world: World = {
       ...mirrored([JDOE]),

@@ -138,7 +138,10 @@ one warning that names an issue of theirs, never the person, such as
   accounts it matches to someone assigned to an issue anywhere in the YouTrack project. It adds
   each matched assignee a mirror lacks, and removes a matched account that YouTrack does not
   assign to that issue, whoever put it there. Staff, bots and anyone it cannot match are never
-  touched.
+  touched. Someone assigned only to issues that are no longer synced (resolved issues, closed
+  mirrors, epics) still counts when the map or their student ID matches them, so a student who
+  left is removed from the issues YouTrack gave to others. Someone YouTrack names on no issue
+  at all is never touched: remove them by hand.
 - **Unassigned is left alone** (decision U6). An issue that is unassigned in YouTrack, or
   assigned only to people it cannot match, keeps its GitHub assignees. So a matched assignee
   stays until YouTrack names another matched one.

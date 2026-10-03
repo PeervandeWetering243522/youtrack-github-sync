@@ -41,6 +41,13 @@ export function withStepOff(state: LookupState, step: LookupStep): LookupState {
   return { ...state, off: new Set([...state.off, step]) };
 }
 
+/**
+ * Steps c and d off and no answers: the chain settles a person by the map and step b alone and
+ * never waits for a lookup. The assignee stage owns what it matches this way for every scanned
+ * assignee (U4; src/sync/assignees.ts).
+ */
+export const LOOKUPS_OFF: LookupState = Object.freeze(withStepOff(withStepOff(NO_LOOKUPS, "commit"), "search"));
+
 /** assignable: the logins of type User from the assignable list, as GitHub spells them. */
 export type MatchBasis = { readonly assignable: readonly string[]; readonly map: ManualMap };
 export type MatchContext = MatchBasis & { readonly lookups: LookupState };

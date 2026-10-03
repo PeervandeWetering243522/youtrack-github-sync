@@ -14,9 +14,17 @@
 
 - **Owned logins (§2.6, U4).** The mirror adds and removes only GitHub logins it matches to a
   YouTrack user seen as an assignee anywhere in the scanned project, not only on the eligible
-  issues of 2.3. So a matched person whose only open issue YouTrack gives to someone else is
-  still removed from its mirror. Staff, bots and unmatched people are never owned, so never
-  touched. Adds and removes still happen only on the mirrors of eligible issues.
+  issues of 2.3. Owned = the logins matched to the persons of 2.3 (lookups included), plus the
+  logins that the map or step b, which need no request, match to any user of any scanned
+  `Assignee` value (resolved and excluded issues, closed mirrors and epics too; `LOOKUPS_OFF`
+  in `src/plan/assignee-match.ts`). So a matched person whose only open issue YouTrack gives to
+  someone else is still removed from its mirror, also when every other issue they hold is
+  resolved, or when they left the team. Those other users get no lookup, so one only a lookup
+  would match is not owned. Someone YouTrack names on no issue at all (every issue reassigned,
+  or the user deleted) cannot be owned: their login stays until someone removes it by hand.
+  Desired logins, lookups and warnings still cover the persons of 2.3 only. Staff, bots and
+  unmatched people are never owned, so never touched. Adds and removes still happen only on the
+  mirrors of eligible issues.
 - **Aggregated warning (§2.10).** Each category gives the number of persons, then the distinct
   issue ids that name them, so two persons whose oldest eligible issue is the same read
   `2 unmatched (ABC-12)`.
