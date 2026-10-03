@@ -3,7 +3,7 @@
 > Answers to [07-open-questions.md](07-open-questions.md), given 2026-09-24; later rows (H, D, F)
 > came with the hierarchy work, and N1-N3, W1-W4, R10 and V1-V3 on 2026-10-01. U1-U18 answer
 > section D of 07 (assignees, research in [12](12-assignees.md)), given 2026-10-02 and 2026-10-03,
-> with V4. "Pending" means we're still waiting on confirmation.
+> with V4 and V5. "Pending" means we're still waiting on confirmation.
 
 | #   | Topic                           | Decision                                                                                                                                                                                                                         | Status              |
 | --- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
@@ -68,6 +68,7 @@
 | V2  | Branches                        | `main` changes only through squash-merged PRs from feature branches; the PR title is the conventional commit. Required checks (repo ruleset): Check, Workflow audit, Conventional PR title. Dependent changes go in stacked PRs. | Decided             |
 | V3  | Pinning and updates             | Consumers pin the action by full commit SHA with the version as a comment (`@<sha> # v0.2.0`); Dependabot updates both. Here, Dependabot waits 7 days; action bumps are `fix(deps)` (a patch release).                           | Decided             |
 | V4  | README pin                      | The README workflow pins no release: users copy the `uses:` line from the end of the latest release's notes (SHA plus version comment). Dependabot keeps it current (V3).                                                        | Decided             |
+| V5  | Release notes                   | Squash commits are the PR title only, so a description never changes the bump or the notes. A `!` PR needs a `## Upgrading` section (checked on the PR, with a release preview); the release puts it under ⚠ BREAKING CHANGES.   | Decided             |
 | U1  | Assignees by default            | Assignee sync is on by default, with a switch to turn it off. A breaking change, released as v1.0.0: the same PR removes the `breaking` -> minor rule from `.releaserc.json` (CONTRIBUTING.md).                                  | Decided             |
 | U2  | Matching                        | Match automatically as far as possible, with fallbacks, then a manual mapping for whoever is left. The chain is U17.                                                                                                             | Decided             |
 | U3  | Unmatched users                 | Assign whoever the chain matches; the rest get no assignee from the mirror (GitHub is left alone, U6), with one aggregated warning per run. No special handling for staff or shared IDs.                                         | Decided             |
