@@ -2,11 +2,62 @@
 
 > Drafted 2026-10-02 from [12-assignees.md](12-assignees.md) (research, live write test) and
 > decisions U1-U17 in [08-decisions.md](08-decisions.md), together with A3, A5, A10, D2-D4, D8,
-> N2, R3, R5, R7-R10, F1-F3 and V1. **Status: plan, not implemented.** It is a breaking change,
-> released as **v1.0.0** (U1): the same PR removes the `breaking` -> minor rule from
-> `.releaserc.json`. Where this plan and the code later differ, `README.md` and `src/` win, and
-> an "As built" section is added here. Every person in an example is a placeholder
-> (`jdoe123456`, `JaneDoe123456`, `123456@buas.nl`).
+> N2, R3, R5, R7-R10, F1-F3 and V1. **Status: units A-F implemented, not yet released or
+> deployed** (the verification and rollout steps after stage 3 are still open). It is a
+> breaking change, released as **v1.0.0** (U1): the same PR removes the `breaking` -> minor rule
+> from `.releaserc.json`. The "As built" section lists where the code refines this plan and
+> supersedes the sections it names. Where this plan and the code still differ, `README.md` and
+> `src/` are authoritative. Every person in an example is a placeholder (`jdoe123456`,
+> `JaneDoe123456`, `123456@buas.nl`).
+
+## As built
+
+- **Owned logins (§2.6, U4).** The mirror adds and removes only GitHub logins it matches to a
+  YouTrack user seen as an assignee anywhere in the scanned project, not only on the eligible
+  issues of 2.3. So a matched person whose only open issue YouTrack gives to someone else is
+  still removed from its mirror. Staff, bots and unmatched people are never owned, so never
+  touched. Adds and removes still happen only on the mirrors of eligible issues.
+- **Aggregated warning (§2.10).** Each category gives the number of persons, then the distinct
+  issue ids that name them, so two persons whose oldest eligible issue is the same read
+  `2 unmatched (ABC-12)`.
+- **Lookup notes (§2.10, section 5).** The notes after `; ` follow the order of the events
+  that caused them (a step turned off, then what stopped the lookups), and
+  `N lookups failed (...)` always comes last, after them.
+- **Persons without a lookup email (§2.4, §2.5).** A person with neither a usable email nor an
+  ID has no lookup email, so steps c and d pool nothing without a request: they end
+  `unmatched`, never `not looked up`, and `lookupOrder` leaves them out of the rotation.
+- **Section 5 example order.** Assignee writes run by ascending `numberInProject` (§2.7), so in
+  the real-run example the lines for `ABC-16` come before those for `ABC-41` and `ABC-42`. The
+  README shows them in that order.
+- **Assignable index (§2.4).** `evaluateChain` runs once per person and again before every
+  lookup, so it indexes the assignable list (logins by key, and the logins with a single ID)
+  once per list array, cached in a module-level `WeakMap` in `src/plan/assignee-match.ts`,
+  instead of on every call (Workers CPU, §7). Results are the same, and callers still see a
+  pure function.
+- **Cut bodies (§2.11).** The trim applies once the excerpt has at least
+  `BODY_EXCERPT_CHARS - 1` characters, since the cut may stop one short to keep a surrogate
+  pair whole.
+- **Switch off (§2.1, §2.11).** The stage then returns no identities (`NO_ASSIGNEE_STAGE`), so
+  the identity redactor is empty and lines pass through unchanged; the map's keys and values
+  are not added to it. Nothing logs them then: no `Assignee` field is requested, nothing is
+  matched, and map problems name entry positions only.
+- **YouTrack rows (unit B).** The `customFields` entries of a row are read once
+  (`customFieldEntries`) and shared by `readType` (exact name, unchanged) and `readAssignee`
+  (name ignoring A-Z case and a user `$type`). An empty login fails the row as `empty string`.
+- **Lookup answers (unit C).** A commit page that is not an array, a search answer without an
+  `items` array, a search item that is not an object, or a `User` without a non-empty login is
+  a `GitHubSchemaError`, so that (step, email) is skipped as `unexpected response` (§2.5).
+- **Planner (§2.6-2.7, section 5).** An excluded issue counts as `filtered` before any
+  assignee check, and an issue whose only actions are assignee writes no longer counts as
+  `unchanged`. `src/plan.ts` dropped its private `loginKey` for the one in
+  `src/plan/assignee-match.ts`, which the R10 comparison now uses too.
+- **The limit, declared twice.** `MAX_ASSIGNEES_PER_ISSUE` (`src/github/assignees.ts`) and
+  `GITHUB_MAX_ASSIGNEES` (`src/plan/assignees.ts`) are pinned equal by
+  `test/plan/assignee-actions.test.ts`.
+- **Kind-only messages (unit C).** The helper is `jsonKind` in `src/github/client.ts`.
+- **Still open:** the verification and rollout steps after stage 3 (live dry run, the
+  playground run, the v1.0.0 release and the U9 rollout). The README workflow still pins v0.1.0
+  and says that the assignee inputs need v1.0.0; its pin is updated once v1.0.0 is tagged.
 
 ## 1. Scope in one paragraph
 

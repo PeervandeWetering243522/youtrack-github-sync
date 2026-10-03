@@ -2,7 +2,10 @@
 
 > Researched 2026-10-02. **Status: research doc. Every question in section D of
 > [07](07-open-questions.md) is answered, in [08](08-decisions.md) as U1-U17; the matching chain
-> below is accepted (U17). Nothing is implemented yet.** The idea under study: assign each GitHub mirror to the GitHub account of its
+> below is accepted (U17). Implemented: see [13-assignees-plan.md](13-assignees-plan.md), whose
+> "As built" section lists where the code differs from the plan; `README.md` describes the
+> behaviour as built. Line references below (`src/...:n`, `README.md:n`) are to the code before
+> the implementation.** The idea under study: assign each GitHub mirror to the GitHub account of its
 > YouTrack assignee, matched by the BUas student ID that people carry in their login or email.
 > GitHub facts come from the docs (docs.github.com, REST API version 2026-03-10) plus
 > unauthenticated GETs against public repos (octocat/Hello-World, cli/cli, torvalds/linux).
