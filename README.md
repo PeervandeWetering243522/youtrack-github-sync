@@ -270,7 +270,7 @@ jobs:
       issues: write # create, update and close mirror issues, milestones, sub-issue links and assignees
       contents: read # find assignees by the email of their commits (see "Assignees")
     steps:
-      - uses: PeervandeWetering243522/youtrack-github-sync@8a2a592137ed4c678bc1baffe98964561b32c4a0 # v0.1.0
+      - uses: PeervandeWetering243522/youtrack-github-sync@<commit-sha> # <version>; copy this line from the latest release
         with:
           youtrack-token: ${{ secrets.YOUTRACK_TOKEN }}
           youtrack-base-url: https://youtrack.ai.buas.nl # your YouTrack
@@ -279,8 +279,11 @@ jobs:
           dry-run: "true" # step 5 turns writes on
 ```
 
-Assignee sync and the `assignee-map` input come with v1.0.0: pin that release or a later one,
-copying the `uses:` line from the end of its release notes ([Versions and updates](#versions-and-updates)).
+Replace the `uses:` line with the one at the end of the
+[latest release's notes](https://github.com/PeervandeWetering243522/youtrack-github-sync/releases/latest):
+it pins that release's full commit SHA, with its version as a comment. Dependabot keeps it up to
+date from then on ([Versions and updates](#versions-and-updates)). Assignee sync and the
+`assignee-map` input need v1.0.0 or later.
 
 ### 4. Do a dry run
 
@@ -388,14 +391,12 @@ Where the job runs decides what it costs (decision W3):
 
 ### Versions and updates
 
-Releases are SemVer tags (`v0.1.0`, `v0.2.0`, ...) on the repo's
+Releases are SemVer tags (`v1.0.0`, `v1.1.0`, ...) on the repo's
 [Releases page](https://github.com/PeervandeWetering243522/youtrack-github-sync/releases), with
-notes (decisions V1-V3; [CONTRIBUTING.md](CONTRIBUTING.md) has how they are made). The workflow
-above pins `uses:` to the full commit SHA of a release, with its tag as a comment, so nothing
-changes in your repo until you update the pin. From v0.1.1 on, each release's notes end with its
-commit SHA and the `uses:` line to copy. For v0.1.0,
-`git ls-remote https://github.com/PeervandeWetering243522/youtrack-github-sync refs/tags/v0.1.0`
-prints it.
+notes (decisions V1-V4; [CONTRIBUTING.md](CONTRIBUTING.md) has how they are made). Each
+release's notes end with its commit SHA and the `uses:` line to copy into the workflow above. It
+pins the full commit SHA, with the version as a comment, so nothing changes in your repo until
+you update the pin.
 
 Dependabot proposes new releases as PRs that update both the SHA and the comment, with the
 release notes in the PR. Your repo needs a `github-actions` entry in `.github/dependabot.yml`:

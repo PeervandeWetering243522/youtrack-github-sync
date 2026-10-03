@@ -1,9 +1,9 @@
 # Decisions log
 
 > Answers to [07-open-questions.md](07-open-questions.md), given 2026-09-24; later rows (H, D, F)
-> came with the hierarchy work, and N1-N3, W1-W4, R10 and V1-V3 on 2026-10-01. U1-U17 answer
-> section D of 07 (assignees, research in [12](12-assignees.md)), given 2026-10-02. "Pending"
-> means we're still waiting on confirmation.
+> came with the hierarchy work, and N1-N3, W1-W4, R10 and V1-V3 on 2026-10-01. U1-U18 answer
+> section D of 07 (assignees, research in [12](12-assignees.md)), given 2026-10-02 and 2026-10-03,
+> with V4. "Pending" means we're still waiting on confirmation.
 
 | #   | Topic                           | Decision                                                                                                                                                                                                                         | Status              |
 | --- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
@@ -67,6 +67,7 @@
 | V1  | Releases                        | semantic-release on every push to `main`: the commits since the last `v*` tag pick the bump (breaking: major, minor up to v0.1.1, U1), then a tag and a GitHub Release. v0.1.0 was tagged by hand; nothing is committed back.    | See U1              |
 | V2  | Branches                        | `main` changes only through squash-merged PRs from feature branches; the PR title is the conventional commit. Required checks (repo ruleset): Check, Workflow audit, Conventional PR title. Dependent changes go in stacked PRs. | Decided             |
 | V3  | Pinning and updates             | Consumers pin the action by full commit SHA with the version as a comment (`@<sha> # v0.2.0`); Dependabot updates both. Here, Dependabot waits 7 days; action bumps are `fix(deps)` (a patch release).                           | Decided             |
+| V4  | README pin                      | The README workflow pins no release: users copy the `uses:` line from the end of the latest release's notes (SHA plus version comment). Dependabot keeps it current (V3).                                                        | Decided             |
 | U1  | Assignees by default            | Assignee sync is on by default, with a switch to turn it off. A breaking change, released as v1.0.0: the same PR removes the `breaking` -> minor rule from `.releaserc.json` (CONTRIBUTING.md).                                  | Decided             |
 | U2  | Matching                        | Match automatically as far as possible, with fallbacks, then a manual mapping for whoever is left. The chain is U17.                                                                                                             | Decided             |
 | U3  | Unmatched users                 | Assign whoever the chain matches; the rest get no assignee from the mirror (GitHub is left alone, U6), with one aggregated warning per run. No special handling for staff or shared IDs.                                         | Decided             |
@@ -84,3 +85,4 @@
 | U15 | Assignee field                  | Fixed name `Assignee`, like `Type`. A multi-user field assigns every matched user (GitHub's limit is 10). No scanned issue has the field: one loud warning, no assignee changes (U6).                                            | Decided             |
 | U16 | Assignable list fails           | If `GET /repos/{o}/{r}/assignees` fails, the run carries on without assignee sync, with a warning. It cannot cause duplicate mirrors.                                                                                            | Decided             |
 | U17 | Matching chain                  | docs/12 "Proposed matching chain" with its lean on each choice: map, ID in an assignable login, commit author, public-email search. At most 5 lookups per run; the Action adds `contents: read`.                                 | Decided             |
+| U18 | Worker upgrades                 | Q33: assignee sync stays on by default on every host (U1). The README tells Worker users to set `redact_query_string` to true (or `SYNC_ASSIGNEES` to false) before deploying v1.0.0.                                            | Decided             |

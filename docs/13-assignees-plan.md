@@ -88,8 +88,8 @@
   `test/plan/assignee-actions.test.ts`.
 - **Kind-only messages (unit C).** The helper is `jsonKind` in `src/github/client.ts`.
 - **Still open:** the verification and rollout steps after stage 3 (live dry run, the
-  playground run, the v1.0.0 release and the U9 rollout). The README workflow still pins v0.1.0
-  and says that the assignee inputs need v1.0.0; its pin is updated once v1.0.0 is tagged.
+  playground run, the v1.0.0 release and the U9 rollout). The README workflow no longer pins a
+  release: it points at the latest release's notes for the `uses:` line (V4).
 
 ## 1. Scope in one paragraph
 

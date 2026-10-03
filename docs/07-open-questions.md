@@ -75,7 +75,7 @@ Research only: assign each mirror to the GitHub account of its YouTrack assignee
 BUas student ID in logins and emails. Details and evidence in
 [12](12-assignees.md#open-questions-for-the-user).
 
-**All answered 2026-10-02** in [08](08-decisions.md) as U1-U17. 18 (emails) is settled by U17:
+**All answered** (2026-10-02, and 33 on 2026-10-03) in [08](08-decisions.md) as U1-U18. 18 (emails) is settled by U17:
 hidden emails are only an inference (see 12), so the login comes first and the email is a
 fallback. 25 is U14, 26 is U15, 27 is U16.
 
@@ -128,4 +128,5 @@ fallback. 25 is U14, 26 is U15, 27 is U16.
     Should the Worker (or every host) instead treat a missing `SYNC_ASSIGNEES` as off, or skip
     the lookups unless it is set? Either changes the U1 default. Also unverified: whether
     `redact_query_string` strips subrequest URLs in traces at all (rollout step 2); if not,
-    should the example turn trace persistence off? See [13](13-assignees-plan.md#7-risks).
+    should the example turn trace persistence off? See [13](13-assignees-plan.md#7-risks). **Answered: U18**
+    (keep the default; the README note covers upgraders).
