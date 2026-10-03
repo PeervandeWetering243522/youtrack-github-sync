@@ -37,6 +37,15 @@
   (`unsettledAdds` in `src/sync/resolved.ts`), and that issue's remove is capped with
   `remove 1 assignee from CUI-12 #21 capped: the add before it did not go through in this run`
   and sends nothing. The next run tries both again.
+- **Stopped lookup steps (§2.4, §2.5).** A step turned off or paused for the run still pools
+  the answers it already got, so a person a lookup matched before the step stopped keeps that
+  match. An email it has no answer for gives no result when the step is off (commit 403, 404 or
+  409: the token or the repo, which later runs do not fix by themselves), but counts as a
+  lookup never sent when a rate limit paused it (step d, `withStepPaused`): a person it leaves
+  without a match ends `not looked up`, not `unmatched`.
+- **None-matched warning (§2.10).** It is left out when every person who is not blocked is
+  `not looked up`: the aggregated warning then names the cause (the lookup budget, a rate
+  limit, the deadline, failed lookups), which is not the YouTrack token.
 - **Aggregated warning (§2.10).** Each category gives the number of persons, then the distinct
   issue ids that name them, so two persons whose oldest eligible issue is the same read
   `2 unmatched (ABC-12)`.

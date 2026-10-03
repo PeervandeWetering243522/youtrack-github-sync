@@ -17,17 +17,23 @@ export type LookupStep = "commit" | "search";
 export type LookupAnswer =
   | { readonly kind: "found"; readonly logins: readonly string[] } // commit: 0 or 1 login
   | { readonly kind: "failed" };
-/** Answers so far, keyed by lowercased email, and the steps turned off for the run. */
+/**
+ * Answers so far, keyed by lowercased email, and the steps stopped for the run. A stopped step
+ * still pools the answers it got; an email it has no answer for is no result when the step is
+ * off, and a lookup never sent (not looked up) when a rate limit paused it.
+ */
 export type LookupState = {
   readonly commit: ReadonlyMap<string, LookupAnswer>;
   readonly search: ReadonlyMap<string, LookupAnswer>;
   readonly off: ReadonlySet<LookupStep>;
+  readonly paused: ReadonlySet<LookupStep>;
 };
 
 export const NO_LOOKUPS: LookupState = Object.freeze({
   commit: new Map<string, LookupAnswer>(),
   search: new Map<string, LookupAnswer>(),
   off: new Set<LookupStep>(),
+  paused: new Set<LookupStep>(),
 });
 
 /** `state` plus the answer of one (step, email); the email is keyed A-Z lowercased. */
@@ -36,9 +42,17 @@ export function withAnswer(state: LookupState, step: LookupStep, email: string, 
   return step === "commit" ? { ...state, commit: answers } : { ...state, search: answers };
 }
 
-/** `state` with `step` off for the rest of the run: it then counts as a step with no result. */
+/** `state` with `step` off for the rest of the run: an email it has no answer for gives no result. */
 export function withStepOff(state: LookupState, step: LookupStep): LookupState {
   return { ...state, off: new Set([...state.off, step]) };
+}
+
+/**
+ * `state` with `step` paused for the rest of the run by a rate limit: an email it has no answer
+ * for counts as a lookup never sent, so a person it leaves without a match is not looked up.
+ */
+export function withStepPaused(state: LookupState, step: LookupStep): LookupState {
+  return { ...state, paused: new Set([...state.paused, step]) };
 }
 
 /**
@@ -102,8 +116,10 @@ export function loginKey(login: string): string {
  * step with 2 or more logins makes them the candidates C and the chain goes on: a later single
  * login is a match only if it is in C, and one outside C ends the chain as ambiguous. A lookup
  * step is decided only once every lookup email has an answer for it; until then the chain
- * waits (`needs-lookup`). A step that is off counts as no result. Without a match the person is
- * ambiguous if any step was, not-looked-up if a failed lookup was skipped, else unmatched.
+ * waits (`needs-lookup`). A step that is off or paused pools the answers it got and never
+ * waits: off, an email without an answer is no result; paused (a rate limit), it counts as
+ * skipped. Without a match the person is ambiguous if any step was, not-looked-up if a lookup
+ * was skipped (failed, or never sent for a pause), else unmatched.
  */
 export function evaluateChain(person: PersonIdentity, context: MatchContext): ChainState {
   const assignable = assignableIndex(context.assignable);
@@ -186,13 +202,14 @@ function stepResult(
     const withId = assignable.withIds.filter(({ id }) => ids.includes(id)).map(({ login }) => login);
     return { kind: "pooled", logins: pooled(withId, assignable), skipped: false };
   }
-  if (lookups.off.has(step)) return { kind: "pooled", logins: [], skipped: false };
   const emails = lookupEmails(person);
   const answers = emails.map((email) => lookups[step].get(email));
   const missing = emails.find((_, index) => answers[index] === undefined);
-  if (missing !== undefined) return { kind: "waits", step, email: missing };
+  const paused = lookups.paused.has(step);
+  if (missing !== undefined && !paused && !lookups.off.has(step)) return { kind: "waits", step, email: missing };
   const logins = answers.flatMap((answer) => (answer?.kind === "found" ? answer.logins : []));
-  return { kind: "pooled", logins: pooled(logins, assignable), skipped: answers.some((a) => a?.kind === "failed") };
+  const failed = answers.some((answer) => answer?.kind === "failed");
+  return { kind: "pooled", logins: pooled(logins, assignable), skipped: failed || (paused && missing !== undefined) };
 }
 
 /** The logins that are in the assignable list (A-Z case ignored), spelled as it spells them, deduplicated. */

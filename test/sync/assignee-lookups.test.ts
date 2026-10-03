@@ -163,7 +163,7 @@ describe("runSync lookups: failures (docs/13 §2.5)", () => {
     ]);
   });
 
-  it("turns the email search off on a rate limit; commit lookups go on", async () => {
+  it("turns the email search off on a rate limit; commit lookups go on, the unsearched are not looked up", async () => {
     // Arrange
     const override = at(SEARCH_USERS_PATH, () => json(403, { message: "API rate limit exceeded" }, RATE_LIMITED));
     const { deps, calls, lines } = harness(world({ override }));
@@ -178,10 +178,28 @@ describe("runSync lookups: failures (docs/13 §2.5)", () => {
       "commit john.roe@example.com",
     ]);
     assert.deepEqual(messages(lines, "warn"), [
-      "assignees: 2 unmatched (CUI-5, CUI-6); email search off: GitHub rate limit",
-      noneMatched(2),
+      "assignees: 2 not looked up (CUI-5, CUI-6); email search off: GitHub rate limit",
     ]);
     assert.equal(result.failed, 0);
+  });
+
+  it("keeps a match the email search found before a rate limit turned it off", async () => {
+    // Arrange: jane's search finds her; john's search is the one GitHub rate-limits.
+    const limitJohn: Override = (call) =>
+      call.url.pathname === SEARCH_USERS_PATH && (call.url.searchParams.get("q") ?? "").includes("john.roe")
+        ? json(403, { message: "API rate limit exceeded" }, RATE_LIMITED)
+        : undefined;
+    const found = new Map([["jane.doe@example.com", [JANE_GH]]]);
+    const { deps, calls, lines } = harness(world({ override: limitJohn, searchUsers: found }));
+
+    // Act
+    await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(12)), [{ assignees: [JANE_GH] }]);
+    assert.deepEqual(messages(lines, "warn"), [
+      "assignees: 1 not looked up (CUI-6); email search off: GitHub rate limit",
+    ]);
   });
 
   it("stops all lookups on a commit-lookup rate limit; waiting people are not looked up", async () => {
@@ -196,7 +214,6 @@ describe("runSync lookups: failures (docs/13 §2.5)", () => {
     assert.deepEqual(lookups(calls), ["commit jane.doe@example.com"]);
     assert.deepEqual(messages(lines, "warn"), [
       "assignees: 2 not looked up (CUI-5, CUI-6); lookups stopped: GitHub rate limit",
-      noneMatched(2),
     ]);
   });
 
@@ -215,10 +232,7 @@ describe("runSync lookups: failures (docs/13 §2.5)", () => {
       "commit jane.doe@example.com",
       "search jane.doe@example.com",
     ]);
-    assert.deepEqual(messages(lines, "warn"), [
-      "assignees: 1 not looked up (CUI-5); 1 lookup failed (HTTP 502)",
-      noneMatched(1).replace("assignees matched", "assignee matched"),
-    ]);
+    assert.deepEqual(messages(lines, "warn"), ["assignees: 1 not looked up (CUI-5); 1 lookup failed (HTTP 502)"]);
     assert.equal(lastLine(lines).level, "info");
     assert.equal(result.failed, 0);
   });

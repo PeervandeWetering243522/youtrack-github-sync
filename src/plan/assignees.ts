@@ -88,8 +88,10 @@ export function assigneeWarning(
 }
 
 /**
- * The "none matched" loud warning of 2.10, or null: at least one person is not blocked and
- * nobody matched. It catches anonymized logins after the YouTrack token lost Read User Basic.
+ * The "none matched" loud warning of 2.10, or null: at least one person is not blocked, nobody
+ * matched, and not all of them are merely not looked up (then the lookups, which the aggregated
+ * warning names, left them out, not the token). It catches anonymized logins after the
+ * YouTrack token lost Read User Basic.
  */
 export function noneMatchedWarning(
   persons: readonly NamedPerson[],
@@ -99,6 +101,7 @@ export function noneMatchedWarning(
     .map((person) => outcomeOf(person, outcomes))
     .filter((outcome) => outcome?.kind !== "blocked");
   if (unblocked.length === 0 || unblocked.some((outcome) => outcome?.kind === "matched")) return null;
+  if (unblocked.every((outcome) => outcome?.kind === "not-looked-up")) return null;
   const count = unblocked.length;
   return (
     `assignees: none of the ${String(count)} YouTrack ${count === 1 ? "assignee" : "assignees"} matched a GitHub ` +

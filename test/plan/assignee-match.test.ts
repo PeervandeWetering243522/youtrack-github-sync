@@ -17,6 +17,7 @@ import {
   NO_LOOKUPS,
   withAnswer,
   withStepOff,
+  withStepPaused,
 } from "../../src/plan/assignee-match.ts";
 import type { LookupAnswer, LookupState, LookupStep, ManualMap, MatchContext } from "../../src/plan/assignee-match.ts";
 import type { PersonIdentity } from "../../src/utils/student-id.ts";
@@ -212,6 +213,27 @@ describe("evaluateChain: steps c and d, the lookups", () => {
     assert.deepEqual(evaluateChain(STAFF, context({ lookups: bothOff })), { kind: "unmatched" });
   });
 
+  it("keeps the answers a step got before it was turned off", () => {
+    const lookups = withStepOff(answers(["commit", "staff@example.org", found("staffgh")]), "commit");
+
+    assert.deepEqual(evaluateChain(STAFF, context({ lookups })), { kind: "matched", login: "staffgh", step: "commit" });
+  });
+
+  it("ends not-looked-up when a rate limit paused a step before its lookup was sent", () => {
+    const paused = withStepPaused(answers(["commit", "staff@example.org", FOUND_NONE]), "search");
+
+    assert.deepEqual(evaluateChain(STAFF, context({ lookups: paused })), { kind: "not-looked-up" });
+  });
+
+  it("keeps the answers a paused step got, and its matches", () => {
+    const lookups = withStepPaused(
+      answers(["commit", "staff@example.org", FOUND_NONE], ["search", "staff@example.org", found("staffgh")]),
+      "search",
+    );
+
+    assert.deepEqual(evaluateChain(STAFF, context({ lookups })), { kind: "matched", login: "staffgh", step: "search" });
+  });
+
   it("decides a step from the other email when one lookup failed", () => {
     const lookups = answers(["commit", "jane@example.org", FAILED], ["commit", "123456@buas.nl", found("staffgh")]);
 
@@ -364,11 +386,14 @@ describe("lookup state", () => {
   it("keys answers by the A-Z lowercased email and never changes the state it is given", () => {
     const state = withAnswer(NO_LOOKUPS, "commit", "Staff@Example.ORG", found("staffgh"));
     const off = withStepOff(state, "search");
+    const paused = withStepPaused(state, "commit");
 
     assert.deepEqual([...state.commit.keys()], ["staff@example.org"]);
     assert.deepEqual([...off.off], ["search"]);
+    assert.deepEqual([...paused.paused], ["commit"]);
     assert.equal(NO_LOOKUPS.commit.size, 0);
     assert.equal(state.off.size, 0);
+    assert.equal(state.paused.size, 0);
     assert.equal(state.search, NO_LOOKUPS.search);
   });
 

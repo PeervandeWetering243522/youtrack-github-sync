@@ -27,7 +27,15 @@ import type { HttpClient } from "../http.ts";
 import type { AssigneeSync } from "../plan.ts";
 import { lookupBudget, lookupOrder, nextLookup, rotationIndex, spareFetches } from "../plan/assignee-lookups.ts";
 import type { PlannedLookup } from "../plan/assignee-lookups.ts";
-import { loginKey, LOOKUPS_OFF, matchAll, NO_LOOKUPS, withAnswer, withStepOff } from "../plan/assignee-match.ts";
+import {
+  loginKey,
+  LOOKUPS_OFF,
+  matchAll,
+  NO_LOOKUPS,
+  withAnswer,
+  withStepOff,
+  withStepPaused,
+} from "../plan/assignee-match.ts";
 import type { LookupAnswer, LookupState, LookupStep, MatchBasis, MatchOutcome } from "../plan/assignee-match.ts";
 import { assigneeEligible } from "../plan/assignee-scope.ts";
 import { assigneeWarning, desiredAssignees, noneMatchedWarning, ownedLogins } from "../plan/assignees.ts";
@@ -243,6 +251,7 @@ type LookupRun = { readonly state: LookupState; readonly notes: readonly string[
 type LookupEffect =
   | { readonly kind: "answer"; readonly answer: LookupAnswer; readonly failure: string | null }
   | { readonly kind: "step-off"; readonly note: string }
+  | { readonly kind: "step-paused"; readonly note: string }
   | { readonly kind: "stop"; readonly note: string };
 
 /**
@@ -275,9 +284,9 @@ async function runLookups(
       notes.push(effect.note);
       break;
     }
-    if (effect.kind === "step-off") {
+    if (effect.kind === "step-off" || effect.kind === "step-paused") {
       notes.push(effect.note);
-      state = withStepOff(state, next.step);
+      state = effect.kind === "step-off" ? withStepOff(state, next.step) : withStepPaused(state, next.step);
     } else {
       if (effect.failure !== null) failures.push(effect.failure);
       state = withAnswer(state, next.step, next.email, effect.answer);
@@ -315,7 +324,7 @@ function lookupFailure(step: LookupStep, error: Error | null): LookupEffect {
   if (error instanceof HttpError && error.rateLimited) {
     return step === "commit"
       ? { kind: "stop", note: "lookups stopped: GitHub rate limit" }
-      : { kind: "step-off", note: "email search off: GitHub rate limit" };
+      : { kind: "step-paused", note: "email search off: GitHub rate limit" };
   }
   if (step === "commit" && error instanceof HttpError && NO_ACCESS_STATUSES.includes(error.status)) {
     const note = `commit lookups off: the token lacks Contents read (HTTP ${String(error.status)})`;

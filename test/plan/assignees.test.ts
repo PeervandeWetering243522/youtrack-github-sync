@@ -240,4 +240,11 @@ describe("noneMatchedWarning", () => {
     assert.equal(noneMatchedWarning([BLOCKED_PERSON], ALL_MISSED), null);
     assert.equal(noneMatchedWarning([], ALL_MISSED), null);
   });
+
+  it("is null when everyone not blocked is not looked up: the lookups, not the token, left them out", () => {
+    const later = person("ABC-4", "laterusera");
+
+    assert.equal(noneMatchedWarning([later, BLOCKED_PERSON], ALL_MISSED), null);
+    assert.notEqual(noneMatchedWarning([later, MISSED[0] ?? later], ALL_MISSED), null);
+  });
 });
