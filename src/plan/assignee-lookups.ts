@@ -10,16 +10,24 @@ import type { LookupStep, MatchBasis, MatchContext } from "./assignee-match.ts";
 import type { PersonIdentity } from "../utils/student-id.ts";
 
 export const MAX_LOOKUPS_PER_RUN = 5;
-/** Fetches kept free beyond the write cap, so lookups never eat into the writes' share of the guard. */
+/**
+ * Fetches kept free beyond the write cap, so neither lookups nor the assignable list's further
+ * pages eat into the writes' share of the guard.
+ */
 export const LOOKUP_FETCH_RESERVE = 2;
 /** The rotation advances once per cron period (10 minutes). */
 export const LOOKUP_ROTATION_MS = 600_000;
 
 export type PlannedLookup = { readonly step: LookupStep; readonly email: string };
 
-/** max(0, min(MAX_LOOKUPS_PER_RUN, remainingFetches - maxWrites - LOOKUP_FETCH_RESERVE)). */
+/** max(0, remainingFetches - maxWrites - LOOKUP_FETCH_RESERVE): what optional assignee reads may spend. */
+export function spareFetches(remainingFetches: number, maxWrites: number): number {
+  return Math.max(0, remainingFetches - maxWrites - LOOKUP_FETCH_RESERVE);
+}
+
+/** min(MAX_LOOKUPS_PER_RUN, spareFetches(remainingFetches, maxWrites)). */
 export function lookupBudget(remainingFetches: number, maxWrites: number): number {
-  return Math.max(0, Math.min(MAX_LOOKUPS_PER_RUN, remainingFetches - maxWrites - LOOKUP_FETCH_RESERVE));
+  return Math.min(MAX_LOOKUPS_PER_RUN, spareFetches(remainingFetches, maxWrites));
 }
 
 /** floor(now / LOOKUP_ROTATION_MS). */

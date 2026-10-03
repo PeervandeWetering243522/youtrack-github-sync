@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { listAllPages } from "../../src/github/pages.ts";
+import { listAllPages, PageLimitError } from "../../src/github/pages.ts";
 import { isInteger, isJsonArray } from "../../src/json.ts";
 import type { JsonValue } from "../../src/json.ts";
 import { EXPECTED_HEADERS, TARGET, createFakeHttp, requestAt, schemaError } from "./fixtures.ts";
@@ -62,6 +62,41 @@ describe("listAllPages", () => {
     // Act + Assert
     await assert.rejects(listAllPages(fake.http, TARGET, FIRST, integers), /not a page of integers/);
     assert.equal(fake.requests.length, 1);
+  });
+
+  it("asks mayFetchNext before every page after the first and throws PageLimitError when it refuses", async () => {
+    // Arrange
+    const third = `${SECOND}&page=3`;
+    const fake = createFakeHttp([
+      { body: [1], link: `<${SECOND}>; rel="next"` },
+      { body: [2], link: `<${third}>; rel="next"` },
+      { body: [3] },
+    ]);
+    let asked = 0;
+    const mayFetchNext = (): boolean => (asked += 1) < 2;
+
+    // Act + Assert
+    await assert.rejects(listAllPages(fake.http, TARGET, FIRST, integers, mayFetchNext), (error) => {
+      assert.ok(error instanceof PageLimitError);
+      assert.equal(error.message, "GitHub list stopped after 2 pages: the caller allows no further page");
+      return true;
+    });
+    assert.equal(asked, 2);
+    assert.deepEqual(
+      fake.requests.map((request) => request.url),
+      [FIRST, SECOND],
+    );
+  });
+
+  it("always fetches the first page, and a last page asks nothing", async () => {
+    // Arrange
+    const fake = createFakeHttp([{ body: [1] }]);
+
+    // Act
+    const items = await listAllPages(fake.http, TARGET, FIRST, integers, () => false);
+
+    // Assert
+    assert.deepEqual(items, [1]);
   });
 
   it("throws GitHubSchemaError when rel=next returns to the first URL", async () => {

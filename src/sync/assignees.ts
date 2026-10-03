@@ -14,6 +14,7 @@ import type { Config } from "../config.ts";
 import { listAssignableUsers } from "../github/assignees.ts";
 import type { GitHubAssignee } from "../github/assignees.ts";
 import type { GitHubTarget } from "../github/client.ts";
+import { PageLimitError } from "../github/pages.ts";
 import { findCommitAuthor, searchUsersByEmail } from "../github/users.ts";
 import {
   DEFAULT_MAX_RETRY_AFTER_MS,
@@ -24,7 +25,7 @@ import {
 } from "../http.ts";
 import type { HttpClient } from "../http.ts";
 import type { AssigneeSync } from "../plan.ts";
-import { lookupBudget, lookupOrder, nextLookup, rotationIndex } from "../plan/assignee-lookups.ts";
+import { lookupBudget, lookupOrder, nextLookup, rotationIndex, spareFetches } from "../plan/assignee-lookups.ts";
 import type { PlannedLookup } from "../plan/assignee-lookups.ts";
 import { loginKey, LOOKUPS_OFF, matchAll, NO_LOOKUPS, withAnswer, withStepOff } from "../plan/assignee-match.ts";
 import type { LookupAnswer, LookupState, LookupStep, MatchBasis, MatchOutcome } from "../plan/assignee-match.ts";
@@ -207,9 +208,15 @@ type ListRead =
   | { readonly kind: "ok"; readonly users: readonly GitHubAssignee[] }
   | { readonly kind: "failed"; readonly detail: string };
 
+/**
+ * Read 4. Its first page is always sent (docs/13 section 6 counts it); a further page only
+ * while spareFetches is above 0, so a long list never eats into the writes' share of the
+ * guard. A list cut short fails like any unreadable list (U16).
+ */
 async function readAssignable(run: AssigneeRun): Promise<ListRead> {
+  const mayFetchNext = (): boolean => spareFetches(run.http.remainingFetches(), run.config.maxWritesPerRun) > 0;
   try {
-    return { kind: "ok", users: await listAssignableUsers(run.http, run.target) };
+    return { kind: "ok", users: await listAssignableUsers(run.http, run.target, mayFetchNext) };
   } catch (error) {
     return { kind: "failed", detail: failureDetail(error instanceof Error ? error : null) };
   }
@@ -222,6 +229,7 @@ function unreadableWarning(detail: string): string {
 /** What a log may say about a failed read (null: not an Error): its status or kind, never its message (U8). */
 function failureDetail(error: Error | null): string {
   if (error instanceof FetchBudgetExceededError) return "fetch guard reached";
+  if (error instanceof PageLimitError) return "too many pages for the fetch budget";
   if (error instanceof HttpError) return `HTTP ${String(error.status)}`;
   return error instanceof NetworkError ? "network error" : "unexpected response";
 }

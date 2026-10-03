@@ -593,6 +593,7 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 | `assignees: no scanned issue has an "Assignee" field`       | The project has no user field named exactly `Assignee` (it was renamed, or is not a user field). Rename it back, or set `sync-assignees: "false"`.                  |
 | `assignees: none of the 4 YouTrack assignees matched ...`   | Nobody matched. If YouTrack usernames look anonymized, the YouTrack token's account lacks Read User Basic.                                                          |
 | `assignees: could not read the assignable GitHub users ...` | That run synced no assignees; everything else went on. It retries on the next run. A 403 or 404 there points at the token's access to the repo.                     |
+| `... (too many pages for the fetch budget)`                 | The repo has more assignable accounts (organization members with access count) than a run can read beside its writes. Lower `MAX_WRITES_PER_RUN`.                   |
 | `GitHub dropped 1 of 1 assignees on add` on every run       | GitHub ignored the add: the token lacks push access, or the account can no longer be assigned. Each run spends a write on it.                                       |
 | Worker: emails in the URLs of Workers Logs or traces        | `wrangler.jsonc` lacks `"redact_query_string": true` under `observability` (copies made before v1.0.0). Copy it from `wrangler.example.jsonc` and redeploy.         |
 
@@ -1006,7 +1007,10 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **Fetches per run:** 3 reads (1 GitHub issues page, 1 milestones page, 1 YouTrack page) + at
   most 30 writes = 33 fetches without retries. With assignee sync on and at least one open
   issue assigned in YouTrack, a 4th read (the assignable users, 1 page per 100) makes it 34,
-  plus the commit and email lookups when someone needs them. Each retry is one more fetch, up
+  plus the commit and email lookups when someone needs them. A further page of assignable users
+  is read only while `fetches left - MAX_WRITES_PER_RUN - 2` is above 0 (10 pages with the
+  default 30 writes); a longer list skips assignee sync for that run with a warning, so the
+  writes keep their share of the guard. Each retry is one more fetch, up
   to the 45-fetch guard. Every further 100 GitHub items (issues and pull requests), 100
   milestones or 100 YouTrack issues costs one more page. A dry run sends only the reads, the
   lookups included.

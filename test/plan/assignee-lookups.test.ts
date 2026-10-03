@@ -15,6 +15,7 @@ import {
   MAX_LOOKUPS_PER_RUN,
   nextLookup,
   rotationIndex,
+  spareFetches,
 } from "../../src/plan/assignee-lookups.ts";
 import type { PlannedLookup } from "../../src/plan/assignee-lookups.ts";
 import { NO_LOOKUPS, withAnswer, withStepOff } from "../../src/plan/assignee-match.ts";
@@ -69,6 +70,16 @@ describe("lookupBudget", () => {
   it("is never negative", () => {
     assert.equal(lookupBudget(0, 30), 0);
     assert.equal(lookupBudget(-3, 0), 0);
+  });
+});
+
+describe("spareFetches", () => {
+  it("is what the write cap and the reserve leave of the fetches left, never negative", () => {
+    assert.deepEqual(
+      [30, 38, 39, 40].map((writes) => spareFetches(41, writes)),
+      [9, 1, 0, 0],
+    );
+    assert.equal(spareFetches(-3, 0), 0);
   });
 });
 

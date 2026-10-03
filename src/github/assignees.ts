@@ -39,14 +39,19 @@ export function parseAssignees(value: JsonValue | undefined, context: string): r
 }
 
 /**
- * GET /repos/{owner}/{repo}/assignees?per_page=100, following Link rel="next" verbatim.
- * retry: "retry-once". Items are read like an issue's assignees. Throws GitHubSchemaError for
- * a page that is not an array, a Link header nextPageUrl rejects, or a page fetched twice.
+ * GET /repos/{owner}/{repo}/assignees?per_page=100, following Link rel="next" verbatim while
+ * `mayFetchNext` allows a further page. retry: "retry-once". Items are read like an issue's
+ * assignees. Throws GitHubSchemaError for a page that is not an array, a Link header
+ * nextPageUrl rejects, or a page fetched twice; PageLimitError when `mayFetchNext` refuses.
  */
-export async function listAssignableUsers(http: HttpClient, target: GitHubTarget): Promise<readonly GitHubAssignee[]> {
+export async function listAssignableUsers(
+  http: HttpClient,
+  target: GitHubTarget,
+  mayFetchNext: () => boolean = () => true,
+): Promise<readonly GitHubAssignee[]> {
   const query = new URLSearchParams({ per_page: String(GITHUB_PAGE_SIZE) });
   const firstUrl = `${repoUrl(target)}/assignees?${query.toString()}`;
-  return await listAllPages(http, target, firstUrl, parseAssignablePage);
+  return await listAllPages(http, target, firstUrl, parseAssignablePage, mayFetchNext);
 }
 
 /**

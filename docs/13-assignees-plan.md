@@ -25,6 +25,12 @@
   Desired logins, lookups and warnings still cover the persons of 2.3 only. Staff, bots and
   unmatched people are never owned, so never touched. Adds and removes still happen only on the
   mirrors of eligible issues.
+- **Long assignable lists (§2.2, section 6).** Read 4's first page is always sent (section 6
+  counts it); each further page only while `fetches left - MAX_WRITES_PER_RUN - 2` is above 0
+  (`spareFetches` in `src/plan/assignee-lookups.ts`, the reserve the lookups use), so the list
+  never eats into the writes' share of the guard. A list cut short counts as unreadable (U16):
+  `assignees: could not read the assignable GitHub users (too many pages for the fetch budget); assignees are not synced this run`.
+  With the default 30 writes and one-page reads that allows 10 pages (1,000 assignable users).
 - **Aggregated warning (§2.10).** Each category gives the number of persons, then the distinct
   issue ids that name them, so two persons whose oldest eligible issue is the same read
   `2 unmatched (ABC-12)`.

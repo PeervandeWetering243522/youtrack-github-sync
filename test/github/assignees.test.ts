@@ -11,6 +11,7 @@ import {
 import type { GitHubAssignee } from "../../src/github/assignees.ts";
 import type { GitHubTarget } from "../../src/github/client.ts";
 import { parseGitHubIssue } from "../../src/github/issues.ts";
+import { PageLimitError } from "../../src/github/pages.ts";
 import { HttpError } from "../../src/http.ts";
 import type { HttpClient } from "../../src/http.ts";
 import { parseJson } from "../../src/json.ts";
@@ -259,6 +260,21 @@ describe("listAssignableUsers", () => {
       { login: OTHER_STUDENT_LOGIN, type: "User" },
       { login: BOT_LOGIN, type: "Bot" },
     ]);
+  });
+
+  it("stops with PageLimitError before a further page that mayFetchNext refuses", async () => {
+    // Arrange
+    const fake = createFakeHttp([
+      { body: [userJson(STUDENT_LOGIN)], link: `<${SECOND_ASSIGNABLE_PAGE_URL}>; rel="next"` },
+      { body: [] },
+    ]);
+
+    // Act + Assert
+    await assert.rejects(
+      listAssignableUsers(fake.http, TARGET, () => false),
+      (error) => error instanceof PageLimitError,
+    );
+    assert.equal(fake.requests.length, 1);
   });
 
   it("skips list items without a string login, like an issue's assignees", async () => {

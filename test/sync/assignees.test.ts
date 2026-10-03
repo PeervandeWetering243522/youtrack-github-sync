@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { JsonObject } from "../../src/json.ts";
 import { formatSummary, runSync, SyncFailedError, WRITE_PAUSE_MS } from "../../src/sync.ts";
 import {
   ASSIGNABLE_PATH,
@@ -16,12 +17,14 @@ import {
   config,
   ghAssignee,
   ghIssue,
+  GITHUB_ORIGIN,
   harness,
   ISSUES_PATH,
   json,
   lastLine,
   messages,
   MILESTONES_PATH,
+  openMirrorsOfResolved,
   rejection,
   RESOLVED_AT,
   SEARCH_USERS_PATH,
@@ -55,6 +58,20 @@ function mirrored(users: readonly YtUser[] | null, assignees: readonly string[] 
     githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5", { assignees: assignees.map((login) => ghAssignee(login)) })],
     youtrackRows: [ytRow(5, { assignees: users })],
     assignable: ASSIGNABLE,
+  };
+}
+
+/**
+ * The assignable list as `count` pages linked by rel="next": one staff login on each page
+ * before the last, and `last` on page `count`.
+ */
+function assignablePages(count: number, last: readonly JsonObject[]): Override {
+  return (call) => {
+    if (call.method !== "GET" || call.url.pathname !== ASSIGNABLE_PATH) return undefined;
+    const page = Number(call.url.searchParams.get("page") ?? "1");
+    if (page >= count) return json(200, last);
+    const next = `${GITHUB_ORIGIN}${ASSIGNABLE_PATH}?per_page=100&page=${String(page + 1)}`;
+    return json(200, [ghAssignee(`staffuser${String(page)}`)], { link: `<${next}>; rel="next"` });
   };
 }
 
@@ -478,6 +495,59 @@ describe("runSync assignees: the assignable list fails (U16)", () => {
       assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, fetches }));
     });
   }
+
+  it("reads every page of a list that fits the fetch budget, and matches a login on a later page", async () => {
+    // Arrange
+    const { deps, calls } = harness({ ...mirrored([JDOE]), override: assignablePages(2, [ghAssignee(JANE_GH)]) });
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.equal(calls.filter((call) => call.url.pathname === ASSIGNABLE_PATH).length, 2);
+    assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(12)), [{ assignees: [JANE_GH] }]);
+    assert.equal(result.fetches, 6);
+  });
+
+  it("stops a long list before its pages eat into the writes' share of the guard, and sends every write", async () => {
+    // Arrange: 30 closes at the default cap of 30 leave room for 10 list pages (45 - 3 - 30 - 2).
+    const closes = openMirrorsOfResolved(30);
+    const world: World = {
+      githubIssues: [...closes.githubIssues, ghIssue(200, "[CUI-31] [team] Task 31")],
+      youtrackRows: [...closes.youtrackRows, ytRow(31, { assignees: [JDOE] })],
+      override: assignablePages(Number.POSITIVE_INFINITY, []),
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.equal(calls.filter((call) => call.url.pathname === ASSIGNABLE_PATH).length, 10);
+    assert.equal(writeCalls(calls).filter((call) => call.startsWith("PATCH ")).length, 30);
+    assert.deepEqual(messages(lines, "warn"), [unreadable("too many pages for the fetch budget")]);
+    assert.deepEqual(result, summary({ scanned: 31, closed: 30, unchanged: 1, fetches: 43 }));
+  });
+
+  it("warns that the fetch guard was reached when the reads before the list spent it", async () => {
+    // Arrange: 43 pages of GitHub issues, the milestones and the scan use all 45 fetches.
+    const issuePages: Override = (call) => {
+      if (call.method !== "GET" || call.url.pathname !== ISSUES_PATH) return undefined;
+      const page = Number(call.url.searchParams.get("page") ?? "1");
+      const next = `${GITHUB_ORIGIN}${ISSUES_PATH}?state=all&per_page=100&page=${String(page + 1)}`;
+      const issues = page === 1 ? [ghIssue(12, "[CUI-5] [team] Task 5")] : [];
+      return json(200, issues, page < 43 ? { link: `<${next}>; rel="next"` } : {});
+    };
+    const { deps, calls, lines } = harness({ ...mirrored([JDOE]), override: issuePages });
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.ok(calls.every((call) => call.url.pathname !== ASSIGNABLE_PATH));
+    assert.deepEqual(messages(lines, "warn"), [unreadable("fetch guard reached")]);
+    assert.deepEqual(result, summary({ scanned: 1, unchanged: 1, fetches: 45 }));
+  });
 });
 
 describe("runSync assignees: response check (docs/13 §2.8)", () => {
