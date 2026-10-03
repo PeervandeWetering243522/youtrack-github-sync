@@ -302,6 +302,36 @@ describe("runSync assignees: matching and writes", () => {
     assert.deepEqual(messages(lines, "warn"), []);
   });
 
+  it("owns a login only a lookup matched, and removes it from a mirror YouTrack gave to someone else (U4)", async () => {
+    // Arrange: CUI-5 moved from jane.doe to jroe; she still holds CUI-6 and has no student ID,
+    // so only the commit author of her email matches her, to OtherDev.
+    const jane: YtUser = { login: "jane.doe", email: "jane@example.org" };
+    const world: World = {
+      githubIssues: [
+        ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee("OtherDev")] }),
+        ghIssue(13, "[CUI-6] [team] Task 6", { assignees: [ghAssignee("OtherDev")] }),
+      ],
+      youtrackRows: [ytRow(5, { assignees: [JROE] }), ytRow(6, { assignees: [jane] })],
+      assignable: [ghAssignee("JRoe654321"), ghAssignee("OtherDev")],
+      commitAuthors: new Map([["jane@example.org", "OtherDev"]]),
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    await runSync(config(), deps);
+
+    // Assert
+    const authors = calls.filter((call) => call.url.pathname === COMMITS_PATH);
+    assert.deepEqual(
+      authors.map((call) => call.url.searchParams.get("author")),
+      ["jane@example.org"],
+    );
+    assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`, `DELETE ${assigneesPath(12)}`]);
+    assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(12)), [{ assignees: ["JRoe654321"] }]);
+    assert.deepEqual(bodiesOf(calls, "DELETE", assigneesPath(12)), [{ assignees: ["OtherDev"] }]);
+    assert.deepEqual(messages(lines, "warn"), []);
+  });
+
   it("keeps staff, Bots and a matching student who holds no YouTrack issue at all, so cannot be owned (U4)", async () => {
     // Arrange
     const world: World = {
