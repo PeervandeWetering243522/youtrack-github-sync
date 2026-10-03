@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { BODY_EXCERPT_CHARS } from "../../src/http.ts";
 import type { JsonObject } from "../../src/json.ts";
 import { formatSummary, runSync, SyncFailedError, WRITE_PAUSE_MS } from "../../src/sync.ts";
 import {
@@ -443,6 +444,19 @@ describe("runSync assignees: warnings", () => {
     assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, fetches: 4 }));
   });
 
+  it("gives an empty project no field warning: with no scanned issue there is no field to miss (U15)", async () => {
+    // Arrange
+    const { deps, calls, lines } = harness({ assignable: ASSIGNABLE });
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(reads(calls), THREE_READS);
+    assert.deepEqual(messages(lines, "warn"), []);
+    assert.deepEqual(result, summary({ fetches: 3 }));
+  });
+
   it("logs mirror index warnings, then assignee warnings, then the plan's warnings", async () => {
     // Arrange: #13 is unlabelled (index warning); CUI-6's user is unmatched (assignee warning);
     // #12 holds 10 staff, so CUI-5's matched login does not fit (plan warning).
@@ -757,6 +771,80 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/14`]);
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
+  });
+
+  it("records a rate-limited add as failed and stops the write phase (R7)", async () => {
+    // Arrange
+    const limited: Override = (call) =>
+      isAt(call, "POST", assigneesPath(12))
+        ? json(403, { message: "API rate limit exceeded" }, { "x-ratelimit-remaining": "0" })
+        : undefined;
+    const world: World = {
+      githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5"), ghIssue(13, "[CUI-6] [team] Task 6")],
+      youtrackRows: [ytRow(5, { assignees: [JDOE] }), ytRow(6, { assignees: [JDOE] })],
+      assignable: ASSIGNABLE,
+      override: limited,
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    const error = await rejection(runSync(config(), deps));
+
+    // Assert
+    assert.ok(error instanceof SyncFailedError);
+    assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`]);
+    assert.deepEqual(error.failures, [
+      "add 1 assignee to CUI-5 #12 failed: POST https://api.github.com/repos/acme/mirror/issues/12/assignees" +
+        ' -> HTTP 403: {"message":"API rate limit exceeded"}',
+    ]);
+    assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
+  });
+
+  it("records a rate-limited remove whose long body is cut as failed and stops the write phase (R7)", async () => {
+    // Arrange: CUI-5 moved from jdoe to jroe, then CUI-7 needs an add. The DELETE answers a
+    // rate limit whose body is cut inside a login, so the excerpt is trimmed before logging.
+    const start = '{"message":"API rate limit exceeded","detail":"';
+    const longBody = `${start}${" ".repeat(BODY_EXCERPT_CHARS - 5 - start.length)}${JANE_GH} and more"}`;
+    const limited: Override = (call) =>
+      isAt(call, "DELETE", assigneesPath(12))
+        ? new Response(longBody, {
+            status: 403,
+            headers: { "content-type": "application/json", "x-ratelimit-remaining": "0" },
+          })
+        : undefined;
+    const world: World = {
+      githubIssues: [
+        ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(JANE_GH)] }),
+        ghIssue(14, "[CUI-7] [team] Task 7"),
+      ],
+      youtrackRows: [
+        ytRow(5, { assignees: [JROE] }),
+        ytRow(6, { resolved: RESOLVED_AT, assignees: [JDOE] }),
+        ytRow(7, { assignees: [JROE] }),
+      ],
+      assignable: ASSIGNABLE,
+      override: limited,
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    const error = await rejection(runSync(config(), deps));
+
+    // Assert
+    assert.ok(error instanceof SyncFailedError);
+    assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`, `DELETE ${assigneesPath(12)}`]);
+    assert.equal(error.failures.length, 1);
+    assert.match(
+      error.failures[0] ?? "",
+      /^remove 1 assignee from CUI-5 #12 failed: DELETE .* -> HTTP 403: \{"message"/,
+    );
+    assert.doesNotMatch(error.failures[0] ?? "", /JaneD/i);
+    assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
+    assert.deepEqual(
+      error.summary,
+      summary({ scanned: 3, unchanged: 1, assigneesAdded: 1, capped: 1, failed: 1, fetches: 6 }),
+    );
   });
 
   it("caps assignee writes first under MAX_WRITES_PER_RUN", async () => {

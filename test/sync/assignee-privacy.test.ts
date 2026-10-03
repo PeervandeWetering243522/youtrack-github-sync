@@ -132,6 +132,57 @@ describe("runSync assignees: privacy (U8)", () => {
     assertNoIdentity(texts);
   });
 
+  it("names nobody when a remove fails with a body cut inside a login", async () => {
+    // Arrange: CUI-5 moved from jdoe to staff (mapped); the DELETE of GH_LOGIN answers cutBody().
+    const override: Override = (call) =>
+      isAt(call, "DELETE", assigneesPath(12)) ? textBody(422, cutBody(), "application/json") : undefined;
+    const world: World = {
+      githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(GH_LOGIN)] })],
+      youtrackRows: [
+        ytRow(5, { assignees: [{ login: MAPPED }] }),
+        ytRow(6, { resolved: 1, assignees: [{ login: YT_LOGIN, email: EMAIL }] }),
+      ],
+      assignable: [ghAssignee(GH_LOGIN), ghAssignee(STAFF)],
+      override,
+    };
+    const run = harness(world);
+
+    // Act
+    const texts = await everyText(run, new Map([[MAPPED, STAFF]]));
+
+    // Assert
+    assert.deepEqual(
+      run.calls.filter((call) => call.method !== "GET").map((call) => call.method),
+      ["POST", "DELETE"],
+    );
+    assert.ok(texts.some((text) => text.startsWith("remove 1 assignee from CUI-5 #12 failed: DELETE ")));
+    assertNoIdentity(texts);
+  });
+
+  it("names nobody when a body is cut one short to keep a surrogate pair whole, inside a login", async () => {
+    // Arrange: the 500th and 501st characters are one emoji, so the excerpt stops at 499, right
+    // after the first 5 characters of GH_LOGIN.
+    const start = '{"message":"Validation Failed","detail":"';
+    const body = `${start}${" ".repeat(BODY_EXCERPT_CHARS - 6 - start.length)}${GH_LOGIN.slice(0, 5)}\u{1F600}oe"}`;
+    const override: Override = (call) =>
+      isAt(call, "POST", assigneesPath(12)) ? textBody(422, body, "application/json") : undefined;
+    const world: World = {
+      githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5")],
+      youtrackRows: [ytRow(5, { assignees: [{ login: YT_LOGIN, email: EMAIL }] })],
+      assignable: [ghAssignee(GH_LOGIN)],
+      override,
+    };
+    const run = harness(world);
+
+    // Act
+    const texts = await everyText(run);
+
+    // Assert
+    assert.equal(body.charCodeAt(BODY_EXCERPT_CHARS - 1), 0xd83d);
+    assert.ok(texts.some((text) => text.startsWith("add 1 assignee to CUI-5 #12 failed: POST ")));
+    assertNoIdentity(texts);
+  });
+
   it("names nobody when lookups fail: a commit lookup 502 twice and a search answering non-JSON", async () => {
     // Arrange: no assignable login carries the ID, so the email is looked up in both steps.
     const override: Override = (call) => {
