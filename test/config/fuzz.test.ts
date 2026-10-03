@@ -10,6 +10,7 @@ import {
   GITHUB_TOKEN,
   GITHUB_TOKEN_PROBLEM,
   LINE_SEPARATOR,
+  MAP_PROBLEM_PATTERN,
   MAX_WRITES_PROBLEM,
   MISSING_PROBLEMS,
   NBSP,
@@ -19,6 +20,7 @@ import {
   REOPEN_CLOSED_BY_PROBLEM,
   REPO_PROBLEM,
   REPO_SHAPE_PROBLEM,
+  SYNC_ASSIGNEES_PROBLEM,
   URL_CREDENTIALS_PROBLEM,
   URL_HTTPS_PROBLEM,
   URL_INVALID_PROBLEM,
@@ -45,8 +47,13 @@ const KNOWN_PROBLEMS: ReadonlySet<string> = new Set([
   ...[GITHUB_TOKEN_PROBLEM, YOUTRACK_TOKEN_PROBLEM],
   ...[OWNER_PROBLEM, REPO_PROBLEM, REPO_SHAPE_PROBLEM, PROJECT_PROBLEM, PREFIX_PROBLEM, MAX_WRITES_PROBLEM],
   ...[URL_INVALID_PROBLEM, URL_HTTPS_PROBLEM, URL_QUERY_PROBLEM, URL_CREDENTIALS_PROBLEM],
-  REOPEN_CLOSED_BY_PROBLEM,
+  ...[REOPEN_CLOSED_BY_PROBLEM, SYNC_ASSIGNEES_PROBLEM],
 ]);
+
+/** A known message, or an ASSIGNEE_MAP one, which names entry positions only. */
+function isKnownProblem(problem: string): boolean {
+  return KNOWN_PROBLEMS.has(problem) || MAP_PROBLEM_PATTERN.test(problem);
+}
 
 /** Building blocks for fuzzed values: separators, URL syntax, numbers, look-alikes, invisibles, tokens. */
 const FUZZ_FRAGMENTS: readonly string[] = [
@@ -56,6 +63,7 @@ const FUZZ_FRAGMENTS: readonly string[] = [
   ...[NBSP, BOM, ZERO_WIDTH_SPACE, LINE_SEPARATOR, "\n", "\t", char(0), char(0xd800), char(0x1f600)],
   ...[char(0x017f), char(0xff0f), fullwidth("CUI"), GITHUB_TOKEN, YOUTRACK_TOKEN],
   ...["[bot]", "github-actions[bot]", "[", "]"],
+  ...["=", "\r\n", "True", "jdoe123456=", "=JaneDoe123456", "staffuser=-", "JDOE123456"],
 ];
 
 /** Deterministic PRNG (mulberry32) returning floats in [0, 1). */
@@ -130,6 +138,33 @@ function assertAcceptedConfig(env: EnvSource, config: Config, context: string): 
   const reopenClosedBy = env.REOPEN_CLOSED_BY?.trim() ?? "";
   assert.equal(config.reopenClosedBy, reopenClosedBy === "" ? null : reopenClosedBy, context);
   assert.ok(config.reopenClosedBy === null || isGitHubLogin(config.reopenClosedBy), context);
+  const syncAssignees = env.SYNC_ASSIGNEES?.trim();
+  assert.ok(syncAssignees === undefined || /^(?:true|false)$/i.test(syncAssignees), context);
+  assert.equal(config.syncAssignees, syncAssignees === undefined || /^true$/i.test(syncAssignees), context);
+  assertAcceptedMap(env.ASSIGNEE_MAP, config.assigneeMap, context);
+}
+
+/** Independent oracle for ASSIGNEE_MAP: every non-blank entry is one key=value pair, keys distinct ignoring A-Z case. */
+function assertAcceptedMap(raw: string | undefined, map: Config["assigneeMap"], context: string): void {
+  const entries = (raw ?? "")
+    .split(/,|\r|\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  const pairs = entries.map((entry) => entry.split("=").map((side) => side.trim()));
+
+  assert.equal(map.size, entries.length, context);
+  for (const [key, value] of pairs) {
+    assert.ok(key !== undefined && value !== undefined, context);
+    assert.equal(
+      map.get(key.replace(/[A-Z]/g, (letter) => letter.toLowerCase())),
+      value === "-" ? null : value,
+      context,
+    );
+    assert.ok(value === "-" || (isGitHubLogin(value) && !value.endsWith("]")), context);
+  }
+  for (const key of map.keys()) {
+    assert.ok(key !== "" && !/\s|[A-Z]/.test(key), context);
+  }
 }
 
 /** Every problem is a known, value-free message; no duplicates; ordered by ENV_KEYS. */
@@ -137,10 +172,7 @@ function assertRejectedConfig(error: ConfigError, context: string): void {
   const keyOrder = error.problems.map((problem) => ENV_KEYS.findIndex((key) => problem.startsWith(`${key} `)));
 
   assert.ok(error.problems.length > 0, context);
-  assert.ok(
-    error.problems.every((problem) => KNOWN_PROBLEMS.has(problem)),
-    context,
-  );
+  assert.ok(error.problems.every(isKnownProblem), context);
   assert.equal(new Set(error.problems).size, error.problems.length, context);
   assert.deepEqual(
     keyOrder,

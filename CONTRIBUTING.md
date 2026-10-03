@@ -22,23 +22,24 @@ Development commands and conventions are in the [README](README.md#development) 
 `<type>(<optional scope>)!: <summary>`, for example `feat: reopen the sync's own closes` or
 `fix(action): pass the reopen input`.
 
-| Type                                                                | Release (while on 0.x) |
-| ------------------------------------------------------------------- | ---------------------- |
-| `feat`                                                              | minor: 0.1.0 -> 0.2.0  |
-| `fix`, `perf`, `revert`                                             | patch: 0.1.0 -> 0.1.1  |
-| a `!` after the type, or a `BREAKING CHANGE:` footer in the PR body | minor too (see below)  |
-| `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `style`         | none                   |
+| Type                                                                | Release               |
+| ------------------------------------------------------------------- | --------------------- |
+| `feat`                                                              | minor: 1.0.0 -> 1.1.0 |
+| `fix`, `perf`, `revert`                                             | patch: 1.0.0 -> 1.0.1 |
+| a `!` after the type, or a `BREAKING CHANGE:` footer in the PR body | major: 1.0.0 -> 2.0.0 |
+| `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `style`         | none                  |
 
 A breaking change is anything a group running the mirror would notice after updating: a
-renamed or removed input or setting, a changed title format, a new kind of write. While the
-version is 0.x, breaking changes bump the minor version (`releaseRules` in `.releaserc.json`).
-To move to 1.0.0, remove that rule; from then on a breaking change bumps the major version.
+renamed or removed input or setting, a changed title format, a new kind of write. It bumps the
+major version. Up to v0.1.1 a breaking change bumped only the minor version (a `releaseRules`
+entry in `.releaserc.json`); the assignee sync removed that rule and is released as v1.0.0
+(decision U1).
 
 ## Releases
 
 Every push to `main` runs `.github/workflows/release.yml`. It checks the code again and then
 runs [semantic-release](https://semantic-release.gitbook.io/), which reads the commits since the
-last `v*` tag. When one of them warrants a release, it pushes the next tag (`v0.2.0`) and
+last `v*` tag. When one of them warrants a release, it pushes the next tag (`v1.1.0`) and
 creates a GitHub Release with notes grouped by type, ending with the release's commit SHA and a
 ready `uses:` line to pin it (`releaseBodyTemplate`). Nothing is committed back to `main`: the
 tag is the version (`package.json` stays at `0.0.0-development`), and the release notes are

@@ -1,8 +1,8 @@
 /**
  * One sync run. Runtime-agnostic: depends only on `fetch` (passed in) and the
  * pure modules. Used by src/worker.ts and src/node.ts.
- * The write phase lives in src/sync/execute.ts, the dry-run preview in src/sync/preview.ts,
- * the redacting logger in src/sync/log.ts.
+ * The assignee stage lives in src/sync/assignees.ts, the write phase in src/sync/execute.ts,
+ * the dry-run preview in src/sync/preview.ts, the redacting logger in src/sync/log.ts.
  */
 
 import type { Config } from "./config.ts";
@@ -25,6 +25,7 @@ import { buildMilestoneIndex } from "./plan/milestones.ts";
 import type { MilestoneIndexResult } from "./plan/milestones.ts";
 import { buildMirrorIndex } from "./plan/mirrors.ts";
 import type { MirrorIndex } from "./plan/mirrors.ts";
+import { readAssignees } from "./sync/assignees.ts";
 import { executeActions } from "./sync/execute.ts";
 import { githubWriter } from "./sync/execute-write.ts";
 import type { WriteContext } from "./sync/execute-write.ts";
@@ -35,10 +36,11 @@ import { seedResolved } from "./sync/resolved.ts";
 import type { Resolved } from "./sync/resolved.ts";
 import { NOTHING } from "./sync/tally.ts";
 import type { Tally } from "./sync/tally.ts";
+import { identityRedactor } from "./utils/identity-redact.ts";
 import { secretRedactor } from "./utils/redact.ts";
 import type { Redact } from "./utils/redact.ts";
 import { fetchProjectIssues } from "./youtrack.ts";
-import type { YouTrackIssue, YouTrackSource } from "./youtrack.ts";
+import type { ScannedIssue, YouTrackSource } from "./youtrack.ts";
 
 export type { Logger } from "./sync/log.ts";
 export { WRITE_PAUSE_MS } from "./sync/execute-write.ts";
@@ -81,6 +83,10 @@ export type RunSummary = {
   readonly reopened: number;
   /** Sync writes: `update` (title, milestone and/or type), `setParent`, `removeParent` and `renameMilestone`. */
   readonly updated: number;
+  /** `addAssignees` writes (one may name several logins; docs/13 §5). */
+  readonly assigneesAdded: number;
+  /** `removeAssignees` writes. */
+  readonly assigneesRemoved: number;
   /** Milestones created for epics. */
   readonly milestonesCreated: number;
   /** Open milestones closed because their epic is resolved. */
@@ -122,9 +128,9 @@ export class SyncFailedError extends Error {
 
 /**
  * One line for `wrangler tail` / journalctl, e.g.
- * `yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=2 milestonesCreated=1 milestonesClosed=0 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=3 dryRun=true`
+ * `yt-gh-sync ok scanned=29 created=5 closed=3 reopened=0 updated=2 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=23 capped=0 failed=0 filtered=19 unchanged=4 labelsReAdded=0 fetches=4 dryRun=true`
  * `outcome` is "ok" or "failed". The headline counts come first, then the breakdown
- * (decision R5, extended by docs/11 §1.7).
+ * (decision R5, extended by docs/11 §1.7 and docs/13 §5).
  */
 export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): string {
   const fields = SUMMARY_FIELDS.map((field) => `${field}=${String(summary[field])}`);
@@ -134,8 +140,13 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
 /**
  * 1. GitHub issues (fatal on error) -> buildMirrorIndex, log its warnings.
  * 2. GitHub milestones (fatal on error) -> buildMilestoneIndex.
- * 3. YouTrack full scan (fatal on error).
- * 4. planActions; log its warnings (milestone duplicates, parent cycles).
+ * 3. YouTrack full scan (fatal on error), with the Assignee field when SYNC_ASSIGNEES is on.
+ * 3a. The assignee stage (src/sync/assignees.ts, SYNC_ASSIGNEES on): the assignable list and
+ *    the lookups, never fatal. From here on every log line and failure reason also passes
+ *    through the identity redactor of every login and email the run saw (decision U8,
+ *    docs/13 §2.11); then log the stage's warnings.
+ * 4. planActions, with the matched assignees; log its warnings (milestone duplicates, parent
+ *    cycles, assignee limit).
  * 5. Execute serially, WRITE_PAUSE_MS between real writes, resolving each action's
  *    milestone and parent through a map seeded from the reads and extended by each
  *    successful create (src/sync/resolved.ts). In dry run, log each intended write
@@ -161,8 +172,7 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
  * Tokens must never appear in logs.
  */
 export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummary> {
-  const redact = secretRedactor([config.githubToken, config.youtrackToken]);
-  const log = redactingLogger(deps.log, redact);
+  const secrets = secretRedactor([config.githubToken, config.youtrackToken]);
   const http = createHttpClient({
     fetch: deps.fetch,
     sleep: deps.sleep,
@@ -172,8 +182,22 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
     retryDelayMs: DEFAULT_RETRY_DELAY_MS,
     maxRetryAfterMs: DEFAULT_MAX_RETRY_AFTER_MS,
   });
-  const run: RunContext = { config, http, log, redact, sleep: deps.sleep, now: deps.now, deadline: deps.deadline };
-  const inputs = await readInputs(run);
+  const reading: RunContext = {
+    config,
+    http,
+    log: redactingLogger(deps.log, secrets),
+    redact: secrets,
+    sleep: deps.sleep,
+    now: deps.now,
+    deadline: deps.deadline,
+  };
+  const inputs = await readInputs(reading);
+  const stage = await readAssignees({ ...reading, target: githubTarget(config) }, inputs);
+  const identities = identityRedactor(stage.identities);
+  const redact: Redact = (text) => identities(secrets(text));
+  const run: RunContext = { ...reading, log: redactingLogger(deps.log, redact), redact };
+  const { log } = run;
+  for (const warning of stage.warnings) log.warn(warning);
   const plan = planActions({
     youtrackIssues: inputs.youtrackIssues,
     mirrors: inputs.mirrors,
@@ -181,6 +205,7 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
     excludePrefix: config.excludePrefix,
     maxWrites: config.maxWritesPerRun,
     reopenClosedBy: config.reopenClosedBy,
+    assignees: stage.sync,
   });
   for (const warning of plan.warnings) log.warn(warning);
   const seed = seedResolved(inputs.mirrors, inputs.milestones.index);
@@ -202,6 +227,8 @@ const SUMMARY_FIELDS = [
   "closed",
   "reopened",
   "updated",
+  "assigneesAdded",
+  "assigneesRemoved",
   "milestonesCreated",
   "milestonesClosed",
   "skipped",
@@ -228,7 +255,7 @@ type RunContext = {
 type Inputs = {
   readonly mirrors: MirrorIndex;
   readonly milestones: MilestoneIndexResult;
-  readonly youtrackIssues: readonly YouTrackIssue[];
+  readonly youtrackIssues: readonly ScannedIssue[];
 };
 
 type PlanCounts = Pick<Plan, "scanned" | "filtered" | "unchanged" | "capped">;
@@ -243,6 +270,8 @@ function toSummary(dryRun: boolean, counts: PlanCounts, tally: Tally, fetches: n
     closed: tally.closed,
     reopened: tally.reopened,
     updated: tally.updated,
+    assigneesAdded: tally.assigneesAdded,
+    assigneesRemoved: tally.assigneesRemoved,
     milestonesCreated: tally.milestonesCreated,
     milestonesClosed: tally.milestonesClosed,
     skipped: counts.filtered + counts.unchanged,
@@ -276,7 +305,8 @@ async function readInputs(run: RunContext): Promise<Inputs> {
     for (const warning of warnings) run.log.warn(warning);
     // The milestone index warnings reach the log through Plan.warnings.
     const milestones = buildMilestoneIndex(await listAllMilestones(run.http, target), project);
-    const youtrackIssues = await fetchProjectIssues(run.http, youtrackSource(run.config));
+    const scan = { assignees: run.config.syncAssignees };
+    const youtrackIssues = await fetchProjectIssues(run.http, youtrackSource(run.config), scan);
     return { mirrors: index, milestones, youtrackIssues };
   } catch (error) {
     const summary = toSummary(run.config.dryRun, NO_PLAN, NOTHING, run.http.fetchCount());

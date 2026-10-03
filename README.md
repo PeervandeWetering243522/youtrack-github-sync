@@ -3,8 +3,9 @@
 A read-only, one-way mirror from a YouTrack project to GitHub issues. Every 10 minutes it reads
 the whole project and keeps a matching issue in a GitHub repo for each YouTrack issue, titled
 with its YouTrack ID (`[ABC-12] Fix login`), and a milestone for each epic. It creates a mirror
-for every open issue, closes the mirror once the issue is resolved, and keeps each mirror's
-title, milestone, issue type and parent in step with YouTrack. It never writes to YouTrack.
+for every open issue, closes the mirror once the issue is resolved, keeps each mirror's title,
+milestone, issue type and parent in step with YouTrack, and assigns each open mirror to the
+GitHub accounts of its YouTrack assignees. It never writes to YouTrack.
 
 You can run it for your own group's YouTrack project and GitHub repo: both are settings of the
 host you pick, such as the action's inputs, `wrangler.jsonc` for the Worker or `.env` for local
@@ -28,6 +29,7 @@ job or as a systemd timer on a Debian host ([Other ways to run it](#other-ways-t
 
 - [Features](#features)
 - [Using it day to day](#using-it-day-to-day): for everyone in the group
+- [Assignees](#assignees): how YouTrack assignees become GitHub assignees
 - [Installation](#installation): the GitHub Action, in five steps
 - [Other ways to run it](#other-ways-to-run-it): a Cloudflare Worker or a systemd timer
   - [Alternative host: Cloudflare Worker](#alternative-host-cloudflare-worker)
@@ -53,6 +55,11 @@ job or as a systemd timer on a Debian host ([Other ways to run it](#other-ways-t
   closed, and each milestone's title. A mirror is closed when its issue is resolved, and with
   `REOPEN_CLOSED_BY` (on in the GitHub Action) reopened when the issue goes back to unresolved,
   if the mirror closed it itself.
+- **Assignees:** each open mirror is assigned to the GitHub accounts of its YouTrack issue's
+  assignees, found by the student ID in their usernames, their BUas email, their commits, their
+  public email or a manual map ([Assignees](#assignees)). It only adds and removes accounts it
+  matches to someone assigned in the YouTrack project; staff, bots and anyone it cannot match
+  are never touched. `SYNC_ASSIGNEES=false` turns it off.
 - **Leave things out:** an issue whose summary starts with `[individual]` (configurable), and
   everything below it, is never mirrored.
 - **Safe by default:** dry run until you turn writes on, at most 30 writes per run, retries for
@@ -66,18 +73,116 @@ For everyone in the group, once someone has set it up:
 
 - **Work in YouTrack.** Create, edit, nest and resolve issues there. Within about 10 minutes
   GitHub follows: a new mirror, a new title, a new milestone or parent, or a close.
-- **Treat mirrors as read-only.** Assign, label, comment and link PRs on GitHub as you like, but
-  title edits are undone by the next run. Keep the `[ABC-12]` prefix and the `youtrack` label: a
+- **Treat mirrors as read-only.** Label, comment and link PRs on GitHub as you like, but title
+  edits are undone by the next run. Keep the `[ABC-12]` prefix and the `youtrack` label: a
   mirror without them is no longer recognised and gets a duplicate. The description is copied
   once, at creation; the YouTrack link always has the current one.
+- **Assign in YouTrack, not on GitHub.** Within about 10 minutes the open mirror is assigned to
+  the GitHub account of each YouTrack assignee the tool can match
+  ([how people are matched](#how-people-are-matched)). Those accounts belong to the mirror:
+  when YouTrack gives the issue to someone else it matches, the new person is added and the old
+  one removed, even if they were assigned on GitHub by hand. Staff, bots and anyone the tool
+  cannot match can be assigned on GitHub as you like; it never touches them. Unassigning in
+  YouTrack changes nothing on GitHub, and closed mirrors keep their assignees. GitHub emails
+  whoever it assigns and subscribes them to the issue.
 - **Resolve in YouTrack, not on GitHub.** Closing a mirror, by hand or with `Closes #12` in a
   PR, does not touch YouTrack. A mirror closed by hand stays closed until someone reopens it.
 - **Keep personal work out** by starting its summary with `[individual]`; its tasks stay out
   too. An issue that already has a mirror keeps it as it is, no longer synced.
 - **For whoever runs it:** turn writes off and on with `DRY_RUN` (or `dry-run`), start a run
   from the Actions tab or with `systemctl start`, and read the summary line each run logs
-  ([What a run does](#what-a-run-does), step 7). [Troubleshooting](#troubleshooting) covers the
+  ([What a run does](#what-a-run-does), step 8). [Troubleshooting](#troubleshooting) covers the
   usual errors.
+
+## Assignees
+
+Each open mirror gets the GitHub accounts of its YouTrack issue's assignees (decisions U1-U17 in
+[docs/08-decisions.md](docs/08-decisions.md)). YouTrack knows nobody's GitHub username, so the
+tool has to find each person's account. It is on by default; `SYNC_ASSIGNEES=false` (input
+`sync-assignees: "false"`) turns it off, and the run then sends the same requests as v0.x did.
+
+### How people are matched
+
+For students: any one of these is enough for the mirror to find your GitHub account. Only
+accounts that can be assigned in the repo count (its collaborators, and organization members
+with access to it).
+
+1. **Your student ID in your username.** Your YouTrack username carries your 6-digit student ID
+   (`jdoe123456`), and your GitHub username carries the same ID (`JaneDoe123456`). This needs no
+   request and works on every run, so it is the easiest way.
+2. **Your BUas email.** If your YouTrack username has no ID, but your YouTrack email is your
+   BUas address (`123456@buas.nl`), the ID is read from there and matched the same way.
+3. **Your commit email.** Add your YouTrack email, or `<student ID>@buas.nl`, to your GitHub
+   account (**Settings > Emails**) and push a commit with it to the repo's default branch. The
+   mirror asks GitHub who authored commits with that email.
+4. **Your public email.** Show one of those emails publicly on your GitHub profile. The mirror
+   finds it through GitHub's user search.
+5. **The map.** If none of these works, ask whoever runs the mirror to add you to
+   `ASSIGNEE_MAP` ([The map](#the-map)). A map entry is checked before everything else, so it
+   also fixes a wrong match or keeps someone from ever being assigned.
+
+The commit and email lookups (3 and 4) cost a GitHub request per email, so a run sends at most
+5 of them, rotating every 10 minutes among the people who need them. Someone found only that way
+is matched on the runs that look them up, and left as they are on the others. When one way finds
+two accounts (two usernames with your ID, say), the later ways may only pick one of those two;
+otherwise you count as ambiguous and are not assigned. Every run that leaves someone out logs
+one warning that names an issue of theirs, never the person, such as
+`assignees: 1 unmatched (ABC-18)`.
+
+### What the mirror changes
+
+- **Only open mirrors** of unresolved issues that are not excluded, including mirrors it creates
+  in the same run. Never a closed mirror (one it reopens gets its assignees on the next run), an
+  epic's milestone or a pull request.
+- **Only the accounts it matches** (decision U4). The mirror adds and removes only GitHub
+  accounts it matches to someone assigned to an issue anywhere in the YouTrack project. It adds
+  each matched assignee a mirror lacks, and removes a matched account that YouTrack does not
+  assign to that issue, whoever put it there. Staff, bots and anyone it cannot match are never
+  touched. Someone assigned only to issues that are no longer synced (resolved issues, closed
+  mirrors, epics) still counts when the map or their student ID matches them, so a student who
+  left is removed from the issues YouTrack gave to others. Someone YouTrack names on no issue
+  at all is never touched: remove them by hand.
+- **Unassigned is left alone** (decision U6). An issue that is unassigned in YouTrack, or
+  assigned only to people it cannot match, keeps its GitHub assignees. So a matched assignee
+  stays until YouTrack names another matched one.
+- **Its own writes** (decision U5): adding and removing are separate requests, run after every
+  other write, at most one add and one remove per mirror (the add first). When the add fails, or
+  GitHub leaves out an account it sent, the remove waits for a later run (it counts as
+  `capped`), so a reassignment never leaves the issue with nobody. They never go in a
+  create or an update. GitHub allows 10 assignees per issue; more are left out with a warning.
+- **Notifications:** GitHub emails each person it assigns and subscribes them to the issue, so
+  later closes notify them too. With a personal token (Worker, systemd), assigning also starts
+  `issues: assigned` workflows in the repo.
+
+### The map
+
+`ASSIGNEE_MAP` (input `assignee-map`) holds `<youtrack-username>=<github-username>` pairs,
+separated by commas, on one line:
+
+```text
+jdoe123456=JaneDoe123456,staffuser=-
+```
+
+- The YouTrack username is compared ignoring case, and may appear only once. The GitHub
+  username must be one of the repo's assignable users; otherwise the person is listed as
+  `mapped to a login that cannot be assigned` and nothing else is tried for them.
+- `-` means never assign that person.
+- Keep it on one line: systemd's `EnvironmentFile=` and GitHub's masking of secrets both need
+  that. A mistake fails the run with a `ConfigError` that names the entry's position, never its
+  text, even with assignee sync off.
+- It holds personal data, so keep it in a secret, never in a committed file or a repo variable:
+  a repository secret `ASSIGNEE_MAP` for the Action (added like `YOUTRACK_TOKEN` in
+  [step 1](#1-create-a-youtrack-token)), `npx wrangler secret put ASSIGNEE_MAP` for the Worker,
+  `.env` for local runs and `config.env` on systemd.
+
+### Privacy
+
+Log lines and warnings name issues and counts only, never a username or an email (decision
+U8). With assignee sync on, every username and email the run has seen (of 3 characters or more)
+is replaced with `[person]` in every later line, including error bodies that GitHub sends back.
+The commit and email lookups send emails to GitHub, the email lookup to its user search. On the
+Worker, keep `"redact_query_string": true` in `wrangler.jsonc` (the example has it), so those
+emails stay out of Workers Logs and traces.
 
 ## Installation
 
@@ -101,6 +206,10 @@ with write access can start a run from the Actions tab. Nothing to clone, host o
 - **A YouTrack project with a `Type` field.** The values `Epic`, `User Story`, `Bug` and `Task`
   are mapped (see [Hierarchy](#hierarchy)); any other value, or no `Type`, becomes a plain issue.
   Parents come from YouTrack's Subtask links.
+- **For assignees:** a user field named `Assignee` in the project (single or multiple users),
+  and a YouTrack account that may see other users' usernames (the Read User Basic permission).
+  Without it, usernames come back anonymized and nobody is matched; the run warns. Not needed
+  with `sync-assignees: "false"`.
 - **Optional:** a [self-hosted runner](#runners-and-actions-minutes).
 
 If a Worker or a timer already mirrors into this repo, turn it off first and wait until it has
@@ -158,15 +267,23 @@ jobs:
     runs-on: ubuntu-latest # or self-hosted: see "Runners and Actions minutes"
     timeout-minutes: 10
     permissions:
-      issues: write # create, update and close mirror issues, milestones and sub-issue links
+      issues: write # create, update and close mirror issues, milestones, sub-issue links and assignees
+      contents: read # find assignees by the email of their commits (see "Assignees")
     steps:
-      - uses: PeervandeWetering243522/youtrack-github-sync@8a2a592137ed4c678bc1baffe98964561b32c4a0 # v0.1.0
+      - uses: PeervandeWetering243522/youtrack-github-sync@<commit-sha> # <version>; copy this line from the latest release
         with:
           youtrack-token: ${{ secrets.YOUTRACK_TOKEN }}
           youtrack-base-url: https://youtrack.ai.buas.nl # your YouTrack
           youtrack-project: ABC # your project's ID: ABC for issues like ABC-12
+          assignee-map: ${{ secrets.ASSIGNEE_MAP }} # optional; an unset secret means no map
           dry-run: "true" # step 5 turns writes on
 ```
+
+Replace the `uses:` line with the one at the end of the
+[latest release's notes](https://github.com/PeervandeWetering243522/youtrack-github-sync/releases/latest):
+it pins that release's full commit SHA, with its version as a comment. Dependabot keeps it up to
+date from then on ([Versions and updates](#versions-and-updates)). Assignee sync and the
+`assignee-map` input need v1.0.0 or later.
 
 ### 4. Do a dry run
 
@@ -175,19 +292,26 @@ workflow**. With `dry-run: "true"` it reads GitHub and YouTrack and logs one `[d
 ...` line per write it would make, then a summary line. It sends no GitHub write:
 
 ```text
+assignees: 1 unmatched (ABC-18)
 [dry-run] would create milestone ABC-40: [ABC-40] Data pipeline
 [dry-run] would create ABC-41 with type Feature, milestone ABC-40 (new): [ABC-41] Ingest the data
 [dry-run] would create ABC-42 with type Task, milestone ABC-40 (new), parent ABC-41 (new): [ABC-42] Clean the data
 [dry-run] would update ABC-15 #21: set title, set type Task: [ABC-15] Write the parser
 [dry-run] would close ABC-3 #12
-yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=3 dryRun=true
+[dry-run] would add 1 assignee to ABC-16 #22
+[dry-run] would remove 1 assignee from ABC-16 #22
+[dry-run] would add 1 assignee to ABC-41 (new)
+[dry-run] would add 1 assignee to ABC-42 (new)
+yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=34 capped=0 failed=0 filtered=28 unchanged=6 labelsReAdded=0 fetches=4 dryRun=true
 ```
 
 Check that `scanned` matches the number of issues in the project, and that the planned writes
 are what you expect. The dry run shows exactly what the next real run would do, write cap
 included. On a new repo that means one create per open issue and epic that is not excluded, up
 to `max-writes-per-run` (30); the rest show up as `capped` and are created by later runs, 10
-minutes apart. If the run fails, see [Troubleshooting](#troubleshooting).
+minutes apart. A line such as `assignees: 1 unmatched (ABC-18)` names people the mirror could
+not match ([How people are matched](#how-people-are-matched)). If the run fails, see
+[Troubleshooting](#troubleshooting).
 
 Upgrading from a version that titled mirrors `[YT-<n>]`: the first run renames every mirror and
 milestone to `[<PROJECT>-<n>]`, one write each (decisions N1, N2), so it may take a few runs.
@@ -195,11 +319,13 @@ Nothing is duplicated.
 
 ### 5. Turn writes on
 
-Set `dry-run: "false"`. For the first live run, consider adding `max-writes-per-run: "1"` and
-checking on GitHub that the new issue's type and milestone stuck: GitHub's docs don't say whether
-the job's token may set issue types, and if it may not, the log says `GitHub dropped type ...`.
-Then remove that line again. To pause writes, set `dry-run` back to `"true"`; to stop the mirror,
-disable the workflow (**Actions > YouTrack mirror > ... > Disable workflow**).
+Tell your group first: the first live run assigns everyone the mirror matches at once, and
+GitHub emails each of them (decision U9). Then set `dry-run: "false"`. For the first live run,
+consider adding `max-writes-per-run: "1"` and checking on GitHub that the new issue's type and
+milestone stuck: GitHub's docs don't say whether the job's token may set issue types, and if it
+may not, the log says `GitHub dropped type ...`. Then remove that line again. To pause writes,
+set `dry-run` back to `"true"`; to stop the mirror, disable the workflow (**Actions > YouTrack
+mirror > ... > Disable workflow**).
 
 ### Inputs
 
@@ -214,20 +340,28 @@ disable the workflow (**Actions > YouTrack mirror > ... > Disable workflow**).
 | `max-writes-per-run`      | `MAX_WRITES_PER_RUN`      | `30`                                        |
 | `dry-run`                 | `DRY_RUN`                 | `true`: only `false` writes                 |
 | `reopen-closed-by`        | `REOPEN_CLOSED_BY`        | `github-actions[bot]`; empty: never reopen  |
+| `sync-assignees`          | `SYNC_ASSIGNEES`          | `true`; `"false"` leaves assignees alone    |
+| `assignee-map`            | `ASSIGNEE_MAP`            | empty: no map; pass it from a secret        |
 
 [Configuration](#configuration) explains each setting.
 
 - **Permissions:** the workflow's `permissions:` block decides what the default token may do;
-  the action cannot raise it. `issues: write` covers issues, labels, milestones and sub-issues.
-  With a personal access token in `github-token` (from a secret) instead, writes come from that
-  token's account; then also set `reopen-closed-by: ""`.
+  the action cannot raise it. `issues: write` covers issues, labels, milestones, sub-issues and
+  assignees. `contents: read` lets the commit lookup read the repo's commits; without it that
+  lookup is off, and a run that needs it warns
+  `commit lookups off: the token lacks Contents read (HTTP 403)`. With a
+  personal access token in `github-token` (from a secret) instead, writes come from that token's
+  account; then also set `reopen-closed-by: ""`.
+- **The map is a secret:** run logs print a step's inputs and env, so pass `assignee-map` from a
+  secret (`${{ secrets.ASSIGNEE_MAP }}`), which GitHub masks, never from a variable or as text in
+  the workflow. An unset secret is an empty string: no map.
 - **Reopening:** a mirror this action closed is reopened when its YouTrack issue goes back to
   unresolved (decision R10); one a person closed stays closed. Closes by another workflow in
   the repo that uses `GITHUB_TOKEN` also show as `github-actions[bot]`, so those mirrors are
   reopened too while their YouTrack issue is open.
 - **Empty inputs:** an input set to an empty string, such as an unset `${{ vars.X }}`, is a
-  config error, not "use the default" (except `reopen-closed-by`, where empty means off). Leave
-  an input out to get its default.
+  config error, not "use the default" (except `reopen-closed-by`, where empty means off, and
+  `assignee-map`, where empty means no map). Leave an input out to get its default.
 - **No zizmor findings:** the action pins `actions/setup-node` by commit SHA and passes inputs to
   its script only through env.
 - **Runs and failures:** the `concurrency` group keeps one run at a time (pending runs wait).
@@ -257,14 +391,12 @@ Where the job runs decides what it costs (decision W3):
 
 ### Versions and updates
 
-Releases are SemVer tags (`v0.1.0`, `v0.2.0`, ...) on the repo's
+Releases are SemVer tags (`v1.0.0`, `v1.1.0`, ...) on the repo's
 [Releases page](https://github.com/PeervandeWetering243522/youtrack-github-sync/releases), with
-notes (decisions V1-V3; [CONTRIBUTING.md](CONTRIBUTING.md) has how they are made). The workflow
-above pins `uses:` to the full commit SHA of a release, with its tag as a comment, so nothing
-changes in your repo until you update the pin. From v0.1.1 on, each release's notes end with its
-commit SHA and the `uses:` line to copy. For v0.1.0,
-`git ls-remote https://github.com/PeervandeWetering243522/youtrack-github-sync refs/tags/v0.1.0`
-prints it.
+notes (decisions V1-V4; [CONTRIBUTING.md](CONTRIBUTING.md) has how they are made). Each
+release's notes end with its commit SHA and the `uses:` line to copy into the workflow above. It
+pins the full commit SHA, with the version as a comment, so nothing changes in your repo until
+you update the pin.
 
 Dependabot proposes new releases as PRs that update both the SHA and the comment, with the
 release notes in the PR. Your repo needs a `github-actions` entry in `.github/dependabot.yml`:
@@ -278,9 +410,22 @@ updates:
       interval: weekly
 ```
 
-While the version is 0.x, a minor bump (0.1 to 0.2) can contain breaking changes: read the
-release notes before merging one. Patch bumps (0.1.0 to 0.1.1) are fixes and updated pins of
-the actions it uses.
+From v1.0.0 on, a major bump (1.x to 2.0) can contain breaking changes: read the release notes
+before merging one. Minor bumps (1.0 to 1.1) add features, and patch bumps (1.0.0 to 1.0.1) are
+fixes and updated pins of the actions it uses. Before v1.0.0, a minor bump could break things
+too.
+
+**Updating from v0.x to v1.0.0** turns on [assignee sync](#assignees): add `contents: read` and
+the `assignee-map` line to the workflow as in [step 3](#3-add-the-workflow), do a dry run, and
+tell your group before the first live run. The mirror then owns the assignees it matches: a
+student it matches who was assigned on GitHub by hand is removed when YouTrack assigns that
+issue to someone else it matches. To keep the v0.x behaviour, set `sync-assignees: "false"`.
+
+On the Worker, do this **before** `npx wrangler deploy` of v1.0.0: a `wrangler.jsonc` copied
+earlier has `"redact_query_string": false`, and the commit and email lookups would then put
+students' emails into Workers Logs and traces from the first run on, dry run included. Set it
+to `true` under `observability` (as in `wrangler.example.jsonc`), or add
+`"SYNC_ASSIGNEES": "false"` under `vars` until you have.
 
 ## Other ways to run it
 
@@ -363,7 +508,8 @@ In `.env`:
 4. Leave `DRY_RUN=true`.
 
 Issues whose summary starts with `[individual]` stay out of the mirror, along with everything
-below them. Set `YOUTRACK_EXCLUDE_PREFIX` if your group uses another prefix.
+below them. Set `YOUTRACK_EXCLUDE_PREFIX` if your group uses another prefix. Assignee sync is on
+(`SYNC_ASSIGNEES=true`); put a map, if you need one, in `ASSIGNEE_MAP` ([The map](#the-map)).
 [Configuration](#configuration) lists every setting. `.env` is gitignored: never commit it or
 paste it anywhere.
 
@@ -402,6 +548,7 @@ Cloudflare secrets.
    npx wrangler deploy
    npx wrangler secret put GITHUB_TOKEN     # prompts for the value
    npx wrangler secret put YOUTRACK_TOKEN
+   npx wrangler secret put ASSIGNEE_MAP     # optional, only if you use a map
    npx wrangler tail                        # live logs; add --status error to see failures only
    ```
 
@@ -410,8 +557,12 @@ has no public URL. The cron is `*/10 * * * *` (UTC).
 
 - The Worker is called `youtrack-gh-mirror` (`name` in `wrangler.jsonc`). To run two mirrors
   on one Cloudflare account, give each its own name.
-- Each `wrangler secret put` creates and deploys a new version right away. Until both secrets
-  exist, runs fail at config validation without sending any request.
+- Each `wrangler secret put` creates and deploys a new version right away. Until both token
+  secrets exist, runs fail at config validation without sending any request.
+- The map is a secret, not a var: vars sit as plain text in `wrangler.jsonc` and the dashboard.
+- Keep `"redact_query_string": true` under `observability`: the commit and email lookups put
+  an email in the request URL, and this keeps query strings out of Workers Logs and traces. A
+  `wrangler.jsonc` copied before v1.0.0 lacks it; copy the line from `wrangler.example.jsonc`.
 - A new, changed or removed cron can take up to 15 minutes to propagate. Past Cron Events can
   take up to 30 minutes to show up for a new Worker (Workers & Pages > the Worker > Settings >
   Trigger Events > View events). It keeps the last 100 runs. Workers Logs keeps 3 days on Free.
@@ -442,6 +593,18 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 | Nothing in Cron Events or `wrangler tail` after a deploy    | A new cron can take up to 15 minutes to start firing.                                                                                                               |
 | Action: 403 `Resource not accessible by integration`        | The workflow lacks `permissions: issues: write`.                                                                                                                    |
 | Action: `youtrack-gh on a GitHub-hosted runner` warning     | The job runs on a GitHub-hosted runner, which bills Actions minutes. Use `runs-on: self-hosted` if you can.                                                         |
+| `assignees: 2 unmatched (ABC-12, ABC-15)`                   | The mirror found no GitHub account for someone assigned there. They follow [How people are matched](#how-people-are-matched), or you add them to the map.           |
+| `assignees: 1 ambiguous (ABC-20)`                           | Two assignable accounts fit one person, such as two usernames with the same student ID. Add the person to the map.                                                  |
+| `assignees: 1 not looked up (ABC-31)`                       | A commit or email lookup the person needed was not sent this run (the limit of 5, the write cap, the deadline, a rate limit) or failed. Later runs try again.       |
+| `mapped to a login that cannot be assigned`                 | A map entry names a GitHub username that is misspelled, or not a collaborator or organization member with access to the repo.                                       |
+| `commit lookups off: the token lacks Contents read`         | Action: the workflow lacks `contents: read` (step 3). Worker or systemd: the token cannot read the repo's contents.                                                 |
+| `commit lookups off (HTTP 409)`                             | The repo has no commits yet, so there is nothing to look up.                                                                                                        |
+| `assignees: no scanned issue has an "Assignee" field`       | The project has no user field named exactly `Assignee` (it was renamed, or is not a user field). Rename it back, or set `sync-assignees: "false"`.                  |
+| `assignees: none of the 4 YouTrack assignees matched ...`   | Nobody matched. If YouTrack usernames look anonymized, the YouTrack token's account lacks Read User Basic.                                                          |
+| `assignees: could not read the assignable GitHub users ...` | That run synced no assignees; everything else went on. It retries on the next run. A 403 or 404 there points at the token's access to the repo.                     |
+| `... (too many pages for the fetch budget)`                 | The repo has more assignable accounts (organization members with access count) than a run can read beside its writes. Lower `MAX_WRITES_PER_RUN`.                   |
+| `GitHub dropped 1 of 1 assignees on add` on every run       | GitHub ignored the add: the token lacks push access, or the account can no longer be assigned. Each run spends a write on it.                                       |
+| Worker: emails in the URLs of Workers Logs or traces        | `wrangler.jsonc` lacks `"redact_query_string": true` under `observability` (copies made before v1.0.0). Copy it from `wrangler.example.jsonc` and redeploy.         |
 
 ## How it works
 
@@ -455,15 +618,16 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    then renames (decision N1). One with the `youtrack` label wins. A title match without the
    label still counts as the mirror, and a warning is logged. If several issues match, the
    lowest number wins (warning). For each mirror it keeps the REST `id`, title, milestone,
-   issue type and parent.
+   issue type, parent and assignees.
 2. **Lists every GitHub milestone** (`state=all`). A milestone whose title starts with
    `[<PROJECT>-<n>]` (or `[YT-<n>]`) is the milestone of YouTrack epic `n`. If several match,
    the lowest number wins (warning). Any other milestone counts as hand-made.
 3. **Scans the whole YouTrack project** on every run (`GET /api/issues`,
    `project: <YOUTRACK_PROJECT> sort by: {issue id} asc`, 100 per page), including each issue's `Type` field
-   and its Subtask parent. There is no lookback window. The run fails on any row whose
-   `idReadable` is not `<project>-<numberInProject>`, and on any row with two parents or two
-   `Type` fields.
+   and its Subtask parent, and with assignee sync on its `Assignee` field (each user's username
+   and email). There is no lookback window. The run fails on any row whose `idReadable` is not
+   `<project>-<numberInProject>`, on any row with two parents, two `Type` fields or two
+   `Assignee` user fields, and on an `Assignee` value of the wrong shape.
 4. **Filters out** every issue or epic whose summary starts with `YOUTRACK_EXCLUDE_PREFIX`
    (default `[individual]`, case-insensitive, leading whitespace ignored), and everything below
    it in YouTrack: an issue is also excluded when any ancestor (parent, grandparent and so on,
@@ -472,7 +636,19 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    milestone: one that gets the prefix, or moves under an issue that has it, after it was
    mirrored keeps its mirror or milestone as it is, which is no longer synced or closed
    (decision F2). Every other issue goes on to planning.
-5. **Plans**, using the [hierarchy mapping](#hierarchy) below:
+5. **Matches assignees** (assignee sync on; see [Assignees](#assignees)). When some open issue
+   (with an open mirror, or about to get one) has a YouTrack assignee, it reads the repo's
+   assignable users (`GET /repos/{owner}/{repo}/assignees`, 100 per page) and matches each
+   person: the map, then the student ID in an assignable username, then the commit author of
+   their emails (`GET /repos/{owner}/{repo}/commits?author=<email>`), then GitHub's public-email
+   search (`GET /search/users`). The last two are lookups: at most 5 per run, fewer when the write
+   cap leaves less room under the fetch guard, none within 40 s of the run deadline, each
+   (lookup, email) once, and the people who need them rotate every 10 minutes. Nothing here
+   fails the run: if the assignable users cannot be read, the run syncs no assignees and warns
+   (decision U16); a failed lookup is skipped, or turns that kind of lookup off for the run. It
+   then logs one warning for everyone it left out, and from here on every log line has the
+   usernames and emails it saw replaced with `[person]` (decision U8).
+6. **Plans**, using the [hierarchy mapping](#hierarchy) below:
    - no mirror (for an epic: no milestone) and unresolved in YouTrack: **create** it. An issue
      is `[<PROJECT>-<n>] <summary>` with the `youtrack` label, and its issue type, milestone and
      (tasks only) parent go in the same request. The body is the description with `@mentions` and
@@ -491,10 +667,13 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
      `github-actions[bot]`), which undoes closes made with the default `GITHUB_TOKEN`: the
      Action's own, and any other workflow's in the repo. A close by any other login stays, and
      milestones are never reopened.
+   - open mirror, or a mirror created in this run, of an unresolved issue that is not an epic,
+     whose YouTrack assignees include someone matched: **add** the matched accounts it lacks,
+     and **remove** the matched accounts YouTrack does not assign to it (decisions U4-U7).
    - anything else: nothing (`unchanged`).
-6. **Writes** serially, 1 s apart, in this order: milestone creates, renames and closes; creates of
+7. **Writes** serially, 1 s apart, in this order: milestone creates, renames and closes; creates of
    everything except tasks; creates of tasks, parents before children; syncs; closes and
-   reopens. Within a
+   reopens; assignee adds and removes (per mirror the add first). Within a
    group the oldest (lowest issue number) goes first. At most `MAX_WRITES_PER_RUN` writes run
    per run. Whatever does not fit is `capped` and picked up by the next run, and nothing later
    jumps ahead. Every action costs one write. If GitHub drops the label on create, it is
@@ -503,23 +682,31 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    `capped` too (with a warning) and the run goes on. The write phase also stops early,
    counting the rest as `capped`, when GitHub rate-limits a write, when the fetch guard is
    reached, or when the run deadline passes (see [Limits and budget](#limits-and-budget)).
-7. **Logs one line per write and one summary line**, for example:
+8. **Logs one line per write and one summary line**, for example:
 
    ```text
+   assignees: 1 unmatched (ABC-18)
    create milestone ABC-40 -> #1
    create ABC-41 with type Feature, milestone ABC-40 #1 -> #30
    create ABC-42 with type Task, milestone ABC-40 #1, parent ABC-41 #30 -> #31
    update ABC-15 #21: set title, set type Task
    close ABC-3 #12
-   yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 milestonesCreated=1 milestonesClosed=0 skipped=35 capped=0 failed=0 filtered=28 unchanged=7 labelsReAdded=0 fetches=8 dryRun=false
+   add 1 assignee to ABC-16 #22
+   remove 1 assignee from ABC-16 #22
+   add 1 assignee to ABC-41 #30
+   add 1 assignee to ABC-42 #31
+   yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=34 capped=0 failed=0 filtered=28 unchanged=6 labelsReAdded=0 fetches=13 dryRun=false
    ```
 
    The headline counts come first. `updated` counts updates, moves, detaches and milestone
-   renames, and `skipped` = `filtered` + `unchanged`. The other write lines look like
+   renames, `assigneesAdded` and `assigneesRemoved` count assignee writes (one write may name
+   several people), and `skipped` = `filtered` + `unchanged`. The other write lines look like
    `rename milestone ABC-33 #7`, `close milestone ABC-33 #7`,
    `update ABC-15 #21: set milestone ABC-33 #7`, `update ABC-15 #21: clear milestone`,
    `move ABC-42 #31 under ABC-36 #22`, `detach ABC-42 #31 from parent ABC-41 #30` and
-   `label ABC-41 #30` (label re-added).
+   `label ABC-41 #30` (label re-added). Assignee lines name counts, never a person; when GitHub
+   ignores one, a warning such as
+   `ABC-16 #22: GitHub dropped 1 of 1 assignees on add; the next run tries again` follows.
 
 ### Hierarchy
 
@@ -549,7 +736,8 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
   epic's milestone, is moved or detached like any other once YouTrack has it elsewhere.
 - **Hand-made links stay:** a milestone or parent that is not a mirror is left alone unless
   YouTrack wants a mirrored one there. A type is never cleared, so a mirror whose YouTrack type
-  has no mapping keeps whatever type it has on GitHub.
+  has no mapping keeps whatever type it has on GitHub. Assignees work the same way: one the
+  mirror cannot match to someone assigned in YouTrack (staff, bots, anyone unmatched) stays.
 
 ### What it never does
 
@@ -558,8 +746,10 @@ reopens a milestone, never reopens an issue that the `REOPEN_CLOSED_BY` login di
 (and reopens nothing when it is unset, decision R10), never changes a body or milestone
 description after creation (titles do follow YouTrack, decision N2), never comments, never
 reorders sub-issues, never clears an issue type, never creates labels and never touches pull
-requests. Relates links and sprints are not mirrored. A mirror whose YouTrack issue is deleted
-is left as it is.
+requests. It never adds or removes an assignee it does not match to someone assigned in the
+YouTrack project, never removes a bot, never changes the assignees of a closed mirror, and
+never clears a mirror's assignees because its YouTrack issue is unassigned. Relates links and
+sprints are not mirrored. A mirror whose YouTrack issue is deleted is left as it is.
 
 Mirrors are recognised by the project ID in their titles. If a YouTrack admin changes the
 project's ID (say `ABC` to `XYZ`), update `YOUTRACK_PROJECT`, and first rename the old
@@ -571,14 +761,19 @@ A failed read (GitHub issues or milestones, YouTrack scan) logs a `yt-gh-sync fa
 summary line and aborts the run. A failed write is logged, the run carries on with the other
 writes (unless GitHub rate-limited it), and at the end it logs `yt-gh-sync failed ...` and
 throws, so the run shows as failed in Cron Events (or as a failed systemd unit). A write that
-waits for a failed create is `capped`, not failed. Tokens are never logged.
+waits for a failed create is `capped`, not failed, such as
+`add 1 assignee to ABC-41 capped: the mirror of ABC-41 was not created in this run`. The
+assignee reads (assignable users and lookups) never fail the run; they only warn. Tokens are
+never logged, and with assignee sync on neither are usernames or emails.
 
 ### Dry run
 
 Dry run is on by default: only `DRY_RUN=false` turns it off. With it on, the run reads both
 sides and logs one `[dry-run] would ...` line per planned write, but sends no GitHub write at
 all. The create lines, and the lines that change a title, end with the new title. A milestone or mirror that the run would create
-earlier shows as `(new)`. See the Action's [step 4](#4-do-a-dry-run) for an example.
+earlier shows as `(new)`. It sends the same reads as a real run, the assignable users and the
+lookups included, so it shows who would be matched. See the Action's
+[step 4](#4-do-a-dry-run) for an example.
 
 ## Configuration
 
@@ -590,9 +785,11 @@ earlier shows as `(new)`. See the Action's [step 4](#4-do-a-dry-run) for an exam
 | `YOUTRACK_BASE_URL`       | var    | required       | https URL without query string, fragment or credentials. For BUas: `https://youtrack.ai.buas.nl`.                                                                       |
 | `YOUTRACK_PROJECT`        | var    | required       | Project shortName (the prefix of its issue IDs), starting with a letter or digit.                                                                                       |
 | `YOUTRACK_EXCLUDE_PREFIX` | var    | `[individual]` | Case-insensitive summary prefix that keeps an issue or epic, and everything below it, out of the mirror. Not blank when set.                                            |
-| `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. Every write counts 1: create, close, reopen, update, move, detach, milestone create, rename or close, label re-add.                          |
+| `MAX_WRITES_PER_RUN`      | var    | `30`           | Whole number from 0 to 40. Every write counts 1: create, close, reopen, update, move, detach, milestone create, rename or close, label re-add, assignee add or remove.  |
 | `DRY_RUN`                 | var    | on             | Only `false` (any case, surrounding whitespace ignored) turns it off.                                                                                                   |
 | `REOPEN_CLOSED_BY`        | var    | empty (off)    | A GitHub login, such as `github-actions[bot]`: a closed mirror it closed is reopened once its YouTrack issue is unresolved (R10). Leave it empty with a personal token. |
+| `SYNC_ASSIGNEES`          | var    | `true`         | `true` or `false` (any case, surrounding whitespace ignored); anything else, empty included, is a config error. `false` leaves GitHub assignees alone (U1).             |
+| `ASSIGNEE_MAP`            | secret | empty (no map) | `<youtrack-username>=<github-username>` pairs separated by commas, on one line; `-` as the GitHub username means never assign. See [The map](#the-map) (U14).           |
 
 Invalid config fails the run before any request is made, listing every problem at once.
 Variables the tool does not know, such as the retired `YOUTRACK_TITLE_PREFIX`, are ignored.
@@ -601,11 +798,11 @@ Where the values come from:
 
 - **GitHub Action:** the action's inputs, one per setting (see [Inputs](#inputs)).
 - **Worker:** vars in `wrangler.jsonc` (your gitignored copy of `wrangler.example.jsonc`),
-  secrets via `wrangler secret put`.
+  secrets via `wrangler secret put`, `ASSIGNEE_MAP` included.
 - **Node (`npm run sync`):** the environment, plus `.env` if present. It does **not** read
   `wrangler.jsonc`, so the three required vars must be in `.env` (or the environment).
-- **systemd:** `EnvironmentFile=` for vars, `LoadCredential=` for the two tokens (see
-  [below](#app-config-and-secrets)).
+- **systemd:** `EnvironmentFile=` for vars and the map, `LoadCredential=` for the two tokens
+  (see [below](#app-config-and-secrets)).
 
 ## Development
 
@@ -718,7 +915,11 @@ YOUTRACK_PROJECT=<PROJECT>
 YOUTRACK_EXCLUDE_PREFIX=[individual]
 MAX_WRITES_PER_RUN=30
 DRY_RUN=true
+SYNC_ASSIGNEES=true
 ```
+
+A map, if you use one, goes in the same file as one `ASSIGNEE_MAP=...` line. It holds personal
+data; `/etc/youtrack-gh` is readable by root only.
 
 Environment variables set in a unit are visible to unprivileged clients over D-Bus, so the
 tokens do not go there. systemd hands them to the service as files in `$CREDENTIALS_DIRECTORY`,
@@ -812,10 +1013,27 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **Fetch guard:** the HTTP client refuses a 46th fetch. When it refuses a write, the run stops
   cleanly and that action and the remaining ones count as `capped`, not `failed`. A write that
   was sent and failed but whose retry the guard cannot pay for counts as `failed`.
-- **Today:** 3 reads (1 GitHub issues page, 1 milestones page, 1 YouTrack page) + at most 30
-  writes = 33 fetches without retries. Each retry is one more fetch, up to the 45-fetch guard.
-  Every further 100 GitHub items (issues and pull requests), 100 milestones or 100 YouTrack
-  issues costs one more page. A dry run sends only the reads.
+- **Fetches per run:** 3 reads (1 GitHub issues page, 1 milestones page, 1 YouTrack page) + at
+  most 30 writes = 33 fetches without retries. With assignee sync on and at least one open
+  issue assigned in YouTrack, a 4th read (the assignable users, 1 page per 100) makes it 34,
+  plus the commit and email lookups when someone needs them. A further page of assignable users
+  is read only while `fetches left - MAX_WRITES_PER_RUN - 2` is above 0 (10 pages with the
+  default 30 writes); a longer list skips assignee sync for that run with a warning, so the
+  writes keep their share of the guard. Each retry is one more fetch, up
+  to the 45-fetch guard. Every further 100 GitHub items (issues and pull requests), 100
+  milestones or 100 YouTrack issues costs one more page. A dry run sends only the reads, the
+  lookups included.
+- **Lookups:** at most `min(5, fetches left - MAX_WRITES_PER_RUN - 2)` per run, where the
+  fetches left are counted before the first lookup (41 after four one-page reads), so the writes
+  always keep their share of the guard; the last lookup may retry once. With the default 30
+  writes that is 5 (4 + 5 + 30 = 39 fetches), with 38 writes 1, and with 39 or 40 none. A lookup
+  starts only while the run is more than 40 s from its deadline.
+  Commit lookups use the core rate limit and email lookups the search rate limit; a rate limit
+  on the email search turns it off for the run, one on the commits stops all lookups.
+- **Writes per issue:** a new mirror with a matched assignee costs 2 writes (create, then add);
+  a reassignment between matched people costs 2 (add, then remove). The first live run with
+  assignee sync adds one assignee write per open mirror whose assignee it matches, so it may
+  take a few runs.
 - **Retries:** every GET and every write except a create is retried once on a network error,
   timeout, 5xx, 429, or a 403 that carries `retry-after` (GitHub's secondary rate limit). The
   retry waits `retry-after` when it is 10 s or less, and 2 s when the header is missing or
@@ -830,14 +1048,19 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **Run deadline:** no new write action starts later than 8 minutes after the run's scheduled
   time (Worker: the cron's `scheduledTime`; Node: process start). The rest counts as `capped`
   and a `run deadline reached` warning is logged. Reads and the dry-run preview are not
-  affected. On systemd, `TimeoutStartSec=10min` is the hard backstop.
+  affected, except the assignee lookups, which stop 40 s before it. On systemd,
+  `TimeoutStartSec=10min` is the hard backstop.
 - **GitHub:** writes are serial and 1 s apart, well within the secondary limit of 80
   content-creating requests per minute. If the token lacks push access, GitHub silently drops
-  labels, milestones and types. The label re-add and the title fallback stop that from causing
-  duplicates. When GitHub's answer lacks a milestone, type or parent that was sent, a warning
-  is logged and the next run's sync tries again (no extra write in the same run). GitHub allows
-  100 sub-issues per parent and 8 levels; a create or move beyond that is expected to fail on
-  every run (unverified).
+  labels, milestones and types, and ignores assignee adds and removes. The label re-add and the
+  title fallback stop that from causing duplicates. When GitHub's answer lacks a milestone,
+  type, parent or added assignee that was sent, or still holds a removed one, a warning is
+  logged and the next run tries again (no extra write in the same run). GitHub allows 100
+  sub-issues per parent and 8 levels; a create or move beyond that is expected to fail on every
+  run (unverified). It allows 10 assignees per issue: matched people beyond that are left out
+  with a warning such as `ABC-9 #40: 1 matched assignee not added: GitHub allows 10 per issue`.
+- **Workers CPU:** the larger YouTrack response (the `Assignee` field adds about a quarter), the
+  matching and the redaction were not measured against the 10 ms limit.
 - **Swapping two task mirrors** (A under B on GitHub, B under A in YouTrack) can fail one run.
   When B has the lower number, its move under A runs before A leaves B, and GitHub is expected
   to refuse the cycle. A still leaves B in that run (detached, or moved to its new parent), and
@@ -858,6 +1081,9 @@ Research and design notes live in [`docs/`](docs/README.md):
 - [10-hierarchy-design.md](docs/10-hierarchy-design.md) and
   [11-hierarchy-plan.md](docs/11-hierarchy-plan.md): epics, stories, bugs and tasks as
   milestones, issue types and sub-issues (implemented; docs/11 has the "As built" notes).
+- [12-assignees.md](docs/12-assignees.md) and [13-assignees-plan.md](docs/13-assignees-plan.md):
+  matching YouTrack assignees to GitHub accounts, the live write test and the plan
+  (implemented; docs/13 has the "As built" notes).
 - [04-cloudflare-workers.md](docs/04-cloudflare-workers.md): Workers limits, cron, secrets, local testing.
 - [05-node-debian-systemd.md](docs/05-node-debian-systemd.md): Node versions, Debian packages, systemd.
 - [03-github-rest-api.md](docs/03-github-rest-api.md) and

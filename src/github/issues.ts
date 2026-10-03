@@ -1,6 +1,7 @@
 /**
  * GitHub issues: the typed issue shape (including the hierarchy fields of docs/11: id,
- * milestone, type and parent), the paged list read and the issue writes. Types derive
+ * milestone, type and parent, and the assignees of docs/13), the paged list read and the
+ * issue writes. Assignees are never sent here (docs/13 2.7); see assignees.ts. Types derive
  * from @octokit/openapi-types (GitHub's official OpenAPI description). Writes are never
  * called in DRY_RUN; sync.ts enforces that.
  */
@@ -10,6 +11,8 @@ import type { GitHubTypeName } from "../hierarchy.ts";
 import type { HttpClient } from "../http.ts";
 import { isInteger, isJsonArray, isJsonObject, isString } from "../json.ts";
 import type { JsonValue } from "../json.ts";
+import { parseAssignees } from "./assignees.ts";
+import type { GitHubAssignee } from "./assignees.ts";
 import {
   describeJson,
   GITHUB_API_BASE,
@@ -67,6 +70,8 @@ export type GitHubIssue = Readonly<Pick<IssueSchema, "number" | "title">> & {
   readonly parentIsForeign: boolean;
   /** `closed_by.login` verbatim, or null when GitHub reports no closer (open issues, old closes). */
   readonly closedBy: string | null;
+  /** `assignees` as parseAssignees reads them (logins verbatim, any type); [] when missing or null. */
+  readonly assignees: readonly GitHubAssignee[];
 };
 
 /** The only status that proves POST /issues created a new issue (docs/03, gotcha 15). */
@@ -109,6 +114,7 @@ export function parseGitHubIssue(value: JsonValue, target: GitHubTarget): GitHub
     typeName: parseTypeName(value["type"], issueNumber),
     ...parseParent(value["parent_issue_url"], target, issueNumber),
     closedBy: parseClosedBy(value["closed_by"], issueNumber),
+    assignees: parseAssignees(value["assignees"], `GitHub issue #${String(issueNumber)}`),
   };
 }
 

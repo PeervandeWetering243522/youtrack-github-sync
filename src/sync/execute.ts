@@ -3,14 +3,15 @@
  * WRITE_PAUSE_MS apart, until the write cap, the fetch guard, a GitHub rate limit or the
  * run deadline stops them. Dependencies (a milestone's epic, a parent issue) resolve
  * through the run-local map (src/sync/resolved.ts), extended by every successful create.
- * The writes themselves live in execute-issues.ts and execute-hierarchy.ts, the writer and
- * outcome handling in execute-write.ts. Only src/sync.ts builds the writer, and only when
+ * The writes themselves live in execute-issues.ts, execute-hierarchy.ts and
+ * execute-assignees.ts, the writer and outcome handling in execute-write.ts. Only src/sync.ts builds the writer, and only when
  * dry run is off.
  */
 
 import { DEFAULT_MAX_FETCHES } from "../http.ts";
 import { writeCost } from "../plan.ts";
 import type { Action } from "../plan.ts";
+import { executeAddAssignees, executeRemoveAssignees } from "./execute-assignees.ts";
 import {
   executeCloseMilestone,
   executeCreateMilestone,
@@ -73,7 +74,10 @@ function stopCause(reason: StopReason): string {
   }
 }
 
-/** Only the two creates extend the resolution map; every other action leaves it as it is. */
+/**
+ * Only the two creates and the assignee add extend the resolution map (the add marks an issue
+ * whose remove must wait); every other action leaves it as it is.
+ */
 function executeAction(action: Action, context: WriteContext, resolved: Resolved): Promise<Step> {
   switch (action.kind) {
     case "createMilestone":
@@ -94,6 +98,10 @@ function executeAction(action: Action, context: WriteContext, resolved: Resolved
       return unchangedMap(resolved, executeSetParent(action, context, resolved));
     case "removeParent":
       return unchangedMap(resolved, executeRemoveParent(action, context));
+    case "addAssignees":
+      return executeAddAssignees(action, context, resolved);
+    case "removeAssignees":
+      return unchangedMap(resolved, executeRemoveAssignees(action, context, resolved));
   }
 }
 

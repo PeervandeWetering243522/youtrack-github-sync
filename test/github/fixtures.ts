@@ -37,8 +37,44 @@ export const NO_HIERARCHY = {
   parentIsForeign: false,
 } as const;
 
-/** NO_HIERARCHY plus no closer: the optional fields of a parsed issue that has none of them. */
-export const NO_EXTRAS = { ...NO_HIERARCHY, closedBy: null } as const;
+/** NO_HIERARCHY plus no closer and no assignees: the optional fields of a parsed issue that has none of them. */
+export const NO_EXTRAS = { ...NO_HIERARCHY, closedBy: null, assignees: [] } as const;
+
+/** The assignable-users list, the commit lookup and the user search, spelled out (2.4, docs/13). */
+export const ASSIGNABLE_URL = `${REPO_URL}/assignees?per_page=100`;
+export const SECOND_ASSIGNABLE_PAGE_URL = "https://api.github.com/repositories/123456/assignees?per_page=100&page=2";
+export const COMMITS_LOOKUP_URL = `${REPO_URL}/commits?author=123456%40buas.nl&per_page=1`;
+export const SEARCH_LOOKUP_URL =
+  "https://api.github.com/search/users?q=%22123456%40buas.nl%22+in%3Aemail+type%3Auser&per_page=100";
+
+/** Placeholder people (never real ones): two students, a staff member and their BUas email. */
+export const STUDENT_LOGIN = "jdoe123456";
+export const OTHER_STUDENT_LOGIN = "JaneDoe123456";
+export const STAFF_LOGIN = "staffuser";
+export const STUDENT_EMAIL = "123456@buas.nl";
+/** Every placeholder identity; no error message may contain one, in any case or encoding. */
+export const IDENTITIES = [STUDENT_LOGIN, OTHER_STUDENT_LOGIN, STAFF_LOGIN, STUDENT_EMAIL] as const;
+
+/** A user object shaped like GitHub's simple-user (extra keys included, as the API sends them). */
+export function userJson(login: string, type = "User"): JsonObject {
+  return {
+    login,
+    id: 1_000_123,
+    node_id: "MDQ6VXNlcjEwMDAxMjM=",
+    url: `https://api.github.com/users/${login}`,
+    type,
+    site_admin: false,
+  };
+}
+
+/** True when `text` holds none of IDENTITIES, raw or URL-encoded, ignoring case. */
+export function hasNoIdentity(text: string): boolean {
+  const lower = text.toLowerCase();
+  return IDENTITIES.every((identity) => {
+    const forms = [identity, encodeURIComponent(identity), encodeURIComponent(`"${identity}"`)];
+    return forms.every((form) => !lower.includes(form.toLowerCase()));
+  });
+}
 
 export const EXPECTED_HEADERS = {
   Accept: "application/vnd.github+json",

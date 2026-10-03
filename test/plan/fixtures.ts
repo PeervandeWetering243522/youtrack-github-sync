@@ -11,7 +11,8 @@ import type { GitHubIssue } from "../../src/github/issues.ts";
 import type { GitHubMilestone } from "../../src/github/milestones.ts";
 import { YOUTRACK_TYPES } from "../../src/hierarchy.ts";
 import { planActions } from "../../src/plan.ts";
-import type { Action, Plan } from "../../src/plan.ts";
+import type { Action, AssigneeSync, Plan } from "../../src/plan.ts";
+import { loginKey } from "../../src/plan/assignee-match.ts";
 import { buildMilestoneIndex } from "../../src/plan/milestones.ts";
 import type { MilestoneIndexResult } from "../../src/plan/milestones.ts";
 import type { MirrorIndex, MirrorRef } from "../../src/plan/mirrors.ts";
@@ -53,6 +54,7 @@ export function ghIssue(issueNumber: number, title: string, overrides: Partial<G
     parentNumber: null,
     parentIsForeign: false,
     closedBy: null,
+    assignees: Object.freeze([]),
   };
   return Object.freeze({ ...defaults, ...overrides, labelNames });
 }
@@ -74,7 +76,7 @@ export type MirrorDraft = Omit<MirrorRef, "title"> & Partial<Pick<MirrorRef, "ti
 
 /**
  * A mirror ref as buildMirrorIndex makes it: open, labelled, id idOf(n), no milestone, type,
- * parent or closer unless `fields` says otherwise. It has no title unless `fields` gives one;
+ * parent, closer or assignees unless `fields` says otherwise. It has no title unless `fields` gives one;
  * mirrors(...) and titled(...) fill in desiredTitle of its YouTrack number.
  */
 export function mirror(issueNumber: number, fields: Partial<MirrorRef> = {}): MirrorDraft {
@@ -88,6 +90,7 @@ export function mirror(issueNumber: number, fields: Partial<MirrorRef> = {}): Mi
     parentNumber: null,
     parentIsForeign: false,
     closedBy: null,
+    assignees: Object.freeze([]),
     ...fields,
   });
 }
@@ -194,6 +197,8 @@ export type PlanOptions = {
   readonly excludePrefix?: string;
   /** REOPEN_CLOSED_BY; left out: null, so nothing is reopened (the default outside the Action). */
   readonly reopenClosedBy?: string | null;
+  /** What the assignee stage matched; left out: null, so no assignee action is planned. */
+  readonly assignees?: AssigneeSync | null;
 };
 
 export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOptions = {}): Plan {
@@ -204,7 +209,30 @@ export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOpti
     excludePrefix: options.excludePrefix ?? EXCLUDE_PREFIX,
     maxWrites: options.maxWrites ?? 30,
     reopenClosedBy: options.reopenClosedBy ?? null,
+    assignees: options.assignees ?? null,
   });
+}
+
+/**
+ * A frozen AssigneeSync: `desired` as [numberInProject, logins] pairs, `owned` as logins (A-Z
+ * lowercased here, as ownedLogins keys them).
+ */
+export function assigneeSync(
+  desired: readonly (readonly [number, readonly string[]])[],
+  owned: readonly string[] = desired.flatMap(([, logins]) => logins),
+): AssigneeSync {
+  return Object.freeze({
+    desired: lockedMap(desired.map(([numberInProject, logins]) => [numberInProject, Object.freeze([...logins])])),
+    owned: lockedSet(owned.map(loginKey)),
+  });
+}
+
+/** A Set whose mutators throw, since Object.freeze does not stop Set#add. */
+function lockedSet<T>(values: Iterable<T>): ReadonlySet<T> {
+  const refuse = (): never => {
+    throw new TypeError("input set is read-only");
+  };
+  return Object.freeze(Object.assign(new Set(values), { add: refuse, delete: refuse, clear: refuse }));
 }
 
 /** " milestone=YT-9", " milestone=none" or "" for an optional milestone epic. */
@@ -245,6 +273,10 @@ function describeAction(action: Action): string {
       return `setParent ${n} #${String(action.mirror.issueNumber)} under YT-${String(action.parentYt)}`;
     case "removeParent":
       return `removeParent ${n} #${String(action.mirror.issueNumber)} from #${String(action.parentNumber)} (YT-${String(action.parentYt)})`;
+    case "addAssignees":
+      return `addAssignees ${n} +${action.logins.join(",")}`;
+    case "removeAssignees":
+      return `removeAssignees ${n} #${String(action.mirror.issueNumber)} -${action.logins.join(",")}`;
   }
 }
 
@@ -252,8 +284,9 @@ function describeAction(action: Action): string {
  * Compact view of actions: "create 3", "create 5 type=Task milestone=YT-1 parent=YT-2",
  * "close 5 -> #12", "reopen 5 -> #12", "update 5 #12 title milestone=none type=Bug" (the new title itself is not
  * shown), "setParent 5 #12 under YT-2", "removeParent 5 #12 from #20 (YT-2)",
- * "createMilestone 9", "renameMilestone 9 -> m3", "closeMilestone 9 -> m3". YT-<n> here is
- * just YouTrack number n, not a title or log format.
+ * "createMilestone 9", "renameMilestone 9 -> m3", "closeMilestone 9 -> m3",
+ * "addAssignees 5 +a,b" (the mirror is resolved at execution), "removeAssignees 5 #12 -c".
+ * YT-<n> here is just YouTrack number n, not a title or log format.
  */
 export function describeActions(actions: readonly Action[]): readonly string[] {
   return actions.map(describeAction);

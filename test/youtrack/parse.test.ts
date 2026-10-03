@@ -71,6 +71,7 @@ describe("parseYouTrackIssue", () => {
       updated: 1790256733345,
       type: null,
       parentId: null,
+      assignee: { kind: "absent" },
     });
   });
 

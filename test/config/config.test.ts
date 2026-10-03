@@ -5,6 +5,7 @@ import {
   ConfigError,
   DEFAULT_EXCLUDE_PREFIX,
   DEFAULT_MAX_WRITES_PER_RUN,
+  DEFAULT_SYNC_ASSIGNEES,
   ENV_KEYS,
   parseConfig,
   type EnvSource,
@@ -23,8 +24,10 @@ import {
   OWNER_PROBLEM,
   PREFIX_PROBLEM,
   PROJECT_PROBLEM,
+  REOPEN_CLOSED_BY_PROBLEM,
   REPO_PROBLEM,
   REPO_SHAPE_PROBLEM,
+  SYNC_ASSIGNEES_PROBLEM,
   URL_CREDENTIALS_PROBLEM,
   URL_HTTPS_PROBLEM,
   URL_QUERY_PROBLEM,
@@ -36,6 +39,10 @@ import {
   char,
   envWith,
   fullwidth,
+  mapFormProblem,
+  mapKeyProblem,
+  mapRepeatProblem,
+  mapValueProblem,
   problemsFor,
   visible,
 } from "./fixtures.ts";
@@ -77,11 +84,32 @@ describe("parseConfig: valid environment", () => {
   });
 
   it("gives identical results on repeated calls (no hidden state such as a regex lastIndex)", () => {
-    const invalidEnv = envWith({ GITHUB_REPO: "-bad/..", YOUTRACK_PROJECT: "C U I", MAX_WRITES_PER_RUN: "41" });
+    const invalidEnv = envWith({
+      GITHUB_REPO: "-bad/..",
+      YOUTRACK_PROJECT: "C U I",
+      MAX_WRITES_PER_RUN: "41",
+      ASSIGNEE_MAP: "a b=-x,ok=x,OK=y",
+    });
+    const mapEnv = envWith({ ASSIGNEE_MAP: "jdoe123456=JaneDoe123456\nstaffuser=-" });
 
     for (let round = 0; round < 3; round += 1) {
       assert.deepEqual(parseConfig(VALID_ENV), EXPECTED_CONFIG);
-      assert.deepEqual(problemsFor(invalidEnv), [OWNER_PROBLEM, REPO_PROBLEM, PROJECT_PROBLEM, MAX_WRITES_PROBLEM]);
+      assert.deepEqual(
+        parseConfig(mapEnv).assigneeMap,
+        new Map([
+          ["jdoe123456", "JaneDoe123456"],
+          ["staffuser", null],
+        ]),
+      );
+      assert.deepEqual(problemsFor(invalidEnv), [
+        OWNER_PROBLEM,
+        REPO_PROBLEM,
+        PROJECT_PROBLEM,
+        MAX_WRITES_PROBLEM,
+        mapKeyProblem(1),
+        mapValueProblem(1),
+        mapRepeatProblem(2, 3),
+      ]);
     }
   });
 
@@ -107,11 +135,15 @@ describe("parseConfig: valid environment", () => {
       YOUTRACK_EXCLUDE_PREFIX: undefined,
       MAX_WRITES_PER_RUN: undefined,
       DRY_RUN: undefined,
+      SYNC_ASSIGNEES: undefined,
+      ASSIGNEE_MAP: undefined,
     });
     const expected = {
       ...EXPECTED_CONFIG,
       excludePrefix: DEFAULT_EXCLUDE_PREFIX,
       maxWritesPerRun: DEFAULT_MAX_WRITES_PER_RUN,
+      syncAssignees: DEFAULT_SYNC_ASSIGNEES,
+      assigneeMap: new Map(),
     };
 
     assert.deepEqual(parseConfig(requiredOnly), expected);
@@ -135,7 +167,7 @@ describe("parseConfig: tokens", () => {
 
     const error = captureConfigError(env);
 
-    assert.deepEqual(error.problems, [...MISSING_PROBLEMS, PREFIX_PROBLEM, MAX_WRITES_PROBLEM]);
+    assert.deepEqual(error.problems, [...MISSING_PROBLEMS, PREFIX_PROBLEM, MAX_WRITES_PROBLEM, SYNC_ASSIGNEES_PROBLEM]);
   });
 
   it("never echoes token values, even when pasted into the wrong variable", () => {
@@ -167,6 +199,8 @@ describe("parseConfig: tokens", () => {
       envWith({ YOUTRACK_PROJECT: `${marker} OR project: X` }),
       envWith({ YOUTRACK_PROJECT: `-${marker}` }),
       envWith({ YOUTRACK_EXCLUDE_PREFIX: " ", MAX_WRITES_PER_RUN: marker }),
+      envWith({ SYNC_ASSIGNEES: marker }),
+      envWith({ ASSIGNEE_MAP: `${marker}=${marker}!,${marker},${marker} =-${marker},${marker}=-` }),
     ];
 
     for (const env of leakyEnvs) {
@@ -311,6 +345,9 @@ describe("parseConfig: collecting problems", () => {
       YOUTRACK_EXCLUDE_PREFIX: "\t",
       MAX_WRITES_PER_RUN: "-1",
       DRY_RUN: "false",
+      REOPEN_CLOSED_BY: "-x",
+      SYNC_ASSIGNEES: "yes",
+      ASSIGNEE_MAP: "x,=-x",
     };
 
     const problems = problemsFor(env);
@@ -326,6 +363,11 @@ describe("parseConfig: collecting problems", () => {
       PROJECT_PROBLEM,
       PREFIX_PROBLEM,
       MAX_WRITES_PROBLEM,
+      REOPEN_CLOSED_BY_PROBLEM,
+      SYNC_ASSIGNEES_PROBLEM,
+      mapFormProblem(1),
+      mapKeyProblem(2),
+      mapValueProblem(2),
     ]);
   });
 

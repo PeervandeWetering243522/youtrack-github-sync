@@ -287,6 +287,27 @@ describe("buildMirrorIndex: hierarchy fields", () => {
 
     assert.equal(result.index.get(5)?.typeName, "task");
   });
+
+  it("copies the winner's assignees verbatim, Bots included, for the assignee diff (U4)", () => {
+    const assignees = Object.freeze([
+      Object.freeze({ login: "JaneDoe123456", type: "User" }),
+      Object.freeze({ login: "helper-bot[bot]", type: "Bot" }),
+    ]);
+    const issues = Object.freeze([
+      unlabelled(9, "[CUI-5] Loser", { assignees: Object.freeze([{ login: "staffuser", type: "User" }]) }),
+      ghIssue(21, "[CUI-5] Winner", { assignees }),
+    ]);
+
+    const result = buildMirrorIndex(issues, LABEL, PROJECT);
+
+    assert.deepEqual(result.index.get(5), mirror(21, { title: "[CUI-5] Winner", assignees }));
+  });
+
+  it("gives a mirror without assignees an empty list", () => {
+    const result = buildMirrorIndex(Object.freeze([ghIssue(12, "[CUI-5] Task")]), LABEL, PROJECT);
+
+    assert.deepEqual(result.index.get(5)?.assignees, []);
+  });
 });
 
 describe("buildMirrorIndex: precedence and warnings", () => {

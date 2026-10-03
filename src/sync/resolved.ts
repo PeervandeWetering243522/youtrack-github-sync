@@ -4,7 +4,8 @@
  * GitHub numbers and ids. It is seeded from the reads and extended after each successful
  * create and createMilestone, so a child created later in the same run finds its parent. A
  * dependency still missing at its turn was not created in this run (its create failed or
- * waited itself), and the action waiting for it is capped (D4). Pure, immutable.
+ * waited itself), and the action waiting for it is capped (D4). An assignee remove depends on
+ * its issue's add the same way. Pure, immutable.
  */
 
 import type { MilestoneIndex } from "../plan/milestones.ts";
@@ -15,10 +16,18 @@ import { projectIssueName } from "./tally.ts";
 /** A GitHub issue as dependencies need it: its number (URLs) and REST id (parent_issue_id, sub_issue_id). */
 export type IssueRef = Pick<MirrorRef, "id" | "issueNumber">;
 
-/** YouTrack number -> GitHub issue of every known mirror, and epic number -> milestone number. */
+/**
+ * YouTrack number -> GitHub issue of every known mirror, epic number -> milestone number, and
+ * the YouTrack numbers whose assignee add did not go through in this run.
+ */
 export type Resolved = {
   readonly issues: ReadonlyMap<number, IssueRef>;
   readonly milestones: ReadonlyMap<number, number>;
+  /**
+   * Issues whose addAssignees failed or had a login dropped: their removeAssignees waits, so a
+   * reassignment never leaves the mirror with nobody (docs/13 §2.7).
+   */
+  readonly unsettledAdds: ReadonlySet<number>;
 };
 
 /** A dependency looked up: found with its GitHub value, or missing, with a log name for it. */
@@ -30,7 +39,13 @@ export function seedResolved(mirrors: MirrorIndex, milestones: MilestoneIndex): 
   return {
     issues: new Map([...mirrors].map(([numberInProject, ref]) => [numberInProject, issueRef(ref)])),
     milestones: new Map([...milestones].map(([epic, ref]) => [epic, ref.milestoneNumber])),
+    unsettledAdds: new Set(),
   };
+}
+
+/** A copy of `resolved` in which the assignee add of YouTrack issue `numberInProject` did not go through. */
+export function withUnsettledAdd(resolved: Resolved, numberInProject: number): Resolved {
+  return { ...resolved, unsettledAdds: new Set([...resolved.unsettledAdds, numberInProject]) };
 }
 
 /** A copy of `resolved` that also knows `ref`, the mirror of YouTrack issue `numberInProject`. */

@@ -141,6 +141,27 @@ export function describeJson(value: JsonValue | undefined): string {
   return `${typeof value} ${String(value)}`;
 }
 
+/**
+ * The JSON kind of a value ("nothing", "null", "an array", "an object", "a string", "a number",
+ * "a boolean"), never any of its content. For values that may hold a login or an email
+ * (assignees, lookups, U8), where describeJson's echo would leak personal data.
+ */
+export function jsonKind(value: JsonValue | undefined): string {
+  if (value === undefined) {
+    return "nothing";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (isJsonArray(value)) {
+    return "an array";
+  }
+  if (isJsonObject(value)) {
+    return "an object";
+  }
+  return `a ${typeof value}`;
+}
+
 /** JSON-quoted start of an untrusted string, cut on a code point boundary (never half an emoji). */
 export function quote(text: string): string {
   // MAX_ECHOED_CHARS code points span at most twice as many UTF-16 units; slicing first keeps this cheap.

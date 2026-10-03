@@ -2,7 +2,8 @@
  * The dry-run preview (DRY_RUN on): one "[dry-run] would ..." line per planned action,
  * counted as the write phase counts a done one. It gets neither a writer nor an HTTP
  * client, so it cannot send anything. Lines carry ids and numbers only, except the create
- * lines and the lines that set a title, which end with the mirror title (decision R3). A
+ * lines and the lines that set a title, which end with the mirror title (decision R3);
+ * assignee lines carry counts, never a login (U8). A
  * milestone or mirror created earlier in the run is named "(new)", since it has no GitHub
  * number yet.
  */
@@ -11,10 +12,12 @@ import { formatMirror } from "../mirror.ts";
 import type { Action } from "../plan.ts";
 import {
   createDetails,
+  describeAddAssignees,
   describeClose,
   describeCloseMilestone,
   describeDetach,
   describeMove,
+  describeRemoveAssignees,
   describeRenameMilestone,
   describeReopen,
   describeUpdate,
@@ -73,6 +76,10 @@ function preview(action: Action, context: PreviewContext): { readonly text: stri
       return { text: describeMove(resolved, action), counter: "updated" };
     case "removeParent":
       return { text: describeDetach(action), counter: "updated" };
+    case "addAssignees":
+      return { text: describeAddAssignees(resolved, action), counter: "assigneesAdded" };
+    case "removeAssignees":
+      return { text: describeRemoveAssignees(action), counter: "assigneesRemoved" };
   }
 }
 

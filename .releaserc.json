@@ -6,10 +6,7 @@
       "@semantic-release/commit-analyzer",
       {
         "preset": "conventionalcommits",
-        "releaseRules": [
-          { "breaking": true, "release": "minor" },
-          { "type": "revert", "release": "patch" }
-        ]
+        "releaseRules": [{ "type": "revert", "release": "patch" }]
       }
     ],
     ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],

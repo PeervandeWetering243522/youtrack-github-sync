@@ -28,8 +28,13 @@ export type UpdateAction = Extract<Action, { readonly kind: "update" }>;
 export type SetParentAction = Extract<Action, { readonly kind: "setParent" }>;
 /** A planned `removeParent` (detach from the current mirror parent). */
 export type RemoveParentAction = Extract<Action, { readonly kind: "removeParent" }>;
+/** A planned `addAssignees` of an open mirror, existing or created earlier in the run. */
+export type AddAssigneesAction = Extract<Action, { readonly kind: "addAssignees" }>;
+/** A planned `removeAssignees` of an existing open mirror. */
+export type RemoveAssigneesAction = Extract<Action, { readonly kind: "removeAssignees" }>;
 
-type MirrorAction = CloseAction | ReopenAction | UpdateAction | SetParentAction | RemoveParentAction;
+type MirrorAction =
+  CloseAction | ReopenAction | UpdateAction | SetParentAction | RemoveParentAction | RemoveAssigneesAction;
 
 const NOT_YET_NUMBERED = "(new)";
 
@@ -95,6 +100,25 @@ export function describeClose(action: CloseAction): string {
 /** "reopen CUI-3 #12". */
 export function describeReopen(action: ReopenAction): string {
   return `reopen ${mirrorLabel(action)}`;
+}
+
+/**
+ * "add 1 assignee to CUI-41 #30": counts only, never a login (U8). The mirror is named from the
+ * resolution map, so one created earlier in the run has its number, or "(new)" in the dry run.
+ */
+export function describeAddAssignees(resolved: Resolved, action: AddAssigneesAction): string {
+  const { issue, logins } = action;
+  return `add ${assigneeCount(logins)} to ${issueName(resolved, issue, issue.numberInProject)}`;
+}
+
+/** "remove 2 assignees from CUI-12 #21": counts only, never a login (U8). */
+export function describeRemoveAssignees(action: RemoveAssigneesAction): string {
+  return `remove ${assigneeCount(action.logins)} from ${mirrorLabel(action)}`;
+}
+
+/** "1 assignee", "2 assignees". */
+export function assigneeCount(logins: readonly string[]): string {
+  return `${String(logins.length)} ${logins.length === 1 ? "assignee" : "assignees"}`;
 }
 
 /** "rename milestone CUI-33 #7". */

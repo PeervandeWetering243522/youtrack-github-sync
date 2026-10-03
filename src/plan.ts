@@ -1,8 +1,9 @@
 /**
- * Pure decision logic (docs/11 §1.2-1.4): YouTrack issues + GitHub mirrors and milestones
- * -> ordered, capped actions. No I/O. The indexes are built in src/plan/mirrors.ts and
- * src/plan/milestones.ts; the exclude filter lives in src/plan/exclude.ts and the
- * desired-state rules in src/plan/desired.ts.
+ * Pure decision logic (docs/11 §1.2-1.4, docs/13 §2.6-2.7): YouTrack issues + GitHub mirrors
+ * and milestones (+ the assignees the assignee stage matched) -> ordered, capped actions. No
+ * I/O. The indexes are built in src/plan/mirrors.ts and src/plan/milestones.ts; the exclude
+ * filter lives in src/plan/exclude.ts, the desired-state rules in src/plan/desired.ts and the
+ * assignee scope and diff in src/plan/assignee-scope.ts and src/plan/assignees.ts.
  */
 
 import type { GitHubTypeName, Hierarchy, IssueKind } from "./hierarchy.ts";
@@ -10,6 +11,9 @@ import { buildHierarchy, classify, depth, hierarchyWarnings } from "./hierarchy.
 import { desiredMilestoneEpic, desiredParent, parentChange, updateFields } from "./plan/desired.ts";
 import type { ParentChange, PlanContext, UpdateFields } from "./plan/desired.ts";
 import { mirrorTitle } from "./mirror.ts";
+import { loginKey } from "./plan/assignee-match.ts";
+import { assigneeEligible } from "./plan/assignee-scope.ts";
+import { assigneeDiff, GITHUB_MAX_ASSIGNEES } from "./plan/assignees.ts";
 import { isExcluded } from "./plan/exclude.ts";
 import { titleKey } from "./plan/milestones.ts";
 import type { MilestoneIndexResult, MilestoneRef } from "./plan/milestones.ts";
@@ -60,7 +64,27 @@ export type Action =
       readonly mirror: MirrorRef;
       readonly parentNumber: number;
       readonly parentYt: number;
+    }
+  /**
+   * POST matched logins the open mirror of `issue` lacks (U5). The mirror is named by YouTrack
+   * number, resolved at execution, since it may be created earlier in this run (D4).
+   */
+  | { readonly kind: "addAssignees"; readonly issue: YouTrackIssue; readonly logins: readonly string[] }
+  /** DELETE owned logins the open mirror holds but should not (U4); only for an existing mirror. */
+  | {
+      readonly kind: "removeAssignees";
+      readonly issue: YouTrackIssue;
+      readonly mirror: MirrorRef;
+      readonly logins: readonly string[];
     };
+
+/** What the assignee stage (src/sync/assignees.ts) matched this run, for the planner (docs/13 §2.6). */
+export type AssigneeSync = {
+  /** numberInProject -> desiredAssignees of the issue; issues without a matched user are absent. */
+  readonly desired: ReadonlyMap<number, readonly string[]>;
+  /** ownedLogins of the run (U4): A-Z lowercased logins matched to any person. */
+  readonly owned: ReadonlySet<string>;
+};
 
 /** What planActions reads. */
 export type PlanInput = {
@@ -75,6 +99,11 @@ export type PlanInput = {
   readonly maxWrites: number;
   /** REOPEN_CLOSED_BY: the login whose closes are undone (R10); null: never reopen. */
   readonly reopenClosedBy: string | null;
+  /**
+   * The matched assignees; null: no assignee action (switch off, no scanned row with the
+   * field, nobody to match, or the assignable list unreadable).
+   */
+  readonly assignees: AssigneeSync | null;
 };
 
 /**
@@ -100,11 +129,17 @@ export type Plan = {
   readonly unchanged: number;
   /** Actions dropped by the write cap. */
   readonly capped: number;
-  /** The milestone index warnings, then one per YouTrack parent cycle; ids and numbers only. */
+  /**
+   * The milestone index warnings, then one per YouTrack parent cycle, then one per mirror
+   * whose matched assignees exceed GitHub's limit; ids and numbers only.
+   */
   readonly warnings: readonly string[];
 };
 
-/** GitHub writes an action costs: 1 for every kind (an update sends title, milestone and type in one PATCH). */
+/**
+ * GitHub writes an action costs: 1 for every kind (an update sends title, milestone and type
+ * in one PATCH; an assignee write sends all its logins in one call).
+ */
 export function writeCost(action: Action): number {
   switch (action.kind) {
     case "createMilestone":
@@ -116,6 +151,8 @@ export function writeCost(action: Action): number {
     case "update":
     case "setParent":
     case "removeParent":
+    case "addAssignees":
+    case "removeAssignees":
       return 1;
   }
 }
@@ -134,9 +171,16 @@ export function writeCost(action: Action): number {
  *   desired state (src/plan/desired.ts); open mirror && resolved -> close; closed mirror &&
  *   unresolved && closed by `reopenClosedBy` -> reopen (R10); nothing else is reopened, and
  *   milestones never are;
+ * - assignees (docs/13 §2.6, with `input.assignees`): every assignee-eligible issue
+ *   (src/plan/assignee-scope.ts: open mirror or a create this run, never a closed mirror,
+ *   epic, resolved or excluded issue) gets addAssignees for the desired logins its mirror
+ *   lacks and, on an existing mirror, removeAssignees for the owned Users it should not
+ *   hold (assigneeDiff); an issue without desired logins gets neither (U6). Adds beyond
+ *   GitHub's limit are left out with a warning;
  * - order (docs/11 §1.4): milestone writes by epic number; creates of non-tasks by number,
  *   then of tasks by YouTrack depth, then number (parent before child, D4); sync writes by
  *   number (an issue's update before its parent change); closes and reopens by number;
+ *   assignee writes by number, an issue's add before its remove (docs/13 §2.7);
  * - take actions while their cost fits in maxWrites; at the first action that does not fit,
  *   stop -- it and everything after it count as capped. Nothing later jumps ahead (A2), so a
  *   child is never planned without the create it depends on (D4).
@@ -144,18 +188,25 @@ export function writeCost(action: Action): number {
 export function planActions(input: PlanInput): Plan {
   const ordered = uniqueAscending(input.youtrackIssues);
   const context = planContext(input, ordered);
+  const assignees = assigneeContext(input);
   const needed: Action[] = [];
+  const limitWarnings: string[] = [];
   let filtered = 0;
   let unchanged = 0;
   for (const issue of ordered) {
-    const actions = context.excluded.has(issue.numberInProject) ? null : actionsFor(context, issue);
-    if (actions === null) filtered += 1;
-    else if (actions.length === 0) unchanged += 1;
+    if (context.excluded.has(issue.numberInProject)) {
+      filtered += 1;
+      continue;
+    }
+    const assigned = assigneeActions(assignees, issue, context.mirrors.get(issue.numberInProject));
+    const actions = [...actionsFor(context, issue), ...assigned.actions];
+    limitWarnings.push(...assigned.warnings);
+    if (actions.length === 0) unchanged += 1;
     else needed.push(...actions);
   }
   const sorted = inExecutionOrder(context.hierarchy, needed);
   const actions = withinWriteCap(sorted, input.maxWrites);
-  const warnings = [...input.milestones.warnings, ...hierarchyWarnings(context.hierarchy)];
+  const warnings = [...input.milestones.warnings, ...hierarchyWarnings(context.hierarchy), ...limitWarnings];
   return { actions, scanned: ordered.length, filtered, unchanged, capped: sorted.length - actions.length, warnings };
 }
 
@@ -273,10 +324,6 @@ function isReopenDue(context: PlanContext, issue: YouTrackIssue, mirror: MirrorR
   return mirror.closedBy !== null && loginKey(mirror.closedBy) === loginKey(reopenClosedBy);
 }
 
-function loginKey(login: string): string {
-  return login.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
-}
-
 function parentAction(issue: YouTrackIssue, mirror: MirrorRef, change: ParentChange): Action {
   switch (change.kind) {
     case "set":
@@ -287,10 +334,52 @@ function parentAction(issue: YouTrackIssue, mirror: MirrorRef, change: ParentCha
 }
 
 // ---------------------------------------------------------------------------
+// Assignees
+
+/** The run's matched assignees and which issues may get assignee actions; null: none may. */
+type AssigneeContext = { readonly sync: AssigneeSync; readonly eligible: ReadonlySet<number> } | null;
+
+type AssigneeActions = { readonly actions: readonly Action[]; readonly warnings: readonly string[] };
+
+const NO_ASSIGNEE_ACTIONS: AssigneeActions = { actions: [], warnings: [] };
+
+function assigneeContext(input: PlanInput): AssigneeContext {
+  return input.assignees === null ? null : { sync: input.assignees, eligible: assigneeEligible(input) };
+}
+
+/**
+ * addAssignees and removeAssignees of one issue that is not excluded (docs/13 §2.6): only for
+ * an eligible one, against its mirror's current assignees (none for a mirror created this
+ * run). A remove needs an existing mirror; adds GitHub's limit leaves out are warned about.
+ */
+function assigneeActions(
+  context: AssigneeContext,
+  issue: YouTrackIssue,
+  mirror: MirrorRef | undefined,
+): AssigneeActions {
+  if (context?.eligible.has(issue.numberInProject) !== true) return NO_ASSIGNEE_ACTIONS;
+  const desired = context.sync.desired.get(issue.numberInProject) ?? [];
+  const diff = assigneeDiff(mirror?.assignees ?? [], desired, context.sync.owned);
+  const actions: Action[] = [];
+  if (diff.add.length > 0) actions.push({ kind: "addAssignees", issue, logins: diff.add });
+  if (mirror !== undefined && diff.remove.length > 0) {
+    actions.push({ kind: "removeAssignees", issue, mirror, logins: diff.remove });
+  }
+  return { actions, warnings: diff.notAdded > 0 ? [limitWarning(issue, mirror, diff.notAdded)] : [] };
+}
+
+/** "CUI-9 #40: 2 matched assignees not added: GitHub allows 10 per issue" ("CUI-9 (new): ..." for a create). */
+function limitWarning(issue: YouTrackIssue, mirror: MirrorRef | undefined, notAdded: number): string {
+  const where = `${issue.idReadable} ${mirror === undefined ? "(new)" : `#${String(mirror.issueNumber)}`}`;
+  const what = `${String(notAdded)} matched ${notAdded === 1 ? "assignee" : "assignees"} not added`;
+  return `${where}: ${what}: GitHub allows ${String(GITHUB_MAX_ASSIGNEES)} per issue`;
+}
+
+// ---------------------------------------------------------------------------
 // Order and cap
 
-/** Execution phases of docs/11 §1.4, in order. */
-const PHASE = { milestones: 0, issueCreates: 1, taskCreates: 2, sync: 3, closes: 4 } as const;
+/** Execution phases of docs/11 §1.4 and docs/13 §2.7, in order. */
+const PHASE = { milestones: 0, issueCreates: 1, taskCreates: 2, sync: 3, closes: 4, assignees: 5 } as const;
 
 function phaseOf(action: Action): number {
   switch (action.kind) {
@@ -307,6 +396,9 @@ function phaseOf(action: Action): number {
     case "close":
     case "reopen":
       return PHASE.closes;
+    case "addAssignees":
+    case "removeAssignees":
+      return PHASE.assignees;
   }
 }
 
@@ -315,7 +407,7 @@ type SortKey = { readonly phase: number; readonly depth: number; readonly number
 /**
  * `actions` sorted by phase, then (task creates only) YouTrack depth, then numberInProject.
  * The sort is stable and `actions` arrive per issue in run order, so an issue's update stays
- * before its parent change.
+ * before its parent change and its assignee add before its assignee remove.
  */
 function inExecutionOrder(hierarchy: Hierarchy, actions: readonly Action[]): readonly Action[] {
   const keyed = actions.map((action) => {

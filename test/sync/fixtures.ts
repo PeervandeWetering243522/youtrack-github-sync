@@ -28,6 +28,19 @@ export const MILESTONES_PATH = "/repos/acme/mirror/milestones";
 const MILESTONE_PATH = /^\/repos\/acme\/mirror\/milestones\/(\d+)$/;
 /** POST .../issues/{parent}/sub_issues (add) and DELETE .../issues/{parent}/sub_issue (remove). */
 const SUB_ISSUE_PATH = /^\/repos\/acme\/mirror\/issues\/(\d+)\/sub_issues?$/;
+/** GET: the assignable users (read 4 of docs/13 §2.2). */
+export const ASSIGNABLE_PATH = "/repos/acme/mirror/assignees";
+/** GET ?author=<email>: the commit-author lookup (step c). */
+export const COMMITS_PATH = "/repos/acme/mirror/commits";
+/** GET ?q="<email>" in:email type:user: the public-email lookup (step d). */
+export const SEARCH_USERS_PATH = "/search/users";
+/** POST (add) and DELETE (remove) .../issues/{n}/assignees. */
+const ISSUE_ASSIGNEES_PATH = /^\/repos\/acme\/mirror\/issues\/(\d+)\/assignees$/;
+
+/** The add and remove endpoint of issue #issueNumber. */
+export function assigneesPath(issueNumber: number): string {
+  return `${ISSUES_PATH}/${String(issueNumber)}/assignees`;
+}
 export const RESOLVED_AT = 1_789_644_365_309;
 const UPDATED_AT = 1_790_254_466_396;
 /** The fake numbers new GitHub issues from here on: the first create gets #101. */
@@ -53,6 +66,8 @@ const BASE_CONFIG: Config = {
   maxWritesPerRun: 30,
   dryRun: false,
   reopenClosedBy: null,
+  syncAssignees: true,
+  assigneeMap: new Map(),
 };
 
 export function config(overrides: Partial<Config> = {}): Config {
@@ -69,7 +84,17 @@ type RowOptions = {
   readonly parent?: number;
   /** The project ID of the row and its parent; left out: "CUI", as in config(). */
   readonly project?: string;
+  /**
+   * The Assignee field (U15). Left out: a single-user entry with no user (unassigned), so a
+   * run reads no assignable list; null: no entry at all (the field is missing); users: a
+   * single-user entry with the only one, or a multi-user entry with `multiAssignee`.
+   */
+  readonly assignees?: readonly YtUser[] | null;
+  readonly multiAssignee?: boolean;
 };
+
+/** A YouTrack user of an Assignee value; email left out: null (hidden or unset). */
+export type YtUser = { readonly login: string; readonly email?: string | null };
 
 /**
  * A YouTrack /api/issues row shaped like the live ones in docs/00. Without `type` and
@@ -80,6 +105,7 @@ export function ytRow(numberInProject: number, options: RowOptions = {}): JsonOb
   const { type, parent, project = "CUI" } = options;
   const parentIssues = parent === undefined ? [] : [{ idReadable: `${project}-${String(parent)}`, $type: "Issue" }];
   const typeValue = type === undefined ? null : { name: type, $type: "EnumBundleElement" };
+  const typeEntry = typeValue === null ? [] : [{ name: "Type", value: typeValue, $type: "SingleEnumIssueCustomField" }];
   return {
     idReadable: `${project}-${n}`,
     numberInProject,
@@ -88,9 +114,24 @@ export function ytRow(numberInProject: number, options: RowOptions = {}): JsonOb
     resolved: options.resolved ?? null,
     updated: UPDATED_AT,
     parent: { issues: parentIssues, $type: "IssueLink" },
-    customFields: typeValue === null ? [] : [{ name: "Type", value: typeValue, $type: "SingleEnumIssueCustomField" }],
+    customFields: [...typeEntry, ...assigneeEntry(options)],
     $type: "Issue",
   };
+}
+
+/** The row's Assignee custom field entry as YouTrack sends it (user subfields name, login, email). */
+function assigneeEntry(options: RowOptions): readonly JsonObject[] {
+  const { assignees } = options;
+  if (assignees === null) return [];
+  const users = (assignees ?? []).map((user) => ({
+    name: "Placeholder Person",
+    login: user.login,
+    email: user.email ?? null,
+    $type: "User",
+  }));
+  if (options.multiAssignee === true) return [{ name: "Assignee", value: users, $type: "MultiUserIssueCustomField" }];
+  assert.ok(users.length <= 1, "a single-user Assignee holds at most one user; set multiAssignee");
+  return [{ name: "Assignee", value: users[0] ?? null, $type: "SingleUserIssueCustomField" }];
 }
 
 type IssueOptions = {
@@ -105,11 +146,18 @@ type IssueOptions = {
   readonly parent?: number;
   /** The login of `closed_by` (R10); null sends `closed_by: null`, left out sends no key. */
   readonly closedBy?: string | null;
+  /** The issue's assignees (see ghAssignee); left out sends no key (parsed as none). */
+  readonly assignees?: readonly JsonObject[];
 };
 
-/** An issue as GitHub lists it; milestone, type, parent_issue_url and closed_by only when given. */
+/** An assignee or assignable user as GitHub reports it: login and account type. */
+export function ghAssignee(login: string, type = "User"): JsonObject {
+  return { login, id: 1, type };
+}
+
+/** An issue as GitHub lists it; milestone, type, parent_issue_url, closed_by and assignees only when given. */
 export function ghIssue(issueNumber: number, title: string, options: IssueOptions = {}): JsonObject {
-  const { milestone, type, parent, closedBy } = options;
+  const { milestone, type, parent, closedBy, assignees } = options;
   return {
     id: issueId(issueNumber),
     number: issueNumber,
@@ -121,6 +169,7 @@ export function ghIssue(issueNumber: number, title: string, options: IssueOption
     ...(type === undefined ? {} : { type: { name: type } }),
     ...(parent === undefined ? {} : { parent_issue_url: `${GITHUB_ORIGIN}${ISSUES_PATH}/${String(parent)}` }),
     ...(closedBy === undefined ? {} : { closed_by: closedBy === null ? null : { login: closedBy, type: "Bot" } }),
+    ...(assignees === undefined ? {} : { assignees }),
   };
 }
 
@@ -186,6 +235,14 @@ export type World = {
   readonly override?: Override;
   /** SyncDeps.deadline on the virtual clock; by default never reached. */
   readonly deadline?: number;
+  /** The virtual clock at the start of the run, epoch ms; by default 0. */
+  readonly startTime?: number;
+  /** GET .../assignees: the repository's assignable users (ghAssignee); by default none. */
+  readonly assignable?: readonly JsonObject[];
+  /** GET .../commits?author=<email>: the top-level author login per email (null: author null); others: no commit. */
+  readonly commitAuthors?: ReadonlyMap<string, string | null>;
+  /** GET /search/users for "<email>": the User logins per email; others: no items. */
+  readonly searchUsers?: ReadonlyMap<string, readonly string[]>;
 };
 
 export type LogLine = { readonly level: "info" | "warn" | "error"; readonly message: string };
@@ -266,6 +323,7 @@ function createdIssue(body: JsonValue | undefined, issueNumber: number, world: W
   const milestone = kept(request, "milestone", world);
   return ghIssue(issueNumber, isString(title) ? title : "", {
     labels,
+    assignees: [],
     ...(milestone === undefined ? {} : { milestone }),
     ...(isString(type) && !(world.createDrops ?? []).includes("type") ? { type } : {}),
     ...(parentId === undefined ? {} : { parent: parentId - ID_OFFSET }),
@@ -275,9 +333,12 @@ function createdIssue(body: JsonValue | undefined, issueNumber: number, world: W
 /** A PATCH answer: closed for a close, otherwise the requested title, milestone and type echoed back. */
 function patchedIssue(body: JsonValue | undefined, issueNumber: number): JsonObject {
   const { state, title, milestone, type } = requestOf(body);
-  if (state === "closed") return ghIssue(issueNumber, "[CUI-0] closed", { state: "closed" });
+  if (state === "closed") return ghIssue(issueNumber, "[CUI-0] closed", { state: "closed", assignees: [] });
   return {
-    ...ghIssue(issueNumber, isString(title) ? title : "[CUI-0] patched", isString(type) ? { type } : {}),
+    ...ghIssue(issueNumber, isString(title) ? title : "[CUI-0] patched", {
+      assignees: [],
+      ...(isString(type) ? { type } : {}),
+    }),
     ...(milestone === undefined ? {} : { milestone: isInteger(milestone) ? { number: milestone } : null }),
   };
 }
@@ -323,8 +384,52 @@ function issueAnswer(call: RecordedCall, world: World, counters: Counters): Resp
   return undefined;
 }
 
+/** The logins of an assignee write's {assignees: [...]} body. */
+function sentLogins(body: JsonValue | undefined): readonly string[] {
+  const { assignees } = requestOf(body);
+  return isJsonArray(assignees) ? assignees.filter(isString) : [];
+}
+
+/** A commits page of at most one commit, whose top-level author is the world's login for `email`. */
+function commitsPage(email: string, world: World): JsonValue {
+  const login = world.commitAuthors?.get(email);
+  if (login === undefined) return [];
+  return [{ sha: "0123abc", author: login === null ? null : ghAssignee(login) }];
+}
+
+/** A user search answer for the query `"<email>" in:email type:user`. */
+function searchAnswer(query: string, world: World): JsonValue {
+  const email = /^"(.*)" in:email type:user$/.exec(query)?.[1];
+  const logins = email === undefined ? [] : (world.searchUsers?.get(email) ?? []);
+  return { total_count: logins.length, incomplete_results: false, items: logins.map((login) => ghAssignee(login)) };
+}
+
+/**
+ * The assignable list, the commit and user-search lookups, and the add and remove writes:
+ * an add answers with the sent logins assigned, a remove with no assignee left.
+ */
+function assigneeAnswer(call: RecordedCall, world: World): Response | undefined {
+  const { pathname: path, searchParams } = call.url;
+  if (call.method === "GET" && path === ASSIGNABLE_PATH) return json(200, world.assignable ?? []);
+  if (call.method === "GET" && path === COMMITS_PATH)
+    return json(200, commitsPage(searchParams.get("author") ?? "", world));
+  if (call.method === "GET" && path === SEARCH_USERS_PATH)
+    return json(200, searchAnswer(searchParams.get("q") ?? "", world));
+  const issue = ISSUE_ASSIGNEES_PATH.exec(path);
+  if (issue === null) return undefined;
+  const issueNumber = Number(issue[1]);
+  if (call.method === "POST") {
+    const assignees = sentLogins(call.body).map((login) => ghAssignee(login));
+    return json(201, ghIssue(issueNumber, "[CUI-0] assigned", { assignees }));
+  }
+  return call.method === "DELETE"
+    ? json(200, ghIssue(issueNumber, "[CUI-0] unassigned", { assignees: [] }))
+    : undefined;
+}
+
 function githubAnswer(call: RecordedCall, world: World, counters: Counters): Response {
-  const answer = milestoneAnswer(call, world, counters) ?? issueAnswer(call, world, counters);
+  const answer =
+    milestoneAnswer(call, world, counters) ?? issueAnswer(call, world, counters) ?? assigneeAnswer(call, world);
   return answer ?? json(404, { message: "Not Found" });
 }
 
@@ -364,8 +469,8 @@ export function harness(world: World = {}): Harness {
     const answer = world.override?.(call, attempt) ?? defaultAnswer(call, world, counters);
     return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
   };
-  // Virtual clock: starts at 0 and moves only when the code under test sleeps.
-  let clock = 0;
+  // Virtual clock: starts at world.startTime (0) and moves only when the code under test sleeps.
+  let clock = world.startTime ?? 0;
   const sleep = (ms: number): Promise<void> => {
     sleeps.push(ms);
     clock += ms;
@@ -456,6 +561,8 @@ export function summary(fields: Partial<RunSummary>): RunSummary {
     closed: 0,
     reopened: 0,
     updated: 0,
+    assigneesAdded: 0,
+    assigneesRemoved: 0,
     milestonesCreated: 0,
     milestonesClosed: 0,
     skipped: (fields.filtered ?? 0) + (fields.unchanged ?? 0),

@@ -10,6 +10,7 @@ import {
   githubRequest,
   issuesUrl,
   issueUrl,
+  jsonKind,
   milestonesUrl,
   milestoneUrl,
   MIRROR_LABEL,
@@ -254,6 +255,28 @@ describe("describeJson", () => {
   it("quotes only the start of a long string", () => {
     assert.equal(describeJson("x".repeat(100)), `string ${JSON.stringify("x".repeat(40))}`);
   });
+});
+
+describe("jsonKind", () => {
+  for (const [value, expected] of [
+    [undefined, "nothing"],
+    [null, "null"],
+    [[], "an array"],
+    [["jdoe123456"], "an array"],
+    [{}, "an object"],
+    [{ login: "jdoe123456" }, "an object"],
+    ["", "a string"],
+    ["jdoe123456", "a string"],
+    ["123456@buas.nl", "a string"],
+    [0, "a number"],
+    [123_456, "a number"],
+    [true, "a boolean"],
+    [false, "a boolean"],
+  ] as const) {
+    it(`names ${value === undefined ? "undefined" : JSON.stringify(value)} as ${JSON.stringify(expected)} only`, () => {
+      assert.equal(jsonKind(value), expected);
+    });
+  }
 });
 
 describe("quote", () => {

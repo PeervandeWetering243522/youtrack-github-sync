@@ -6,6 +6,8 @@
  * only when dry run is off.
  */
 
+import { addAssignees, removeAssignees } from "../github/assignees.ts";
+import type { GitHubAssignee } from "../github/assignees.ts";
 import { MIRROR_LABEL } from "../github/client.ts";
 import type { GitHubTarget } from "../github/client.ts";
 import { addLabel, closeIssue, createIssue, reopenIssue, updateIssue } from "../github/issues.ts";
@@ -42,6 +44,10 @@ export type GitHubWriter = {
   readonly createMilestone: (milestone: NewMilestone) => Promise<GitHubMilestone>;
   readonly renameMilestone: (milestoneNumber: number, title: string) => Promise<void>;
   readonly closeMilestone: (milestoneNumber: number) => Promise<void>;
+  /** POST `logins` to #issueNumber's assignees (U5); resolves to the assignees GitHub answered with. */
+  readonly addAssignees: (issueNumber: number, logins: readonly string[]) => Promise<readonly GitHubAssignee[]>;
+  /** DELETE `logins` from #issueNumber's assignees; resolves to the assignees GitHub answered with. */
+  readonly removeAssignees: (issueNumber: number, logins: readonly string[]) => Promise<readonly GitHubAssignee[]>;
   /** Writes attempted so far; each one counts against MAX_WRITES_PER_RUN. */
   readonly count: () => number;
 };
@@ -97,6 +103,8 @@ export function githubWriter(
     createMilestone: (milestone) => send(() => createMilestone(http, target, milestone)),
     renameMilestone: (milestoneNumber, title) => send(() => renameMilestone(http, target, milestoneNumber, title)),
     closeMilestone: (milestoneNumber) => send(() => closeMilestone(http, target, milestoneNumber)),
+    addAssignees: (issueNumber, logins) => send(() => addAssignees(http, target, issueNumber, logins)),
+    removeAssignees: (issueNumber, logins) => send(() => removeAssignees(http, target, issueNumber, logins)),
     count: () => writes,
   };
 }
