@@ -415,7 +415,9 @@ before merging one. Minor bumps (1.0 to 1.1) add features, and patch bumps (1.0.
 fixes and updated pins of the actions it uses. Before v1.0.0, a minor bump could break things
 too.
 
-**Updating from v0.x to v1.0.0** turns on [assignee sync](#assignees): add `contents: read` and
+### Updating from v0.x to v1.0.0
+
+**v1.0.0** turns on [assignee sync](#assignees): add `contents: read` and
 the `assignee-map` line to the workflow as in [step 3](#3-add-the-workflow), do a dry run, and
 tell your group before the first live run. The mirror then owns the assignees it matches: a
 student it matches who was assigned on GitHub by hand is removed when YouTrack assigns that
