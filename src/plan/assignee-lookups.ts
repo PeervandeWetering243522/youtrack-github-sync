@@ -54,11 +54,14 @@ export function lookupOrder<P extends PersonIdentity>(
 /**
  * The first person in `order` whose chain waits for a lookup, and that lookup; null: none needed.
  * An answer is shared by every person with that email, so each (step, email) is asked for once.
+ * A person waiting for a step a rate limit paused is passed over: that wait lasts the run.
  */
 export function nextLookup(order: readonly PersonIdentity[], context: MatchContext): PlannedLookup | null {
   for (const person of order) {
     const state = evaluateChain(person, context);
-    if (state.kind === "needs-lookup") return { step: state.step, email: state.email };
+    if (state.kind === "needs-lookup" && !context.lookups.paused.has(state.step)) {
+      return { step: state.step, email: state.email };
+    }
   }
   return null;
 }

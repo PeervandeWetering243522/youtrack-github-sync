@@ -19,8 +19,9 @@ export type LookupAnswer =
   | { readonly kind: "failed" };
 /**
  * Answers so far, keyed by lowercased email, and the steps stopped for the run. A stopped step
- * still pools the answers it got; an email it has no answer for is no result when the step is
- * off, and a lookup never sent (not looked up) when a rate limit paused it.
+ * still pools the answers it got for a person whose every email it answered. An email it has no
+ * answer for is no result when the step is off; when a rate limit paused it, the person waits
+ * for it for the rest of the run (not looked up, or ambiguous if they were so far).
  */
 export type LookupState = {
   readonly commit: ReadonlyMap<string, LookupAnswer>;
@@ -48,8 +49,9 @@ export function withStepOff(state: LookupState, step: LookupStep): LookupState {
 }
 
 /**
- * `state` with `step` paused for the rest of the run by a rate limit: an email it has no answer
- * for counts as a lookup never sent, so a person it leaves without a match is not looked up.
+ * `state` with `step` paused for the rest of the run by a rate limit: a person with an email it
+ * has no answer for keeps waiting for it (nextLookup never sends it), so the answers of their
+ * other emails never match them alone.
  */
 export function withStepPaused(state: LookupState, step: LookupStep): LookupState {
   return { ...state, paused: new Set([...state.paused, step]) };
@@ -116,10 +118,10 @@ export function loginKey(login: string): string {
  * step with 2 or more logins makes them the candidates C and the chain goes on: a later single
  * login is a match only if it is in C, and one outside C ends the chain as ambiguous. A lookup
  * step is decided only once every lookup email has an answer for it; until then the chain
- * waits (`needs-lookup`). A step that is off or paused pools the answers it got and never
- * waits: off, an email without an answer is no result; paused (a rate limit), it counts as
- * skipped. Without a match the person is ambiguous if any step was, not-looked-up if a lookup
- * was skipped (failed, or never sent for a pause), else unmatched.
+ * waits (`needs-lookup`), also when a rate limit paused the step. A step that is off pools the
+ * answers it got and never waits: an email without an answer is no result. A failed lookup is
+ * an answer: the step is decided from the other emails. Without a match the person is
+ * ambiguous if any step was, not-looked-up if a lookup failed, else unmatched.
  */
 export function evaluateChain(person: PersonIdentity, context: MatchContext): ChainState {
   const assignable = assignableIndex(context.assignable);
@@ -205,11 +207,10 @@ function stepResult(
   const emails = lookupEmails(person);
   const answers = emails.map((email) => lookups[step].get(email));
   const missing = emails.find((_, index) => answers[index] === undefined);
-  const paused = lookups.paused.has(step);
-  if (missing !== undefined && !paused && !lookups.off.has(step)) return { kind: "waits", step, email: missing };
+  if (missing !== undefined && !lookups.off.has(step)) return { kind: "waits", step, email: missing };
   const logins = answers.flatMap((answer) => (answer?.kind === "found" ? answer.logins : []));
   const failed = answers.some((answer) => answer?.kind === "failed");
-  return { kind: "pooled", logins: pooled(logins, assignable), skipped: failed || (paused && missing !== undefined) };
+  return { kind: "pooled", logins: pooled(logins, assignable), skipped: failed };
 }
 
 /** The logins that are in the assignable list (A-Z case ignored), spelled as it spells them, deduplicated. */

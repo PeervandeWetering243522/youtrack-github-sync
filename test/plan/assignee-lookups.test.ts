@@ -18,7 +18,7 @@ import {
   spareFetches,
 } from "../../src/plan/assignee-lookups.ts";
 import type { PlannedLookup } from "../../src/plan/assignee-lookups.ts";
-import { NO_LOOKUPS, withAnswer, withStepOff } from "../../src/plan/assignee-match.ts";
+import { NO_LOOKUPS, withAnswer, withStepOff, withStepPaused } from "../../src/plan/assignee-match.ts";
 import type { LookupAnswer, MatchBasis, MatchContext } from "../../src/plan/assignee-match.ts";
 import type { PersonIdentity } from "../../src/utils/student-id.ts";
 
@@ -174,6 +174,15 @@ describe("nextLookup", () => {
     const sent = drain([NEEDS_A], { ...BASIS, lookups: withStepOff(NO_LOOKUPS, "commit") });
 
     assert.deepEqual(sent, [{ step: "search", email: "staff@example.org" }]);
+  });
+
+  it("never asks a paused step again, and goes on to the next person's other steps", () => {
+    const sent = drain([NEEDS_A, NEEDS_B], { ...BASIS, lookups: withStepPaused(NO_LOOKUPS, "search") });
+
+    assert.deepEqual(sent, [
+      { step: "commit", email: "staff@example.org" },
+      { step: "commit", email: "other@example.org" },
+    ]);
   });
 
   it("returns null when nobody waits", () => {

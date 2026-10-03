@@ -202,6 +202,64 @@ describe("runSync lookups: failures (docs/13 §2.5)", () => {
     ]);
   });
 
+  it("matches nobody from part of a person's emails when a rate limit paused the search of the rest", async () => {
+    // Arrange: the person's second email, 123456@buas.nl, is never searched; its answer could
+    // have been SchoolB, which would make them ambiguous.
+    const person = { login: "jdoe123456", email: "jane@example.org" };
+    const limitSecond: Override = (call) =>
+      call.url.pathname === SEARCH_USERS_PATH && (call.url.searchParams.get("q") ?? "").includes("123456@buas.nl")
+        ? json(403, { message: "API rate limit exceeded" }, RATE_LIMITED)
+        : undefined;
+    const extra: Partial<World> = {
+      githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5")],
+      youtrackRows: [ytRow(5, { assignees: [person] })],
+      assignable: [ghAssignee("PersonalA"), ghAssignee("SchoolB")],
+      searchUsers: new Map([["jane@example.org", ["PersonalA"]]]),
+      override: limitSecond,
+    };
+    const { deps, calls, lines } = harness(world(extra));
+
+    // Act
+    await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(lookups(calls), [
+      "commit jane@example.org",
+      "commit 123456@buas.nl",
+      "search jane@example.org",
+      "search 123456@buas.nl",
+    ]);
+    assert.deepEqual(writeCalls(calls), []);
+    assert.deepEqual(messages(lines, "warn"), [
+      "assignees: 1 not looked up (CUI-5); email search off: GitHub rate limit",
+    ]);
+  });
+
+  it("decides a person whose search was answered before a rate limit paused it for someone else", async () => {
+    // Arrange: jane's search finds nobody; john's search is the one GitHub rate-limits.
+    const limitJohn: Override = (call) =>
+      call.url.pathname === SEARCH_USERS_PATH && (call.url.searchParams.get("q") ?? "").includes("john.roe")
+        ? json(403, { message: "API rate limit exceeded" }, RATE_LIMITED)
+        : undefined;
+    const { deps, calls, lines } = harness(world({ override: limitJohn }));
+
+    // Act
+    await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(lookups(calls), [
+      "commit jane.doe@example.com",
+      "search jane.doe@example.com",
+      "commit john.roe@example.com",
+      "search john.roe@example.com",
+    ]);
+    assert.deepEqual(writeCalls(calls), []);
+    assert.deepEqual(messages(lines, "warn"), [
+      "assignees: 1 unmatched (CUI-5), 1 not looked up (CUI-6); email search off: GitHub rate limit",
+      noneMatched(2),
+    ]);
+  });
+
   it("stops all lookups on a commit-lookup rate limit; waiting people are not looked up", async () => {
     // Arrange
     const override = at(COMMITS_PATH, () => json(429, { message: "API rate limit exceeded" }, RATE_LIMITED));

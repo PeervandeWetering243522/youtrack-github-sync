@@ -222,7 +222,7 @@ describe("evaluateChain: steps c and d, the lookups", () => {
   it("ends not-looked-up when a rate limit paused a step before its lookup was sent", () => {
     const paused = withStepPaused(answers(["commit", "staff@example.org", FOUND_NONE]), "search");
 
-    assert.deepEqual(evaluateChain(STAFF, context({ lookups: paused })), { kind: "not-looked-up" });
+    assert.deepEqual(finalOutcome(evaluateChain(STAFF, context({ lookups: paused }))), { kind: "not-looked-up" });
   });
 
   it("keeps the answers a paused step got, and its matches", () => {
@@ -232,6 +232,64 @@ describe("evaluateChain: steps c and d, the lookups", () => {
     );
 
     assert.deepEqual(evaluateChain(STAFF, context({ lookups })), { kind: "matched", login: "staffgh", step: "search" });
+  });
+
+  it("waits for an email a paused step never searched, so the emails answered so far match nobody", () => {
+    // The search for the second email could have found SchoolB, which makes the person ambiguous.
+    const lookups = withStepPaused(
+      answers(
+        ["commit", "jane@example.org", FOUND_NONE],
+        ["commit", "123456@buas.nl", FOUND_NONE],
+        ["search", "jane@example.org", found("PersonalA")],
+      ),
+      "search",
+    );
+    const paused = context({ assignable: ["PersonalA", "SchoolB"], lookups });
+
+    assert.deepEqual(evaluateChain(JDOE_TWO_EMAILS, paused), {
+      kind: "needs-lookup",
+      step: "search",
+      email: "123456@buas.nl",
+      ambiguous: false,
+    });
+    assert.deepEqual(matchAll([JDOE_TWO_EMAILS], paused).get("jdoe123456"), { kind: "not-looked-up" });
+  });
+
+  it("ends ambiguous, not matched, when a paused step never searched an email of an ambiguous person", () => {
+    const lookups = withStepPaused(
+      answers(
+        ["commit", "jane@example.org", FOUND_NONE],
+        ["commit", "123456@buas.nl", FOUND_NONE],
+        ["search", "jane@example.org", found("JaneDoe123456")],
+      ),
+      "search",
+    );
+    const paused = context({ assignable: ["JaneDoe123456", "jdoe-123456"], lookups });
+
+    assert.deepEqual(matchAll([JDOE_TWO_EMAILS], paused).get("jdoe123456"), { kind: "ambiguous" });
+  });
+
+  it("decides a paused step whose every email was answered: unmatched without a hit, a failed one from the rest", () => {
+    const noHit = withStepPaused(
+      answers(["commit", "staff@example.org", FOUND_NONE], ["search", "staff@example.org", FOUND_NONE]),
+      "search",
+    );
+    const oneFailed = withStepPaused(
+      answers(
+        ["commit", "jane@example.org", FOUND_NONE],
+        ["commit", "123456@buas.nl", FOUND_NONE],
+        ["search", "jane@example.org", FAILED],
+        ["search", "123456@buas.nl", found("staffgh")],
+      ),
+      "search",
+    );
+
+    assert.deepEqual(evaluateChain(STAFF, context({ lookups: noHit })), { kind: "unmatched" });
+    assert.deepEqual(evaluateChain(JDOE_TWO_EMAILS, context({ assignable: ["staffgh"], lookups: oneFailed })), {
+      kind: "matched",
+      login: "staffgh",
+      step: "search",
+    });
   });
 
   it("decides a step from the other email when one lookup failed", () => {
