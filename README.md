@@ -146,7 +146,9 @@ one warning that names an issue of theirs, never the person, such as
   assigned only to people it cannot match, keeps its GitHub assignees. So a matched assignee
   stays until YouTrack names another matched one.
 - **Its own writes** (decision U5): adding and removing are separate requests, run after every
-  other write, at most one add and one remove per mirror (the add first). They never go in a
+  other write, at most one add and one remove per mirror (the add first). When the add fails, or
+  GitHub leaves out an account it sent, the remove waits for a later run (it counts as
+  `capped`), so a reassignment never leaves the issue with nobody. They never go in a
   create or an update. GitHub allows 10 assignees per issue; more are left out with a warning.
 - **Notifications:** GitHub emails each person it assigns and subscribes them to the issue, so
   later closes notify them too. With a personal token (Worker, systemd), assigning also starts

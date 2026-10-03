@@ -31,6 +31,12 @@
   never eats into the writes' share of the guard. A list cut short counts as unreadable (U16):
   `assignees: could not read the assignable GitHub users (too many pages for the fetch budget); assignees are not synced this run`.
   With the default 30 writes and one-page reads that allows 10 pages (1,000 assignable users).
+- **A remove waits for its add (§2.7, choice 23).** A failed add (A10) or one whose answer
+  lacks a sent login (§2.8) does not stop the run, so the add-first order alone did not keep a
+  reassignment from leaving nobody. The add now marks its issue in the run-local map
+  (`unsettledAdds` in `src/sync/resolved.ts`), and that issue's remove is capped with
+  `remove 1 assignee from CUI-12 #21 capped: the add before it did not go through in this run`
+  and sends nothing. The next run tries both again.
 - **Aggregated warning (§2.10).** Each category gives the number of persons, then the distinct
   issue ids that name them, so two persons whose oldest eligible issue is the same read
   `2 unmatched (ABC-12)`.

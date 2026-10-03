@@ -1,7 +1,8 @@
 /**
  * The assignee writes of the write phase (docs/13 §2.7-2.8; U4, U5, D4): add matched logins to
  * an open mirror, existing or created earlier in this run, and remove owned logins from an
- * existing one. Both are retried once (adding or removing twice changes nothing). The answer's
+ * existing one once its add, if it has one, went through. Both are retried once (adding or
+ * removing twice changes nothing). The answer's
  * assignees are checked against what was sent, ignoring A-Z case: a mismatch gets one warning
  * with counts only and no extra write, and the write still counts as done. Log lines name
  * counts, never a login (U8); an HttpError whose excerpt fills the cut loses its trailing
@@ -14,10 +15,10 @@ import { loginKey } from "../plan/assignee-match.ts";
 import { assigneeCount, describeAddAssignees, describeRemoveAssignees } from "./describe.ts";
 import type { AddAssigneesAction, RemoveAssigneesAction } from "./describe.ts";
 import { attemptWrite, notWritten, waitsFor } from "./execute-write.ts";
-import type { WriteContext } from "./execute-write.ts";
-import { mirrorFor } from "./resolved.ts";
+import type { Step, WriteContext } from "./execute-write.ts";
+import { mirrorFor, withUnsettledAdd } from "./resolved.ts";
 import type { Resolved } from "./resolved.ts";
-import { done, mirrorName } from "./tally.ts";
+import { done, mirrorName, NOTHING } from "./tally.ts";
 import type { Tally } from "./tally.ts";
 
 /** The characters of a login or an email, at the very end of a text. */
@@ -26,30 +27,49 @@ const TRAILING_IDENTITY = /[A-Za-z0-9._%+@-]+$/;
 /**
  * POST the logins to the mirror of `action.issue`, resolved from the run-local map: an existing
  * mirror, or one created earlier in this run. A mirror whose create failed or waited caps the
- * add with a warning (D4) and sends nothing.
+ * add with a warning (D4) and sends nothing. An add that is not done, or whose answer lacks a
+ * sent login, marks the issue in the map, so its remove waits.
  */
 export async function executeAddAssignees(
   action: AddAssigneesAction,
   context: WriteContext,
   resolved: Resolved,
-): Promise<Tally> {
+): Promise<Step> {
   const { issue, logins } = action;
   const mirror = mirrorFor(resolved, issue.numberInProject, issue);
-  if (!mirror.found) return waitsFor(context, `add ${assigneeCount(logins)} to ${mirrorName(issue)}`, mirror.missing);
+  if (!mirror.found) {
+    const tally = waitsFor(context, `add ${assigneeCount(logins)} to ${mirrorName(issue)}`, mirror.missing);
+    return { tally, resolved: withUnsettledAdd(resolved, issue.numberInProject) };
+  }
   const { issueNumber } = mirror.value;
   const what = describeAddAssignees(resolved, action);
   const outcome = await attemptWrite(() => trimmingCutLogins(() => context.writer.addAssignees(issueNumber, logins)));
-  if (outcome.kind !== "ok") return notWritten(context, what, outcome);
+  if (outcome.kind !== "ok") {
+    return { tally: notWritten(context, what, outcome), resolved: withUnsettledAdd(resolved, issue.numberInProject) };
+  }
   context.log.info(what);
   const dropped = logins.filter((login) => !holds(outcome.value, login)).length;
-  if (dropped > 0) warnMismatch(context, action, issueNumber, `dropped ${String(dropped)} of ${total(logins)} on add`);
-  return done("assigneesAdded");
+  if (dropped === 0) return { tally: done("assigneesAdded"), resolved };
+  warnMismatch(context, action, issueNumber, `dropped ${String(dropped)} of ${total(logins)} on add`);
+  return { tally: done("assigneesAdded"), resolved: withUnsettledAdd(resolved, issue.numberInProject) };
 }
 
-/** DELETE the logins from the existing mirror of `action.issue`. */
-export async function executeRemoveAssignees(action: RemoveAssigneesAction, context: WriteContext): Promise<Tally> {
+/**
+ * DELETE the logins from the existing mirror of `action.issue`, unless the add before it did
+ * not go through in this run: then it is capped with a warning and sends nothing, so a
+ * reassignment never leaves the mirror with nobody (docs/13 §2.7). The next run tries again.
+ */
+export async function executeRemoveAssignees(
+  action: RemoveAssigneesAction,
+  context: WriteContext,
+  resolved: Resolved,
+): Promise<Tally> {
   const { mirror, logins } = action;
   const what = describeRemoveAssignees(action);
+  if (resolved.unsettledAdds.has(action.issue.numberInProject)) {
+    context.log.warn(`${what} capped: the add before it did not go through in this run`);
+    return { ...NOTHING, capped: 1 };
+  }
   const write = (): Promise<readonly GitHubAssignee[]> => context.writer.removeAssignees(mirror.issueNumber, logins);
   const outcome = await attemptWrite(() => trimmingCutLogins(write));
   if (outcome.kind !== "ok") return notWritten(context, what, outcome);

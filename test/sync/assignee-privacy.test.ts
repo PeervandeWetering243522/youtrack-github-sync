@@ -98,7 +98,8 @@ async function everyText(
 
 describe("runSync assignees: privacy (U8)", () => {
   it("names nobody when writes fail with 422 bodies that quote people, one cut inside a login", async () => {
-    // Arrange: #12 needs a title update, an add and a remove; #13 an add (jane.doe maps to staff).
+    // Arrange: #12 needs a title update, an add and a remove (held back once the add fails);
+    // #13 an add (jane.doe maps to staff).
     const override: Override = (call) => {
       if (isAt(call, "PATCH", `${ISSUES_PATH}/12`)) return json(422, NAMING_BODY);
       if (isAt(call, "POST", assigneesPath(12))) return json(422, NAMING_BODY);
@@ -124,7 +125,7 @@ describe("runSync assignees: privacy (U8)", () => {
 
     // Assert
     assert.ok(cutBody().slice(0, BODY_EXCERPT_CHARS).endsWith("JaneD"));
-    assert.equal(run.calls.filter((call) => call.method !== "GET").length, 4);
+    assert.equal(run.calls.filter((call) => call.method !== "GET").length, 3);
     assert.ok(texts.some((text) => text.startsWith("SyncFailedError: Sync finished with 3 failure(s): ")));
     assert.ok(texts.some((text) => text.startsWith("add 1 assignee to CUI-6 #13 failed: POST ")));
     assert.ok(texts.some((text) => text.includes("[person]")));

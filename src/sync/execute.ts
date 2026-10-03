@@ -74,7 +74,10 @@ function stopCause(reason: StopReason): string {
   }
 }
 
-/** Only the two creates extend the resolution map; every other action leaves it as it is. */
+/**
+ * Only the two creates and the assignee add extend the resolution map (the add marks an issue
+ * whose remove must wait); every other action leaves it as it is.
+ */
 function executeAction(action: Action, context: WriteContext, resolved: Resolved): Promise<Step> {
   switch (action.kind) {
     case "createMilestone":
@@ -96,9 +99,9 @@ function executeAction(action: Action, context: WriteContext, resolved: Resolved
     case "removeParent":
       return unchangedMap(resolved, executeRemoveParent(action, context));
     case "addAssignees":
-      return unchangedMap(resolved, executeAddAssignees(action, context, resolved));
+      return executeAddAssignees(action, context, resolved);
     case "removeAssignees":
-      return unchangedMap(resolved, executeRemoveAssignees(action, context));
+      return unchangedMap(resolved, executeRemoveAssignees(action, context, resolved));
   }
 }
 

@@ -137,10 +137,12 @@ person ambiguous. At most 5 lookups per run (fewer under a high write cap), rota
 10 minutes. Mirror-owned (U4): the mirror adds and removes only GitHub logins it matches to a
 YouTrack user seen as an assignee anywhere in the scanned project (users outside the eligible
 issues by the map and step b only, no lookups); staff, bots, unmatched people and anyone
-YouTrack names on no issue are never touched. Unassigned or unmatched in YouTrack leaves GitHub alone (U6). Writes
-are separate `POST`/`DELETE .../assignees` calls in a last phase, add before remove, never in
-the create body or the PATCH (U5); the answer is checked and a mismatch only warns. The
-assignable list and the lookups are never fatal (U16). One aggregated warning names left-out
+YouTrack names on no issue are never touched. Unassigned or unmatched in YouTrack leaves GitHub
+alone (U6). Writes are separate `POST`/`DELETE .../assignees` calls in a last phase, add before
+remove (a remove waits when its add failed or had a login dropped), never in the create body or
+the PATCH (U5); the answer is checked and a mismatch only warns. Later pages of the assignable
+list are read only within the fetches the write cap leaves. The assignable list and the lookups
+are never fatal (U16). One aggregated warning names left-out
 people by issue id (U3). Every log line after the stage, failure reasons included, has every
 login and email the run saw replaced with `[person]` (U8). Plan and "As built" notes:
 `docs/13-assignees-plan.md`.

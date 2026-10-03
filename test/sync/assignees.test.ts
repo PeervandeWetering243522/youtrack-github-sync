@@ -652,6 +652,70 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
     assert.deepEqual(messages(lines, "error"), [line, formatSummary(error.summary, "failed")]);
   });
 
+  it("holds back the remove of an issue whose add failed, so a reassignment never leaves nobody", async () => {
+    // Arrange: CUI-5 and CUI-7 both moved from jdoe to jroe; only the add to #12 fails.
+    const refused: Override = (call) =>
+      isAt(call, "POST", assigneesPath(12)) ? json(422, { message: "Validation Failed" }) : undefined;
+    const world: World = {
+      githubIssues: [
+        ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(JANE_GH)] }),
+        ghIssue(14, "[CUI-7] [team] Task 7", { assignees: [ghAssignee(JANE_GH)] }),
+      ],
+      youtrackRows: [
+        ytRow(5, { assignees: [JROE] }),
+        ytRow(6, { resolved: RESOLVED_AT, assignees: [JDOE] }),
+        ytRow(7, { assignees: [JROE] }),
+      ],
+      assignable: ASSIGNABLE,
+      override: refused,
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    const error = await rejection(runSync(config(), deps));
+
+    // Assert
+    assert.ok(error instanceof SyncFailedError);
+    assert.deepEqual(writeCalls(calls), [
+      `POST ${assigneesPath(12)}`,
+      `POST ${assigneesPath(14)}`,
+      `DELETE ${assigneesPath(14)}`,
+    ]);
+    assert.deepEqual(messages(lines, "warn"), [
+      "remove 1 assignee from CUI-5 #12 capped: the add before it did not go through in this run",
+    ]);
+    assert.deepEqual(
+      error.summary,
+      summary({ scanned: 3, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, capped: 1, failed: 1, fetches: 7 }),
+    );
+  });
+
+  it("holds back the remove of an issue whose add GitHub dropped", async () => {
+    // Arrange: CUI-5 moved from jdoe to jroe; GitHub answers the add without jroe's login.
+    const dropped: Override = (call) =>
+      isAt(call, "POST", assigneesPath(12))
+        ? json(201, ghIssue(12, "[CUI-5] x", { assignees: [ghAssignee(JANE_GH)] }))
+        : undefined;
+    const world: World = {
+      githubIssues: [ghIssue(12, "[CUI-5] [team] Task 5", { assignees: [ghAssignee(JANE_GH)] })],
+      youtrackRows: [ytRow(5, { assignees: [JROE] }), ytRow(6, { resolved: RESOLVED_AT, assignees: [JDOE] })],
+      assignable: ASSIGNABLE,
+      override: dropped,
+    };
+    const { deps, calls, lines } = harness(world);
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`]);
+    assert.deepEqual(messages(lines, "warn"), [
+      "CUI-5 #12: GitHub dropped 1 of 1 assignees on add; the next run tries again",
+      "remove 1 assignee from CUI-5 #12 capped: the add before it did not go through in this run",
+    ]);
+    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, capped: 1, fetches: 5 }));
+  });
+
   it("caps assignee writes that would start at the run deadline (R8)", async () => {
     // Arrange: the CUI-1 create starts at 0, the CUI-3 close at 0 (sent after the pause, at
     // 1 s), and the CUI-5 add would start at 1 s.
