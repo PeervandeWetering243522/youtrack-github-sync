@@ -420,6 +420,12 @@ tell your group before the first live run. The mirror then owns the assignees it
 student it matches who was assigned on GitHub by hand is removed when YouTrack assigns that
 issue to someone else it matches. To keep the v0.x behaviour, set `sync-assignees: "false"`.
 
+On the Worker, do this **before** `npx wrangler deploy` of v1.0.0: a `wrangler.jsonc` copied
+earlier has `"redact_query_string": false`, and the commit and email lookups would then put
+students' emails into Workers Logs and traces from the first run on, dry run included. Set it
+to `true` under `observability` (as in `wrangler.example.jsonc`), or add
+`"SYNC_ASSIGNEES": "false"` under `vars` until you have.
+
 ## Other ways to run it
 
 The Action suits most groups. The two alternatives need a clone of this repo and a personal

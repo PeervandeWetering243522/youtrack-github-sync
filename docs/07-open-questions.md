@@ -118,3 +118,14 @@ fallback. 25 is U14, 26 is U15, 27 is U16.
 31. **Sources that need an owner or new endpoints** (Enterprise Cloud, SAML, a verified domain, Hub
     VCS usernames, issue events). Ask an org owner, or out of scope? _Rec: out of scope._
 32. **Epic assignees.** Ignore, or push down to children? _Rec: ignore._
+
+**Open (from the review of the implementation, 2026-10-03):**
+
+33. **Worker upgrades and lookup URLs (U1, U8).** A `wrangler.jsonc` copied before v1.0.0 has
+    `"redact_query_string": false` and no `SYNC_ASSIGNEES`, so after a plain `wrangler deploy`
+    the default-on sync sends commit and email lookups whose URLs (with student emails) end up
+    in persisted Workers Logs and traces. The README tells upgraders to set the flag first.
+    Should the Worker (or every host) instead treat a missing `SYNC_ASSIGNEES` as off, or skip
+    the lookups unless it is set? Either changes the U1 default. Also unverified: whether
+    `redact_query_string` strips subrequest URLs in traces at all (rollout step 2); if not,
+    should the example turn trace persistence off? See [13](13-assignees-plan.md#7-risks).
