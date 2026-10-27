@@ -58,7 +58,7 @@ describe("runSync exclude prefix (F1, F2)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.deepEqual(result, summary({ scanned: 1, filtered: 1, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 1, filtered: 1, fetches: 4 }));
   });
 });
 
@@ -106,7 +106,7 @@ describe("runSync inherited exclusion (F3)", () => {
       "[dry-run] would update CUI-15 #21: set type Task",
       formatSummary(result, "ok"),
     ]);
-    assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 3 }));
+    assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 4 }));
     assert.deepEqual(writeCalls(calls), []);
   });
 
@@ -119,7 +119,7 @@ describe("runSync inherited exclusion (F3)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`, `POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/21`]);
-    assert.deepEqual(result, summary({ ...COUNTS, fetches: 6 }));
+    assert.deepEqual(result, summary({ ...COUNTS, fetches: 7 }));
   });
 
   it("follows the configured exclude prefix down the hierarchy too", async () => {

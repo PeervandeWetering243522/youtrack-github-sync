@@ -10,6 +10,7 @@ import { MIRROR_LABEL } from "./github/client.ts";
 import type { GitHubTarget } from "./github/client.ts";
 import { listAllIssues } from "./github/issues.ts";
 import { listAllMilestones } from "./github/milestones.ts";
+import { readOpenIssuesCount } from "./github/repo.ts";
 import {
   createHttpClient,
   DEFAULT_MAX_FETCHES,
@@ -21,6 +22,7 @@ import {
 import type { HttpClient } from "./http.ts";
 import { planActions } from "./plan.ts";
 import type { Action, Plan } from "./plan.ts";
+import { checkIssueList } from "./plan/list-check.ts";
 import { buildMilestoneIndex } from "./plan/milestones.ts";
 import type { MilestoneIndexResult } from "./plan/milestones.ts";
 import { buildMirrorIndex } from "./plan/mirrors.ts";
@@ -138,7 +140,9 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
 }
 
 /**
- * 1. GitHub issues (fatal on error) -> buildMirrorIndex, log its warnings.
+ * 1. GitHub issues, then the repository's open_issues_count (fatal on error, and fatal when the
+ *    list holds fewer open issues and PRs than that count, decision R11) -> buildMirrorIndex,
+ *    log its warnings.
  * 2. GitHub milestones (fatal on error) -> buildMilestoneIndex.
  * 3. YouTrack full scan (fatal on error), with the Assignee field when SYNC_ASSIGNEES is on.
  * 3a. The assignee stage (src/sync/assignees.ts, SYNC_ASSIGNEES on): the assignable list and
@@ -300,6 +304,8 @@ async function readInputs(run: RunContext): Promise<Inputs> {
   try {
     const target = githubTarget(run.config);
     const githubIssues = await listAllIssues(run.http, target);
+    // Right after the list, so an issue opened in between rarely makes a complete list look short.
+    checkIssueList(githubIssues, await readOpenIssuesCount(run.http, target));
     const project = run.config.youtrackProject;
     const { index, warnings } = buildMirrorIndex(githubIssues, MIRROR_LABEL, project);
     for (const warning of warnings) run.log.warn(warning);

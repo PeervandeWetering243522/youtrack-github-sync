@@ -50,7 +50,7 @@ describe("runSync hierarchy creates", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`, `POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`]);
-    assert.deepEqual(result, summary({ scanned: 3, created: 2, milestonesCreated: 1, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 3, created: 2, milestonesCreated: 1, fetches: 7 }));
     assert.deepEqual(messages(lines, "warn"), []);
     assert.deepEqual(messages(lines).slice(0, 3), [
       "create milestone CUI-33 -> #201",
@@ -116,7 +116,7 @@ describe("runSync hierarchy creates", () => {
     const [task] = createBodies(calls);
     assert.equal(task?.["milestone"], 7);
     assert.equal(task["parent_issue_id"], issueId(21));
-    assert.deepEqual(result, summary({ scanned: 3, created: 1, unchanged: 2, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 3, created: 1, unchanged: 2, fetches: 5 }));
   });
 
   it("sends no type for an issue without a known YouTrack type (D3)", async () => {
@@ -169,7 +169,7 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-35] [team] Task 35", "[CUI-50] [team] Task 50"]);
     assert.equal(error.failures.length, 1);
     assert.match(error.failures[0] ?? "", /^create CUI-35 failed: POST .* -> HTTP 422/);
-    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, capped: 1, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, capped: 1, failed: 1, fetches: 6 }));
     assert.deepEqual(messages(lines, "warn"), [
       "create CUI-40 capped: the mirror of CUI-35 was not created in this run",
     ]);
@@ -186,7 +186,7 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
     assert.match(error.failures[0] ?? "", /^create milestone CUI-33 failed: POST .*\/milestones -> HTTP 422/);
-    assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), [
       "create CUI-35 capped: the milestone of CUI-33 was not created in this run",
       "create CUI-40 capped: the milestone of CUI-33 was not created in this run",
@@ -226,7 +226,7 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
-    assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, capped: 2, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 2 more action(s) capped"]);
   });
 
@@ -240,7 +240,7 @@ describe("runSync hierarchy creates that wait for a failed one (D4)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`, `POST ${ISSUES_PATH}`]);
-    assert.deepEqual(result, summary({ scanned: 3, created: 1, milestonesCreated: 1, capped: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 3, created: 1, milestonesCreated: 1, capped: 1, fetches: 6 }));
     assert.deepEqual(messages(lines, "warn"), ["run deadline reached; 1 more action(s) capped"]);
   });
 });

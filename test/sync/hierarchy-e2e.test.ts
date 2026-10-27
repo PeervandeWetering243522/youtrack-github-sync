@@ -100,7 +100,7 @@ describe("runSync hierarchy, dry run", () => {
     ]);
   });
 
-  it("sends only the three reads and never sleeps", async () => {
+  it("sends only the four reads and never sleeps", async () => {
     // Arrange
     const { deps, calls, sleeps } = harness(EVERY_KIND);
 
@@ -109,7 +109,7 @@ describe("runSync hierarchy, dry run", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 4);
     assert.ok(calls.every((call) => call.method === "GET"));
     assert.deepEqual(sleeps, []);
   });
@@ -122,10 +122,10 @@ describe("runSync hierarchy, dry run", () => {
     const result = await runSync(config({ dryRun: true }), deps);
 
     // Assert
-    assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 3 }));
+    assert.deepEqual(result, summary({ ...COUNTS, dryRun: true, fetches: 4 }));
     assert.equal(
       messages(lines).at(-1),
-      "yt-gh-sync ok scanned=11 created=2 closed=1 reopened=0 updated=7 assigneesAdded=0 assigneesRemoved=0 milestonesCreated=1 milestonesClosed=1 skipped=1 capped=0 failed=0 filtered=0 unchanged=1 labelsReAdded=0 fetches=3 dryRun=true",
+      "yt-gh-sync ok scanned=11 created=2 closed=1 reopened=0 updated=7 assigneesAdded=0 assigneesRemoved=0 milestonesCreated=1 milestonesClosed=1 skipped=1 capped=0 failed=0 filtered=0 unchanged=1 labelsReAdded=0 fetches=4 dryRun=true",
     );
   });
 });
@@ -153,7 +153,7 @@ describe("runSync hierarchy, writes enabled", () => {
       `POST ${ISSUES_PATH}/101/sub_issues`,
       `PATCH ${ISSUES_PATH}/28`,
     ]);
-    assert.deepEqual(result, summary({ ...COUNTS, fetches: 15 }));
+    assert.deepEqual(result, summary({ ...COUNTS, fetches: 16 }));
   });
 
   it("links same-run creates by the numbers and ids GitHub answered with", async () => {

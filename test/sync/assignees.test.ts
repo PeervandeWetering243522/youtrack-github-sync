@@ -27,6 +27,7 @@ import {
   MILESTONES_PATH,
   openMirrorsOfResolved,
   rejection,
+  REPO_PATH,
   RESOLVED_AT,
   SEARCH_USERS_PATH,
   summary,
@@ -84,11 +85,11 @@ function reads(calls: readonly RecordedCall[]): readonly string[] {
   return calls.filter((call) => call.method === "GET").map((call) => call.url.pathname);
 }
 
-const THREE_READS = [ISSUES_PATH, MILESTONES_PATH, "/api/issues"];
-const FOUR_READS = [...THREE_READS, ASSIGNABLE_PATH];
+const FOUR_READS = [ISSUES_PATH, REPO_PATH, MILESTONES_PATH, "/api/issues"];
+const FIVE_READS = [...FOUR_READS, ASSIGNABLE_PATH];
 
 describe("runSync assignees: matching and writes", () => {
-  it("gives a mirror created this run its assignee right after the create (4 reads)", async () => {
+  it("gives a mirror created this run its assignee right after the create (5 reads)", async () => {
     // Arrange
     const { deps, calls, lines } = harness({ youtrackRows: [ytRow(1, { assignees: [JDOE] })], assignable: ASSIGNABLE });
 
@@ -96,7 +97,7 @@ describe("runSync assignees: matching and writes", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(reads(calls), FIVE_READS);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${assigneesPath(101)}`]);
     assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(101)), [{ assignees: [JANE_GH] }]);
     assert.deepEqual(messages(lines), [
@@ -104,7 +105,7 @@ describe("runSync assignees: matching and writes", () => {
       "add 1 assignee to CUI-1 #101",
       formatSummary(result, "ok"),
     ]);
-    assert.deepEqual(result, summary({ scanned: 1, created: 1, assigneesAdded: 1, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 1, created: 1, assigneesAdded: 1, fetches: 7 }));
   });
 
   it("asks YouTrack for the Assignee field and the user login and email", async () => {
@@ -133,7 +134,7 @@ describe("runSync assignees: matching and writes", () => {
     assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(12)), [{ assignees: [JANE_GH] }]);
     assert.deepEqual(messages(lines, "info").slice(0, -1), ["add 1 assignee to CUI-5 #12"]);
     assert.deepEqual(messages(lines, "warn"), []);
-    assert.deepEqual(result, summary({ scanned: 1, assigneesAdded: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 1, assigneesAdded: 1, fetches: 6 }));
   });
 
   it("matches only assignable Users: a Bot or an Organization with the ID is never a match", async () => {
@@ -142,7 +143,7 @@ describe("runSync assignees: matching and writes", () => {
     const { deps, calls, lines } = harness({ ...mirrored([{ login: "jdoe123456" }]), assignable });
 
     // Act
-    await runSync(config({ maxWritesPerRun: 40 }), deps);
+    await runSync(config({ maxWritesPerRun: 39 }), deps);
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
@@ -188,7 +189,7 @@ describe("runSync assignees: matching and writes", () => {
     await runSync(config({ assigneeMap: new Map([["jdoe123456", null]]) }), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(reads(calls), FIVE_READS);
     assert.deepEqual(writeCalls(calls), []);
     assert.deepEqual(messages(lines, "warn"), []);
   });
@@ -216,7 +217,7 @@ describe("runSync assignees: matching and writes", () => {
       "add 1 assignee to CUI-5 #12",
       "remove 1 assignee from CUI-5 #12",
     ]);
-    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, fetches: 7 }));
   });
 
   it("removes the old assignee when the only issues YouTrack still gives them are resolved (U4)", async () => {
@@ -235,12 +236,12 @@ describe("runSync assignees: matching and writes", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(reads(calls), FIVE_READS);
     assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(21)}`, `DELETE ${assigneesPath(21)}`]);
     assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(21)), [{ assignees: [ROE_GH] }]);
     assert.deepEqual(bodiesOf(calls, "DELETE", assigneesPath(21)), [{ assignees: [JANE_GH] }]);
     assert.deepEqual(messages(lines, "warn"), []);
-    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, fetches: 7 }));
   });
 
   it("removes a student who left from the mirrors given to others while YouTrack still names them (U4)", async () => {
@@ -269,7 +270,7 @@ describe("runSync assignees: matching and writes", () => {
     await runSync(config({ assigneeMap: map }), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(reads(calls), FIVE_READS);
     const assigneeWrites = writeCalls(calls).filter((call) => call.endsWith("/assignees"));
     assert.deepEqual(assigneeWrites, [
       `POST ${assigneesPath(12)}`,
@@ -297,7 +298,7 @@ describe("runSync assignees: matching and writes", () => {
     await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), FOUR_READS);
+    assert.deepEqual(reads(calls), FIVE_READS);
     assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`]);
     assert.deepEqual(messages(lines, "warn"), []);
   });
@@ -382,10 +383,10 @@ describe("runSync assignees: matching and writes", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), THREE_READS);
+    assert.deepEqual(reads(calls), FOUR_READS);
     assert.deepEqual(writeCalls(calls), []);
     assert.deepEqual(messages(lines, "warn"), []);
-    assert.deepEqual(result, summary({ scanned: 1, unchanged: 1, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 1, unchanged: 1, fetches: 4 }));
   });
 
   it("assigns nobody on an epic, a resolved issue or an excluded one (U13, F1)", async () => {
@@ -405,7 +406,7 @@ describe("runSync assignees: matching and writes", () => {
     await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), THREE_READS);
+    assert.deepEqual(reads(calls), FOUR_READS);
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`]);
   });
 });
@@ -468,10 +469,10 @@ describe("runSync assignees: warnings", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), THREE_READS);
+    assert.deepEqual(reads(calls), FOUR_READS);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.deepEqual(messages(lines, "warn"), [FIELD_MISSING]);
-    assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, fetches: 5 }));
   });
 
   it("gives an empty project no field warning: with no scanned issue there is no field to miss (U15)", async () => {
@@ -482,9 +483,9 @@ describe("runSync assignees: warnings", () => {
     const result = await runSync(config(), deps);
 
     // Assert
-    assert.deepEqual(reads(calls), THREE_READS);
+    assert.deepEqual(reads(calls), FOUR_READS);
     assert.deepEqual(messages(lines, "warn"), []);
-    assert.deepEqual(result, summary({ fetches: 3 }));
+    assert.deepEqual(result, summary({ fetches: 4 }));
   });
 
   it("logs mirror index warnings, then assignee warnings, then the plan's warnings", async () => {
@@ -514,12 +515,12 @@ describe("runSync assignees: warnings", () => {
 });
 
 describe("runSync assignees: the assignable list fails (U16)", () => {
-  // [case, answer to the list read, the warning's detail, fetches: 3 reads + list attempts + 1 create]
+  // [case, answer to the list read, the warning's detail, fetches: 4 reads + list attempts + 1 create]
   const cases: readonly (readonly [string, () => Response | Error, string, number])[] = [
-    ["502 twice", () => json(502, { message: "x" }), "HTTP 502", 6],
-    ["403", () => json(403, { message: "Must have push access" }), "HTTP 403", 5],
-    ["a network error twice", () => new TypeError("fetch failed"), "network error", 6],
-    ["a page that is not an array", () => json(200, { message: "x" }), "unexpected response", 5],
+    ["502 twice", () => json(502, { message: "x" }), "HTTP 502", 7],
+    ["403", () => json(403, { message: "Must have push access" }), "HTTP 403", 6],
+    ["a network error twice", () => new TypeError("fetch failed"), "network error", 7],
+    ["a page that is not an array", () => json(200, { message: "x" }), "unexpected response", 6],
   ];
 
   for (const [name, answer, detail, fetches] of cases) {
@@ -550,12 +551,12 @@ describe("runSync assignees: the assignable list fails (U16)", () => {
     // Assert
     assert.equal(calls.filter((call) => call.url.pathname === ASSIGNABLE_PATH).length, 2);
     assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(12)), [{ assignees: [JANE_GH] }]);
-    assert.equal(result.fetches, 6);
+    assert.equal(result.fetches, 7);
   });
 
   it("stops a long list before its pages eat into the writes' share of the guard, and sends every write", async () => {
-    // Arrange: 30 closes at the default cap of 30 leave room for 10 list pages (45 - 3 - 30 - 2).
-    const closes = openMirrorsOfResolved(30);
+    // Arrange: 29 closes at a cap of 29 leave room for 10 list pages (45 - 4 - 29 - 2).
+    const closes = openMirrorsOfResolved(29);
     const world: World = {
       githubIssues: [...closes.githubIssues, ghIssue(200, "[CUI-31] [team] Task 31")],
       youtrackRows: [...closes.youtrackRows, ytRow(31, { assignees: [JDOE] })],
@@ -564,23 +565,24 @@ describe("runSync assignees: the assignable list fails (U16)", () => {
     const { deps, calls, lines } = harness(world);
 
     // Act
-    const result = await runSync(config(), deps);
+    const result = await runSync(config({ maxWritesPerRun: 29 }), deps);
 
     // Assert
     assert.equal(calls.filter((call) => call.url.pathname === ASSIGNABLE_PATH).length, 10);
-    assert.equal(writeCalls(calls).filter((call) => call.startsWith("PATCH ")).length, 30);
+    assert.equal(writeCalls(calls).filter((call) => call.startsWith("PATCH ")).length, 29);
     assert.deepEqual(messages(lines, "warn"), [unreadable("too many pages for the fetch budget")]);
-    assert.deepEqual(result, summary({ scanned: 31, closed: 30, unchanged: 1, fetches: 43 }));
+    assert.deepEqual(result, summary({ scanned: 30, closed: 29, unchanged: 1, fetches: 43 }));
   });
 
   it("warns that the fetch guard was reached when the reads before the list spent it", async () => {
-    // Arrange: 43 pages of GitHub issues, the milestones and the scan use all 45 fetches.
+    // Arrange: 42 pages of GitHub issues, the repository, the milestones and the scan use all 45
+    // fetches.
     const issuePages: Override = (call) => {
       if (call.method !== "GET" || call.url.pathname !== ISSUES_PATH) return undefined;
       const page = Number(call.url.searchParams.get("page") ?? "1");
       const next = `${GITHUB_ORIGIN}${ISSUES_PATH}?state=all&per_page=100&page=${String(page + 1)}`;
       const issues = page === 1 ? [ghIssue(12, "[CUI-5] [team] Task 5")] : [];
-      return json(200, issues, page < 43 ? { link: `<${next}>; rel="next"` } : {});
+      return json(200, issues, page < 42 ? { link: `<${next}>; rel="next"` } : {});
     };
     const { deps, calls, lines } = harness({ ...mirrored([JDOE]), override: issuePages });
 
@@ -675,7 +677,7 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
     assert.deepEqual(messages(lines, "warn"), [
       "add 1 assignee to CUI-1 capped: the mirror of CUI-1 was not created in this run",
     ]);
-    assert.deepEqual(error.summary, summary({ scanned: 1, capped: 1, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 1, capped: 1, failed: 1, fetches: 6 }));
   });
 
   it("records a failed add like any failed write, with the URL and the excerpt (A10)", async () => {
@@ -730,7 +732,7 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
     ]);
     assert.deepEqual(
       error.summary,
-      summary({ scanned: 3, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, capped: 1, failed: 1, fetches: 7 }),
+      summary({ scanned: 3, unchanged: 1, assigneesAdded: 1, assigneesRemoved: 1, capped: 1, failed: 1, fetches: 8 }),
     );
   });
 
@@ -757,7 +759,7 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
       "CUI-5 #12: GitHub dropped 1 of 1 assignees on add; the next run tries again",
       "remove 1 assignee from CUI-5 #12 capped: the add before it did not go through in this run",
     ]);
-    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, capped: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 2, unchanged: 1, assigneesAdded: 1, capped: 1, fetches: 6 }));
   });
 
   it("caps assignee writes that would start at the run deadline (R8)", async () => {
@@ -828,7 +830,7 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
         ' -> HTTP 403: {"message":"API rate limit exceeded"}',
     ]);
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 6 }));
   });
 
   it("records a rate-limited remove whose long body is cut as failed and stops the write phase (R7)", async () => {
@@ -873,7 +875,7 @@ describe("runSync assignees: failures, the cap, the deadline and rate limits", (
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
     assert.deepEqual(
       error.summary,
-      summary({ scanned: 3, unchanged: 1, assigneesAdded: 1, capped: 1, failed: 1, fetches: 6 }),
+      summary({ scanned: 3, unchanged: 1, assigneesAdded: 1, capped: 1, failed: 1, fetches: 7 }),
     );
   });
 
@@ -908,10 +910,10 @@ describe("runSync assignees: the switch (U1) and the dry run", () => {
     assert.ok(scan);
     assert.deepEqual(scan.url.searchParams.getAll("customFields"), ["Type"]);
     assert.doesNotMatch(scan.url.searchParams.get("fields") ?? "", /login|email/);
-    assert.deepEqual(reads(calls), THREE_READS);
+    assert.deepEqual(reads(calls), FOUR_READS);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.deepEqual(messages(lines), ["create CUI-1 -> #101", formatSummary(result, "ok")]);
-    assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, fetches: 5 }));
   });
 
   it("dry run: sends the list read and the lookups, previews every assignee write and sends none", async () => {
@@ -932,7 +934,7 @@ describe("runSync assignees: the switch (U1) and the dry run", () => {
 
     // Assert
     assert.ok(calls.every((call) => call.method === "GET"));
-    assert.deepEqual(reads(calls), [...FOUR_READS, COMMITS_PATH, SEARCH_USERS_PATH]);
+    assert.deepEqual(reads(calls), [...FIVE_READS, COMMITS_PATH, SEARCH_USERS_PATH]);
     assert.deepEqual(messages(lines), [
       "assignees: 1 unmatched (CUI-6)",
       "[dry-run] would create CUI-1: [CUI-1] [team] Task 1",
@@ -944,7 +946,7 @@ describe("runSync assignees: the switch (U1) and the dry run", () => {
     ]);
     assert.deepEqual(
       result,
-      summary({ dryRun: true, scanned: 3, created: 2, assigneesAdded: 2, assigneesRemoved: 1, fetches: 6 }),
+      summary({ dryRun: true, scanned: 3, created: 2, assigneesAdded: 2, assigneesRemoved: 1, fetches: 7 }),
     );
   });
 });
