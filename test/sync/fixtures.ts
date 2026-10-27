@@ -21,6 +21,8 @@ export const GITHUB_TOKEN = "ghp_fakeGithubToken0123456789abcdefABCDEF";
 export const YOUTRACK_TOKEN = "perm:fake.youtrack.token.0123456789";
 export const YOUTRACK_BASE_URL = "https://youtrack.example.test";
 export const GITHUB_ORIGIN = "https://api.github.com";
+/** GET: the repository, for its open_issues_count (decision R11). */
+export const REPO_PATH = "/repos/acme/mirror";
 export const ISSUES_PATH = "/repos/acme/mirror/issues";
 const ISSUE_PATH = /^\/repos\/acme\/mirror\/issues\/(\d+)$/;
 export const LABELS_PATH = /^\/repos\/acme\/mirror\/issues\/\d+\/labels$/;
@@ -226,6 +228,8 @@ export type CreateDrop = "milestone" | "type" | "parent_issue_id";
 
 export type World = {
   readonly githubIssues?: readonly JsonObject[];
+  /** The repository's open_issues_count; by default the open items (issues and PRs) of githubIssues. */
+  readonly openIssuesCount?: number;
   readonly milestones?: readonly JsonObject[];
   readonly youtrackRows?: readonly JsonObject[];
   /** Labels a create answers with; by default the requested ones ([] = silently dropped). */
@@ -427,9 +431,22 @@ function assigneeAnswer(call: RecordedCall, world: World): Response | undefined 
     : undefined;
 }
 
+/** The open items of the world's issue list, as GitHub's open_issues_count counts them. */
+function openItems(world: World): number {
+  return (world.githubIssues ?? []).filter((issue) => issue["state"] === "open").length;
+}
+
+function repoAnswer(call: RecordedCall, world: World): Response | undefined {
+  if (call.method !== "GET" || call.url.pathname !== REPO_PATH) return undefined;
+  return json(200, { full_name: "acme/mirror", open_issues_count: world.openIssuesCount ?? openItems(world) });
+}
+
 function githubAnswer(call: RecordedCall, world: World, counters: Counters): Response {
   const answer =
-    milestoneAnswer(call, world, counters) ?? issueAnswer(call, world, counters) ?? assigneeAnswer(call, world);
+    repoAnswer(call, world) ??
+    milestoneAnswer(call, world, counters) ??
+    issueAnswer(call, world, counters) ??
+    assigneeAnswer(call, world);
   return answer ?? json(404, { message: "Not Found" });
 }
 

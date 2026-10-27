@@ -60,7 +60,7 @@ describe("runSync hierarchy creates across several task levels", () => {
     assert.ok(!("parent_issue_id" in (bodies[0] ?? {})));
     assert.equal(bodies[1]?.["parent_issue_id"], issueId(101));
     assert.equal(bodies[2]?.["parent_issue_id"], issueId(102));
-    assert.deepEqual(result, summary({ scanned: 3, created: 3, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 3, created: 3, fetches: 7 }));
     assert.deepEqual(messages(lines).slice(0, 3), [
       "create CUI-35 with type Feature -> #101",
       "create CUI-40 with type Task, parent CUI-35 #101 -> #102",
@@ -99,7 +99,7 @@ describe("runSync hierarchy creates across several task levels", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-35] [team] Task 35", "[CUI-50] [team] Task 50"]);
     assert.equal(error.failures.length, 1);
-    assert.deepEqual(error.summary, summary({ scanned: 4, created: 1, capped: 2, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 4, created: 1, capped: 2, failed: 1, fetches: 6 }));
     assert.deepEqual(messages(lines, "warn"), [
       "create CUI-40 capped: the mirror of CUI-35 was not created in this run",
       "create CUI-38 capped: the mirror of CUI-40 was not created in this run",
@@ -143,7 +143,7 @@ describe("runSync hierarchy ids and numbers", () => {
       replace_parent: true,
     });
     assert.deepEqual(onlyBody(calls, "DELETE", `${ISSUES_PATH}/22/sub_issue`), { sub_issue_id: 666 });
-    assert.deepEqual(result, summary({ scanned: 5, created: 2, updated: 2, unchanged: 1, fetches: 7 }));
+    assert.deepEqual(result, summary({ scanned: 5, created: 2, updated: 2, unchanged: 1, fetches: 8 }));
     assert.deepEqual(messages(lines, "warn"), []);
   });
 });
@@ -171,7 +171,7 @@ describe("runSync hierarchy dependencies that do not resolve (D4)", () => {
       sub_issue_id: issueId(25),
       replace_parent: true,
     });
-    assert.deepEqual(error.summary, summary({ scanned: 3, updated: 1, capped: 2, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, updated: 1, capped: 2, failed: 1, fetches: 6 }));
     assert.deepEqual(messages(lines, "warn"), [
       "update CUI-36 #22 capped: the milestone of CUI-33 was not created in this run",
       "update CUI-40 #25 capped: the milestone of CUI-33 was not created in this run",
@@ -193,7 +193,7 @@ describe("runSync hierarchy dependencies that do not resolve (D4)", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
     assert.match(error.failures[0] ?? "", /^create milestone CUI-33 failed: GitHub milestone #5: "state" must be/);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
   });
 
   it("fails an issue create answered 201 without an id, and caps the task that waits for it", async () => {
@@ -211,7 +211,7 @@ describe("runSync hierarchy dependencies that do not resolve (D4)", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.match(error.failures[0] ?? "", /^create CUI-35 failed: GitHub issue #101: "id" must be a positive integer/);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), [
       "create CUI-40 capped: the mirror of CUI-35 was not created in this run",
     ]);
@@ -235,7 +235,7 @@ describe("runSync hierarchy write failures", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`, `PATCH ${ISSUES_PATH}/50`]);
     assert.match(error.failures[0] ?? "", /^update CUI-35 #21 failed: PATCH .*\/issues\/21 -> HTTP 422/);
-    assert.deepEqual(error.summary, summary({ scanned: 2, closed: 1, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, closed: 1, failed: 1, fetches: 6 }));
   });
 
   it("stops after a rate-limited milestone close and caps the rest", async () => {
@@ -260,7 +260,7 @@ describe("runSync hierarchy write failures", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
     assert.match(error.failures[0] ?? "", /^close milestone CUI-33 #7 failed: PATCH .* -> HTTP 429/);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
   });
 });
@@ -282,7 +282,7 @@ describe("runSync hierarchy silent drops", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}/101/labels`]);
-    assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, labelsReAdded: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 2, created: 1, unchanged: 1, labelsReAdded: 1, fetches: 6 }));
     assert.deepEqual(messages(lines).slice(0, 3), [
       "create CUI-40 with type Task, parent CUI-35 #21 -> #101",
       "CUI-40 #101: GitHub dropped parent #21 on create; the next run's sync repairs this",
@@ -306,7 +306,7 @@ describe("runSync hierarchy silent drops", () => {
       sub_issue_id: issueId(101),
       replace_parent: true,
     });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
   });
 });
 
@@ -325,7 +325,7 @@ describe("runSync hierarchy never touches what the mirror does not own", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.deepEqual(result, summary({ scanned: 2, unchanged: 2, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 2, unchanged: 2, fetches: 4 }));
   });
 
   it("renames a closed epic milestone with an old title without reopening it, leaving the hand-made one alone (N2, D7)", async () => {
@@ -343,7 +343,7 @@ describe("runSync hierarchy never touches what the mirror does not own", () => {
     // Assert: only the title is sent, no state and no description.
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { title: "[CUI-33] [team] Epic 33" });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
   });
 });
 
@@ -390,7 +390,7 @@ describe("runSync hierarchy pacing and retries", () => {
       `DELETE ${ISSUES_PATH}/22/sub_issue`,
       `DELETE ${ISSUES_PATH}/22/sub_issue`,
     ]);
-    assert.deepEqual(result, summary({ scanned: 3, updated: 2, unchanged: 1, fetches: 7 }));
+    assert.deepEqual(result, summary({ scanned: 3, updated: 2, unchanged: 1, fetches: 8 }));
   });
 
   it("never retries a milestone create answered with a 5xx", async () => {

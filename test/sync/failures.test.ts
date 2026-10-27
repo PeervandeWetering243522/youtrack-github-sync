@@ -57,7 +57,7 @@ describe("runSync write cap", () => {
 
     // Assert
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-2] [team] Task 2"]);
-    assert.deepEqual(result, summary({ scanned: 3, unchanged: 1, created: 1, capped: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 3, unchanged: 1, created: 1, capped: 1, fetches: 5 }));
   });
 
   it("creates before it closes under a cap of 1, even for a lower issue number (docs/11 §1.4)", async () => {
@@ -115,7 +115,7 @@ describe("runSync write failures", () => {
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
     assert.equal(error.failures.length, 1);
     assert.match(error.failures[0] ?? "", /^create CUI-1 failed: POST https:\/\/api\.github\.com\/.* -> HTTP 422/);
-    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, closed: 1, failed: 1, fetches: 6 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, created: 1, closed: 1, failed: 1, fetches: 7 }));
   });
 
   it("logs the failure and then the failed summary as the last line", async () => {
@@ -221,9 +221,9 @@ describe("runSync read failures", () => {
     // Assert
     assert.ok(error instanceof HttpError);
     assert.equal(error.status, 404);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     assert.ok(calls.every((call) => call.url.origin === GITHUB_ORIGIN && call.method === "GET"));
-    assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(summary({ fetches: 2 }), "failed") });
+    assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(summary({ fetches: 3 }), "failed") });
   });
 
   it("rethrows a GitHub milestone that is not shaped like one", async () => {
@@ -255,7 +255,7 @@ describe("runSync read failures", () => {
     assert.ok(error instanceof HttpError);
     assert.equal(error.status, 400);
     assert.deepEqual(writeCalls(calls), []);
-    const failed = formatSummary(summary({ dryRun: true, fetches: 3 }), "failed");
+    const failed = formatSummary(summary({ dryRun: true, fetches: 4 }), "failed");
     assert.deepEqual(lastLine(lines), { level: "error", message: failed });
   });
 

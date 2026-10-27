@@ -20,6 +20,7 @@ import {
   MILESTONES_PATH,
   MIXED_WORLD,
   rejection,
+  REPO_PATH,
   RESOLVED_AT,
   summary,
   titleOf,
@@ -112,10 +113,10 @@ describe("runSync in dry run", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), []);
     assert.ok(calls.every((call) => call.method === "GET"));
-    // Three reads: GitHub issues, GitHub milestones, the YouTrack scan.
+    // Four reads: GitHub issues, the repository, GitHub milestones, the YouTrack scan.
     assert.deepEqual(
       result,
-      summary({ dryRun: true, scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 3 }),
+      summary({ dryRun: true, scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 4 }),
     );
   });
 
@@ -177,10 +178,10 @@ describe("runSync with writes enabled", () => {
     // Assert: CUI-2 (resolved, no mirror) gets no mirror (decision R9).
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `PATCH ${ISSUES_PATH}/12`]);
     assert.deepEqual(calls.filter(isCreate).map(titleOf), ["[CUI-1] [team] Task 1"]);
-    assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 6 }));
   });
 
-  it("reads GitHub issues, then GitHub milestones, then YouTrack, before any write", async () => {
+  it("reads GitHub issues, then the repository, then GitHub milestones, then YouTrack, before any write", async () => {
     // Arrange
     const { deps, calls } = harness(MIXED_WORLD);
 
@@ -188,13 +189,14 @@ describe("runSync with writes enabled", () => {
     await runSync(config(), deps);
 
     // Assert
-    const reads = calls.slice(0, 3).map((call) => `${call.method} ${call.url.origin}${call.url.pathname}`);
+    const reads = calls.slice(0, 4).map((call) => `${call.method} ${call.url.origin}${call.url.pathname}`);
     assert.deepEqual(reads, [
       `GET ${GITHUB_ORIGIN}${ISSUES_PATH}`,
+      `GET ${GITHUB_ORIGIN}${REPO_PATH}`,
       `GET ${GITHUB_ORIGIN}${MILESTONES_PATH}`,
       `GET ${YOUTRACK_BASE_URL}/api/issues`,
     ]);
-    const milestones = calls[1];
+    const milestones = calls[2];
     assert.ok(milestones, "expected the milestones read");
     assert.equal(milestones.url.searchParams.get("state"), "all");
     assert.equal(milestones.url.searchParams.get("per_page"), "100");

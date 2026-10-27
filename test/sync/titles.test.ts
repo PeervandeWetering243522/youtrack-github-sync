@@ -74,7 +74,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { title: "[CUI-35] [team] Task 35" });
-    assert.deepEqual(result, summary({ scanned: 1, updated: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 1, updated: 1, fetches: 5 }));
     assert.deepEqual(messages(lines), ["update CUI-35 #21: set title", formatSummary(result, "ok")]);
   });
 
@@ -96,7 +96,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
       milestone: 7,
       type: "Feature",
     });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
     assert.ok(messages(lines).includes("update CUI-35 #21: set title, set milestone CUI-33 #7, set type Feature"));
   });
 
@@ -114,7 +114,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
     // Assert: no second milestone, and the mirror keeps milestone #7.
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { title: "[CUI-33] [team] Epic 33" });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
     assert.deepEqual(messages(lines), ["rename milestone CUI-33 #7", formatSummary(result, "ok")]);
   });
 
@@ -138,7 +138,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
       { title: "[CUI-33] [team] Epic 33" },
       { state: "closed" },
     ]);
-    assert.deepEqual(result, summary({ scanned: 2, created: 1, updated: 1, milestonesClosed: 1, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 2, created: 1, updated: 1, milestonesClosed: 1, fetches: 7 }));
     assert.deepEqual(messages(lines).slice(0, 3), [
       "rename milestone CUI-33 #7",
       "close milestone CUI-33 #7",
@@ -194,7 +194,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
     assert.deepEqual(createBodies(calls).map(titleIn), ["[CUI-35] [team] Task 35"]);
-    assert.deepEqual(result, summary({ scanned: 1, created: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 1, created: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), []);
   });
 
@@ -225,7 +225,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
       milestone: 1,
       type: "Task",
     });
-    assert.deepEqual(result, summary({ scanned: 3, created: 1, updated: 2, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 3, created: 1, updated: 2, fetches: 7 }));
     assert.deepEqual(messages(lines), [
       'DEMO-5: #12 matched by title only (no "youtrack" label)',
       "rename milestone DEMO-1 #1",
@@ -250,7 +250,7 @@ describe("runSync title sync (N2)", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { title: "[CUI-35] [team] New summary" });
-    assert.deepEqual(result, summary({ scanned: 1, updated: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 1, updated: 1, fetches: 5 }));
     assert.ok(messages(lines).includes("update CUI-35 #21: set title"));
   });
 
@@ -269,7 +269,7 @@ describe("runSync title sync (N2)", () => {
       { title: "[CUI-35] [team] New summary" },
       { state: "closed", state_reason: "completed" },
     ]);
-    assert.deepEqual(result, summary({ scanned: 1, updated: 1, closed: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 1, updated: 1, closed: 1, fetches: 6 }));
   });
 
   it("renames the milestone of an epic whose summary was edited, open or closed, and never reopens one", async () => {
@@ -286,7 +286,7 @@ describe("runSync title sync (N2)", () => {
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`, `PATCH ${MILESTONES_PATH}/8`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { title: "[CUI-33] [team] Epic 33" });
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/8`), { title: "[CUI-34] [team] Epic 34" });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 2, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 2, fetches: 6 }));
   });
 
   it("leaves what an earlier run created alone, also when the title was cut or the summary padded", async () => {
@@ -316,7 +316,7 @@ describe("runSync title sync (N2)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(second.calls), []);
-    assert.deepEqual(result, summary({ scanned: 3, unchanged: 3, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 3, unchanged: 3, fetches: 4 }));
   });
 
   it("caps a title sync that waits for a failed milestone create, title included (D4)", async () => {
@@ -333,7 +333,7 @@ describe("runSync title sync (N2)", () => {
     // Assert: the next run sends title and milestone together, once the milestone exists.
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), [
       "update CUI-35 #21 capped: the milestone of CUI-33 was not created in this run",
     ]);
@@ -362,7 +362,7 @@ describe("runSync title sync in dry run", () => {
       "[dry-run] would update CUI-6 #102: set title, set milestone CUI-1 #1, set type Feature: [CUI-6] [team] Task 6",
       formatSummary(result, "ok"),
     ]);
-    assert.deepEqual(result, summary({ dryRun: true, scanned: 3, updated: 3, fetches: 3 }));
+    assert.deepEqual(result, summary({ dryRun: true, scanned: 3, updated: 3, fetches: 4 }));
   });
 
   it("redacts a token in a previewed title", async () => {
@@ -400,7 +400,7 @@ describe("runSync title sync and the write cap", () => {
 
     // Assert: the rename and the create fit; the title sync of #12 comes after them.
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/1`, `POST ${ISSUES_PATH}`]);
-    assert.deepEqual(result, summary({ scanned: 3, created: 1, updated: 1, capped: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 3, created: 1, updated: 1, capped: 1, fetches: 6 }));
   });
 
   it("applies the cap to previewed renames too", async () => {
@@ -414,7 +414,7 @@ describe("runSync title sync and the write cap", () => {
     assert.deepEqual(messages(lines).slice(0, -1), [
       "[dry-run] would rename milestone CUI-1 #1: [CUI-1] [team] Epic 1",
     ]);
-    assert.deepEqual(result, summary({ dryRun: true, scanned: 3, updated: 1, capped: 2, fetches: 3 }));
+    assert.deepEqual(result, summary({ dryRun: true, scanned: 3, updated: 1, capped: 2, fetches: 4 }));
   });
 
   it("spends one write on a title sync that also sets milestone and type", async () => {
@@ -510,7 +510,7 @@ describe("runSync title sync outcomes", () => {
       { state: "closed" },
     ]);
     assert.match(error.failures[0] ?? "", /^rename milestone CUI-33 #7 failed: PATCH .*\/milestones\/7 -> HTTP 422/);
-    assert.deepEqual(error.summary, summary({ scanned: 1, milestonesClosed: 1, failed: 1, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 1, milestonesClosed: 1, failed: 1, fetches: 6 }));
   });
 
   it("stops after a rate-limited milestone rename and caps the rest", async () => {
@@ -528,7 +528,7 @@ describe("runSync title sync outcomes", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
-    assert.deepEqual(error.summary, summary({ scanned: 1, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 1, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
   });
 });
@@ -566,7 +566,7 @@ describe("runSync title sync and the exclude filter (F1-F3)", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { title: "[CUI-15] Plan the sprint" });
-    assert.deepEqual(result, summary({ scanned: 4, filtered: 3, updated: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 4, filtered: 3, updated: 1, fetches: 5 }));
   });
 
   it("previews no title sync or rename for excluded issues", async () => {

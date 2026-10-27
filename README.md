@@ -591,7 +591,9 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 | `scanned` is lower than the number of issues in the project | The token's account cannot see some issues (visibility restrictions).                                                                                               |
 | `GitHub dropped ...` warnings, or `label ABC-n #m` lines    | The token's account lacks the Write role, or the organization lacks an issue type. The next run tries again.                                                        |
 | `GitHub dropped the title on update` on every run           | GitHub stored another title than the one sent. Each run spends a write on it; please report the YouTrack summary.                                                   |
-| Duplicate mirror issues                                     | Two copies are running against one repo, or someone edited a mirror's `[ABC-n]` prefix so it no longer matches.                                                     |
+| Duplicate mirror issues                                     | Two copies are running against one repo, or someone edited a mirror's `[ABC-n]` prefix so it no longer matches. Older versions: an incomplete list (next row).      |
+| `IncompleteIssueListError: GitHub issue list is incomplete` | GitHub sent the issue list with issues missing, as during its incidents. Nothing was written; the next run reads the list again. See githubstatus.com if it lasts.  |
+| YouTrack answers 502 or 503 on every run                    | YouTrack is down or restarting. Each run fails before any write and syncs again once YouTrack is back; there is nothing to fix on your side.                        |
 | Nothing in Cron Events or `wrangler tail` after a deploy    | A new cron can take up to 15 minutes to start firing.                                                                                                               |
 | Action: 403 `Resource not accessible by integration`        | The workflow lacks `permissions: issues: write`.                                                                                                                    |
 | Action: `youtrack-gh on a GitHub-hosted runner` warning     | The job runs on a GitHub-hosted runner, which bills Actions minutes. Use `runs-on: self-hosted` if you can.                                                         |
@@ -620,7 +622,10 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    then renames (decision N1). One with the `youtrack` label wins. A title match without the
    label still counts as the mirror, and a warning is logged. If several issues match, the
    lowest number wins (warning). For each mirror it keeps the REST `id`, title, milestone,
-   issue type, parent and assignees.
+   issue type, parent and assignees. Then it **checks the list** against the repo's
+   `open_issues_count` (`GET /repos/{owner}/{repo}`, open issues plus open pull requests): when
+   the list holds fewer open items, the run fails with `IncompleteIssueListError` before any
+   write, because a mirror missing from the list would be created again (decision R11).
 2. **Lists every GitHub milestone** (`state=all`). A milestone whose title starts with
    `[<PROJECT>-<n>]` (or `[YT-<n>]`) is the milestone of YouTrack epic `n`. If several match,
    the lowest number wins (warning). Any other milestone counts as hand-made.
