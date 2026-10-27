@@ -1,7 +1,7 @@
 # Decisions log
 
 > Answers to [07-open-questions.md](07-open-questions.md), given 2026-09-24; later rows (H, D, F)
-> came with the hierarchy work, and N1-N3, W1-W4, R10 and V1-V3 on 2026-10-01. U1-U18 answer
+> came with the hierarchy work, and N1-N3, W1-W4, R10 and V1-V3 on 2026-10-01 (R11 on 2026-10-27). U1-U18 answer
 > section D of 07 (assignees, research in [12](12-assignees.md)), given 2026-10-02 and 2026-10-03,
 > with V4. "Pending" means we're still waiting on confirmation.
 
@@ -64,6 +64,7 @@
 | W3  | GitHub-hosted runners           | Allowed; unless the repo is public (free there), a `::warning` recommends a self-hosted runner, as GitHub-hosted runs bill the org's shared minutes (about 4,300 a month at every 10 min). A warning, not a refusal.             | Decided             |
 | W4  | Three hosts                     | Worker, systemd timer and GitHub Action are all supported; the README compares them. Still one host per repo (B15); the workflow's fixed `concurrency` group keeps its own runs from overlapping.                                | Decided             |
 | R10 | Reopen own closes               | A closed mirror of an unresolved issue is reopened (`state_reason: reopened`) only if `REOPEN_CLOSED_BY` closed it. The Action sets it to `github-actions[bot]`; unset elsewhere. Milestones never (no closer recorded).         | Decided             |
+| R11 | Issue list check                | Each run reads `open_issues_count` (open issues + PRs) right after the issue list. Fewer open items in the list fail the run before any write: GitHub once sent a list without some mirrors (docs/03, gotcha 17).                | Decided             |
 | V1  | Releases                        | semantic-release on every push to `main`: the commits since the last `v*` tag pick the bump (breaking: major, minor up to v0.1.1, U1), then a tag and a GitHub Release. v0.1.0 was tagged by hand; nothing is committed back.    | See U1              |
 | V2  | Branches                        | `main` changes only through squash-merged PRs from feature branches; the PR title is the conventional commit. Required checks (repo ruleset): Check, Workflow audit, Conventional PR title. Dependent changes go in stacked PRs. | Decided             |
 | V3  | Pinning and updates             | Consumers pin the action by full commit SHA with the version as a comment (`@<sha> # v0.2.0`); Dependabot updates both. Here, Dependabot waits 7 days; action bumps are `fix(deps)` (a patch release).                           | Decided             |

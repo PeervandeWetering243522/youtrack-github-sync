@@ -324,6 +324,8 @@ Whether `GET /repos/{o}/{r}/issues` reflects a just-created issue immediately is
 
 Do not use search for deduplication. Within a run, add each created mirror to the in-memory map from the 201 response's `number`. Lag across runs 10 minutes apart was not tested, since no authenticated writes were allowed.
 
+The list itself is not always complete either: during a GitHub incident it answered 200 with issues missing (gotcha 17), so the sync checks it against `open_issues_count` (decision R11).
+
 ## Live observations
 
 All unauthenticated GETs, 2026-09-24 ~18:01Z. Headers sent: `Accept: application/vnd.github+json`, `User-Agent: yt-gh-mirror-verify`, and `X-GitHub-Api-Version` as noted. I made 11 requests.
@@ -373,6 +375,7 @@ All unauthenticated GETs, 2026-09-24 ~18:01Z. Headers sent: `Accept: application
 14. **Doc oddities.** List-issues says "Only open issues will be listed." yet honours `state=all`. The create-label prose requires `color`, but its table marks only `name` as required. `per_page` above 100 is silently capped (live). Label matching is case-insensitive (live), so an existing `YouTrack` label would match `youtrack` [1][2].
 15. **Redirects.** GitHub says to follow 301/302/307 [9]. Per the Fetch spec, a 301 or 302 on POST is re-issued as GET; not verified here. Treat a create as successful only on status 201 with a `number` in the body.
 16. **Write pacing.** A 1 s pause between writes (documented best practice) adds about 30 s per run at the 30-write cap. Check this against the Workers cron wall-time limits in the Cloudflare doc [9].
+17. **A 200 list can miss issues (live, 2026-10-22).** During GitHub's incident "Project updates delayed" (Issues and Pull Requests degraded 15:28-17:41 UTC), 8 of the CUI runs between 15:10 and 17:20 UTC got an issue list without any mirror of the 6 unresolved CUI issues that had one (5 open, 1 closed), even mirrors created 10 minutes earlier. Each of those runs created all 6 again: 48 duplicates. Runs 20 s apart got different answers. A failed read is safe; a short successful one is not. So every run checks the list against the repository's `open_issues_count` (open issues plus open PRs, from `GET /repos/{o}/{r}`) and stops before any write when the list holds fewer open items (decision R11). A list that misses only closed issues is not caught.
 
 ## Open questions for the user
 

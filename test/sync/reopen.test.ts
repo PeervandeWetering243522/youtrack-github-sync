@@ -68,7 +68,7 @@ describe("runSync reopen (R10)", () => {
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/12`), REOPEN_BODY);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/14`), { state: "closed", state_reason: "completed" });
     assert.deepEqual(messages(lines, "info").slice(0, 2), ["reopen CUI-1 #12", "close CUI-3 #14"]);
-    assert.deepEqual(result, summary({ scanned: 4, reopened: 1, closed: 1, unchanged: 2, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 4, reopened: 1, closed: 1, unchanged: 2, fetches: 6 }));
   });
 
   it("ends with a summary line that shows reopened=1 right after closed", async () => {
@@ -113,7 +113,7 @@ describe("runSync reopen (R10)", () => {
       "[dry-run] would reopen CUI-1 #12",
       "[dry-run] would close CUI-3 #14",
     ]);
-    assert.deepEqual(result, summary({ dryRun: true, scanned: 4, reopened: 1, closed: 1, unchanged: 2, fetches: 3 }));
+    assert.deepEqual(result, summary({ dryRun: true, scanned: 4, reopened: 1, closed: 1, unchanged: 2, fetches: 4 }));
   });
 
   it("reopens nothing while REOPEN_CLOSED_BY is unset", async () => {
@@ -126,7 +126,7 @@ describe("runSync reopen (R10)", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/14`]);
     assert.ok(!messages(lines).some((message) => message.includes("reopen CUI")));
-    assert.deepEqual(result, summary({ scanned: 4, closed: 1, unchanged: 3, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 4, closed: 1, unchanged: 3, fetches: 5 }));
     assert.match(lastLine(lines).message, / reopened=0 /);
   });
 
@@ -143,7 +143,7 @@ describe("runSync reopen (R10)", () => {
     // Assert
     assert.deepEqual(bodiesOf(calls, "PATCH", `${ISSUES_PATH}/12`), [{ title: "[CUI-1] [team] Task 1" }, REOPEN_BODY]);
     assert.deepEqual(messages(lines, "info").slice(0, 2), ["update CUI-1 #12: set title", "reopen CUI-1 #12"]);
-    assert.deepEqual(result, summary({ scanned: 1, updated: 1, reopened: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 1, updated: 1, reopened: 1, fetches: 6 }));
   });
 
   it("counts a reopen against the write cap, after the writes that come before it", async () => {
@@ -155,7 +155,7 @@ describe("runSync reopen (R10)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`]);
-    assert.deepEqual(result, summary({ scanned: 4, reopened: 1, capped: 1, unchanged: 2, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 4, reopened: 1, capped: 1, unchanged: 2, fetches: 5 }));
   });
 
   it("never reopens the closed milestone of an unresolved epic", async () => {
@@ -170,7 +170,7 @@ describe("runSync reopen (R10)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.deepEqual(result, summary({ scanned: 1, unchanged: 1, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 1, unchanged: 1, fetches: 4 }));
   });
 
   it("never reopens the closed mirror of an excluded issue (F2)", async () => {
@@ -185,7 +185,7 @@ describe("runSync reopen (R10)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.deepEqual(result, summary({ scanned: 1, filtered: 1, fetches: 3 }));
+    assert.deepEqual(result, summary({ scanned: 1, filtered: 1, fetches: 4 }));
   });
 });
 
@@ -206,7 +206,7 @@ describe("runSync reopen failures (R10)", () => {
     assert.equal(error.failures.length, 1);
     assert.match(error.failures[0] ?? "", /^reopen CUI-1 #12 failed: PATCH .* -> HTTP 404/);
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`, `PATCH ${ISSUES_PATH}/14`]);
-    assert.deepEqual(error.summary, summary({ scanned: 4, closed: 1, failed: 1, unchanged: 2, fetches: 5 }));
+    assert.deepEqual(error.summary, summary({ scanned: 4, closed: 1, failed: 1, unchanged: 2, fetches: 6 }));
     assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(error.summary, "failed") });
   });
 
@@ -224,7 +224,7 @@ describe("runSync reopen failures (R10)", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/12`, `PATCH ${ISSUES_PATH}/12`]);
     assert.deepEqual(bodiesOf(calls, "PATCH", `${ISSUES_PATH}/12`), [REOPEN_BODY, REOPEN_BODY]);
-    assert.deepEqual(result, summary({ scanned: 1, reopened: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 1, reopened: 1, fetches: 6 }));
     assert.deepEqual(sleeps, [DEFAULT_RETRY_DELAY_MS]);
   });
 
@@ -249,7 +249,7 @@ describe("runSync reopen failures (R10)", () => {
         `^reopen CUI-1 #12 failed: PATCH .* -> HTTP ${String(status)}: .*API rate limit exceeded`,
       );
       assert.match(error.failures[0] ?? "", expected);
-      assert.deepEqual(error.summary, summary({ scanned: 4, capped: 1, failed: 1, unchanged: 2, fetches: 4 }));
+      assert.deepEqual(error.summary, summary({ scanned: 4, capped: 1, failed: 1, unchanged: 2, fetches: 5 }));
       assert.deepEqual(sleeps, []);
       assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
       assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(error.summary, "failed") });

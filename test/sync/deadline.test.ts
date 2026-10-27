@@ -37,7 +37,7 @@ describe("runSync run deadline", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`, `POST ${ISSUES_PATH}`]);
-    assert.deepEqual(result, summary({ scanned: 7, filtered: 1, unchanged: 3, created: 2, capped: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 7, filtered: 1, unchanged: 3, created: 2, capped: 1, fetches: 6 }));
     assert.deepEqual(messages(lines, "warn"), [deadlineWarning(1)]);
     assert.equal(lastLine(lines).level, "info");
   });

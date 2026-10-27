@@ -52,7 +52,7 @@ describe("runSync hierarchy sync: parents", () => {
       sub_issue_id: issueId(25),
       replace_parent: true,
     });
-    assert.deepEqual(result, summary({ scanned: 3, updated: 1, unchanged: 2, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 3, updated: 1, unchanged: 2, fetches: 5 }));
     assert.ok(messages(lines).includes("move CUI-40 #25 under CUI-36 #22"));
   });
 
@@ -72,7 +72,7 @@ describe("runSync hierarchy sync: parents", () => {
       sub_issue_id: issueId(25),
       replace_parent: true,
     });
-    assert.deepEqual(result, summary({ scanned: 2, created: 1, updated: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 2, created: 1, updated: 1, fetches: 6 }));
   });
 
   it("caps the move, not fails it, when the new parent's create fails", async () => {
@@ -89,7 +89,7 @@ describe("runSync hierarchy sync: parents", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${ISSUES_PATH}`]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), [
       "move CUI-40 #25 capped: the mirror of CUI-36 was not created in this run",
     ]);
@@ -111,7 +111,7 @@ describe("runSync hierarchy sync: parents", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`DELETE ${ISSUES_PATH}/21/sub_issue`]);
     assert.deepEqual(onlyBody(calls, "DELETE", `${ISSUES_PATH}/21/sub_issue`), { sub_issue_id: issueId(25) });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
     assert.ok(messages(lines).includes("detach CUI-40 #25 from parent CUI-35 #21"));
   });
 
@@ -171,7 +171,7 @@ describe("runSync hierarchy sync: parents", () => {
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`DELETE ${ISSUES_PATH}/21/sub_issue`]);
     assert.match(error.failures[0] ?? "", /^detach CUI-40 #25 from parent CUI-35 #21 failed: DELETE .* -> HTTP 429/);
-    assert.deepEqual(error.summary, summary({ scanned: 3, unchanged: 1, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 3, unchanged: 1, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), ["GitHub rate limit hit; 1 more action(s) capped"]);
   });
 });
@@ -190,7 +190,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { state: "closed" });
-    assert.deepEqual(result, summary({ scanned: 1, milestonesClosed: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 1, milestonesClosed: 1, fetches: 5 }));
     assert.ok(messages(lines).includes("close milestone CUI-33 #7"));
   });
 
@@ -225,7 +225,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`PATCH ${ISSUES_PATH}/21`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { milestone: 7, type: "Feature" });
-    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 4 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
     assert.ok(messages(lines).includes("update CUI-35 #21: set milestone CUI-33 #7, set type Feature"));
   });
 
@@ -259,7 +259,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`, `PATCH ${ISSUES_PATH}/21`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${ISSUES_PATH}/21`), { milestone: 201 });
-    assert.deepEqual(result, summary({ scanned: 2, milestonesCreated: 1, updated: 1, fetches: 5 }));
+    assert.deepEqual(result, summary({ scanned: 2, milestonesCreated: 1, updated: 1, fetches: 6 }));
   });
 
   it("caps the update, not fails it, when that milestone's create fails", async () => {
@@ -276,7 +276,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
     // Assert
     assert.ok(error instanceof SyncFailedError);
     assert.deepEqual(writeCalls(calls), [`POST ${MILESTONES_PATH}`]);
-    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 4 }));
+    assert.deepEqual(error.summary, summary({ scanned: 2, capped: 1, failed: 1, fetches: 5 }));
     assert.deepEqual(messages(lines, "warn"), [
       "update CUI-35 #21 capped: the milestone of CUI-33 was not created in this run",
     ]);
@@ -301,7 +301,7 @@ describe("runSync hierarchy sync: milestones and types", () => {
       `POST ${ISSUES_PATH}/22/sub_issues`,
       `PATCH ${ISSUES_PATH}/25`,
     ]);
-    assert.deepEqual(result, summary({ scanned: 2, updated: 2, closed: 1, unchanged: 1, fetches: 6 }));
+    assert.deepEqual(result, summary({ scanned: 2, updated: 2, closed: 1, unchanged: 1, fetches: 7 }));
   });
 
   it("warns when GitHub answers an update without the change, and still counts it", async () => {

@@ -29,7 +29,8 @@ necessarily the project you are working with.
 ## Layout
 
 - `src/sync.ts` + `src/sync/`: orchestration of one run (not pure: it does the I/O). Uses only
-  `fetch`, takes config and deps as arguments, no Workers/Node APIs. Reads GitHub issues, then
+  `fetch`, takes config and deps as arguments, no Workers/Node APIs. Reads GitHub issues and
+  checks them against the repo's `open_issues_count` (R11, `plan/list-check.ts`), then
   milestones, then YouTrack, then runs the assignee stage `sync/assignees.ts` (the assignable
   list and the email lookups, never fatal; it returns the planner's input, the warnings and
   every identity the run saw, for the identity redactor). `sync/execute.ts` runs the write loop and its stops (cap, fetch
@@ -58,8 +59,8 @@ necessarily the project you are working with.
   with assignees on, the `Assignee` user field (`ScannedIssue`; logins and emails only).
 - `src/github/`: GitHub client, no barrel. `client.ts` has the target, headers, URLs and
   request builder, `link.ts` + `pages.ts` the Link paging, then `issues.ts`, `milestones.ts`,
-  `sub-issues.ts`, `assignees.ts` (assignee parsing, the assignable list, add and remove) and
-  `users.ts` (the commit-author and public-email lookups).
+  `sub-issues.ts`, `assignees.ts` (assignee parsing, the assignable list, add and remove),
+  `users.ts` (the commit-author and public-email lookups) and `repo.ts` (`open_issues_count`).
 - `src/config.ts`: env -> validated `Config`. `src/json.ts`: the only JSON entry point
   (`parseJson` -> `JsonValue`).
 - `src/generated/youtrack.ts`: openapi-typescript output, do not edit. Regenerate with
@@ -166,6 +167,9 @@ login and email the run saw replaced with `[person]` (U8). Plan and "As built" n
 - GitHub: labels on `POST /issues` are silently dropped without push access. Verify them in the
   response, or you get a duplicate mirror every run. The issues list includes PRs. A User-Agent
   is required. Milestone and type are dropped silently the same way.
+- GitHub: during an incident (2026-10-22) the issues list answered 200 with mirrors missing, and
+  8 runs created 48 duplicates in the CUI repo. Only a failed read is safe, so the list is
+  checked against `open_issues_count` (R11; a list missing only closed issues still passes).
 - GitHub: `parent_issue_id` and `sub_issue_id` take the issue's REST `id`, not its number. The
   sub-issue endpoints are `POST .../issues/{n}/sub_issues` but `DELETE .../issues/{n}/sub_issue`
   (singular, with a JSON body). Issue types exist only on organization repos.

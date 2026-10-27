@@ -84,7 +84,7 @@ describe("runSync lookups: matching", () => {
     assert.deepEqual(writeCalls(calls), [`POST ${assigneesPath(12)}`, `POST ${assigneesPath(13)}`]);
     assert.deepEqual(bodiesOf(calls, "POST", assigneesPath(12)), [{ assignees: [JANE_GH] }]);
     assert.deepEqual(messages(lines, "warn"), []);
-    assert.equal(result.fetches, 8);
+    assert.equal(result.fetches, 9);
   });
 
   it("matches through the public-email search (step d) when no commit names the person", async () => {
@@ -364,24 +364,24 @@ describe("runSync lookups: bound, deadline and rotation", () => {
     );
   });
 
-  it("sends one lookup at 38 writes per run (41 fetches left - 38 - 2)", async () => {
+  it("sends one lookup at 37 writes per run (40 fetches left - 37 - 2)", async () => {
     // Arrange
     const { deps, calls, lines } = harness(world());
 
     // Act
-    await runSync(config({ maxWritesPerRun: 38 }), deps);
+    await runSync(config({ maxWritesPerRun: 37 }), deps);
 
     // Assert
     assert.deepEqual(lookups(calls), ["commit jane.doe@example.com"]);
     assert.equal(messages(lines, "warn")[0], "assignees: 2 not looked up (CUI-5, CUI-6); lookup budget of 1 used up");
   });
 
-  it("sends no lookup at 40 writes per run, and says the write cap left no budget", async () => {
+  it("sends no lookup at 39 writes per run, and says the write cap left no budget", async () => {
     // Arrange
     const { deps, calls, lines } = harness(world());
 
     // Act
-    await runSync(config({ maxWritesPerRun: 40 }), deps);
+    await runSync(config({ maxWritesPerRun: 39 }), deps);
 
     // Assert
     assert.deepEqual(lookups(calls), []);
@@ -392,12 +392,12 @@ describe("runSync lookups: bound, deadline and rotation", () => {
   });
 
   it("counts a lookup's retry against the bound", async () => {
-    // Arrange: at 37 writes the bound is 2 fetches; the first lookup's retry spends the second.
+    // Arrange: at 36 writes the bound is 2 fetches; the first lookup's retry spends the second.
     const override = at(COMMITS_PATH, (attempt) => (attempt === 0 ? json(502, { message: "Bad Gateway" }) : undefined));
     const { deps, calls, lines } = harness(world({ override }));
 
     // Act
-    await runSync(config({ maxWritesPerRun: 37 }), deps);
+    await runSync(config({ maxWritesPerRun: 36 }), deps);
 
     // Assert
     assert.deepEqual(lookups(calls), ["commit jane.doe@example.com", "commit jane.doe@example.com"]);
@@ -431,13 +431,13 @@ describe("runSync lookups: bound, deadline and rotation", () => {
   });
 
   it("rotates which person is looked up first, one step per 10 minutes", async () => {
-    // Arrange: one lookup per run (38 writes); the second run starts 10 minutes later.
+    // Arrange: one lookup per run (37 writes); the second run starts 10 minutes later.
     const first = harness(world({ startTime: 0 }));
     const second = harness(world({ startTime: 600_000 }));
 
     // Act
-    await runSync(config({ maxWritesPerRun: 38 }), first.deps);
-    await runSync(config({ maxWritesPerRun: 38 }), second.deps);
+    await runSync(config({ maxWritesPerRun: 37 }), first.deps);
+    await runSync(config({ maxWritesPerRun: 37 }), second.deps);
 
     // Assert
     assert.deepEqual(lookups(first.calls), ["commit jane.doe@example.com"]);
