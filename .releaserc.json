@@ -9,7 +9,7 @@
         "releaseRules": [{ "type": "revert", "release": "patch" }]
       }
     ],
-    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    ["./scripts/release/notes.ts", { "preset": "conventionalcommits" }],
     [
       "@semantic-release/github",
       {

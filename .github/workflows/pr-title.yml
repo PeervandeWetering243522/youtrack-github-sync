@@ -1,7 +1,10 @@
 name: PR title
 
-# Squash merges use the PR title as the commit on main, and semantic-release reads those
-# commits to pick the next version, so the title must be a conventional commit (CONTRIBUTING.md).
+# The squash commit on main is the PR title only (V5), and semantic-release reads those commits
+# to pick the next version, so the title must be a conventional commit (CONTRIBUTING.md). A
+# breaking PR (`!`) needs a "## Upgrading" section, which becomes its release note. The job
+# summary previews the release the PR will make. Runs again when the title or description is
+# edited. The job name is the check the main ruleset requires.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
@@ -16,16 +19,20 @@ jobs:
   title:
     name: Conventional PR title
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
+    permissions:
+      contents: read # check out the code
     steps:
-      - name: Check the title
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - run: npm ci
+      - name: Check the title and the Upgrading section, preview the release
         env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          pattern='^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9-]+\))?!?: [^ ].*$'
-          if [[ "$TITLE" =~ $pattern ]]; then
-            echo "The PR title is a conventional commit."
-          else
-            echo "::error title=PR title::Use '<type>(<scope>)?: <summary>', e.g. 'feat: reopen own closes'; see CONTRIBUTING.md."
-            exit 1
-          fi
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/release/check-pr.ts

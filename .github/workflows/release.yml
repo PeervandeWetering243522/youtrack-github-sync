@@ -2,7 +2,8 @@ name: Release
 
 # Every push to main (a merged PR) runs semantic-release (.releaserc.json): it reads the
 # conventional commits since the last v* tag and, when one of them warrants it, pushes the next
-# version tag and creates its GitHub Release. Nothing is committed back to main.
+# version tag and creates its GitHub Release. The notes come from scripts/release/notes.ts (V5).
+# Nothing is committed back to main.
 on:
   push:
     branches: [main]
@@ -20,6 +21,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write # push the version tag and create the GitHub Release
+      pull-requests: read # read a breaking PR's "## Upgrading" section for its release note
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
