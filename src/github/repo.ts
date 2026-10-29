@@ -1,38 +1,57 @@
 /**
- * The repository read: GET /repos/{owner}/{repo} for its `open_issues_count`, the count of
- * open issues and open pull requests that the issue list is checked against (decision R11,
- * src/plan/list-check.ts). Types derive from @octokit/openapi-types.
+ * The repository read: its count of open issues, pull requests left out, that the issue list
+ * is checked against (decision R11, src/plan/list-check.ts). REST has no such count
+ * (`open_issues_count` adds the open pull requests), so this one read goes to GraphQL:
+ * `repository.issues(states: OPEN).totalCount`, which needs only issue read access.
  */
 
-import type { components } from "@octokit/openapi-types";
 import type { HttpClient } from "../http.ts";
-import { isInteger, isJsonObject } from "../json.ts";
-import type { JsonValue } from "../json.ts";
-import { describeJson, GitHubSchemaError, githubRequest, repoUrl } from "./client.ts";
+import { isInteger, isJsonArray, isJsonObject } from "../json.ts";
+import type { JsonObject, JsonValue } from "../json.ts";
+import { describeJson, GITHUB_GRAPHQL_URL, GitHubSchemaError, githubRequest } from "./client.ts";
 import type { GitHubTarget } from "./client.ts";
 
-/** `open_issues_count` of a repository: its open issues plus its open pull requests. */
-export type OpenIssuesCount = components["schemas"]["full-repository"]["open_issues_count"];
+/** Read-only; owner and name go in as variables, never into the query text. */
+const OPEN_ISSUE_COUNT_QUERY =
+  "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issues(states: OPEN) { totalCount } } }";
 
-/** Validates a GET /repos/{owner}/{repo} body and returns its `open_issues_count`. */
-export function parseOpenIssuesCount(value: JsonValue): OpenIssuesCount {
+/**
+ * Validates a GraphQL answer to OPEN_ISSUE_COUNT_QUERY and returns its totalCount. GraphQL
+ * reports a missing repository or a rate limit as 200 with `errors`; any error refuses the
+ * whole answer, and only the first error's `type` is echoed, never its message.
+ */
+export function parseOpenIssueCount(value: JsonValue): number {
   if (!isJsonObject(value)) {
-    throw new GitHubSchemaError(`GitHub repository must be a JSON object, got ${describeJson(value)}`);
+    throw new GitHubSchemaError(`GitHub GraphQL answer must be a JSON object, got ${describeJson(value)}`);
   }
-  const count = value["open_issues_count"];
+  const errors = value["errors"];
+  if (errors !== undefined) {
+    const first = isJsonArray(errors) ? errors[0] : undefined;
+    const type = isJsonObject(first) ? first["type"] : undefined;
+    throw new GitHubSchemaError(`GitHub GraphQL answered with errors (first type: ${describeJson(type)})`);
+  }
+  const count = field(field(field(value, "data"), "repository"), "issues")?.["totalCount"];
   if (!isInteger(count) || count < 0) {
     throw new GitHubSchemaError(
-      `GitHub repository "open_issues_count" must be a non-negative integer, got ${describeJson(count)}`,
+      `GitHub GraphQL "data.repository.issues.totalCount" must be a non-negative integer, got ${describeJson(count)}`,
     );
   }
   return count;
 }
 
+/** `parent[key]` when parent and that value are both JSON objects, else undefined. */
+function field(parent: JsonValue | undefined, key: string): JsonObject | undefined {
+  if (!isJsonObject(parent)) return undefined;
+  const value = parent[key];
+  return isJsonObject(value) ? value : undefined;
+}
+
 /**
- * GET /repos/{owner}/{repo}. retry: "retry-once". Throws GitHubSchemaError unless the body is
- * an object whose `open_issues_count` is a non-negative integer.
+ * POST /graphql with OPEN_ISSUE_COUNT_QUERY. retry: "retry-once" (a query writes nothing).
+ * Throws GitHubSchemaError for an answer parseOpenIssueCount refuses.
  */
-export async function readOpenIssuesCount(http: HttpClient, target: GitHubTarget): Promise<OpenIssuesCount> {
-  const response = await http.request(githubRequest(target, "GET", repoUrl(target), "retry-once"));
-  return parseOpenIssuesCount(response.body);
+export async function readOpenIssueCount(http: HttpClient, target: GitHubTarget): Promise<number> {
+  const body = { query: OPEN_ISSUE_COUNT_QUERY, variables: { owner: target.owner, name: target.repo } };
+  const response = await http.request(githubRequest(target, "POST", GITHUB_GRAPHQL_URL, "retry-once", body));
+  return parseOpenIssueCount(response.body);
 }

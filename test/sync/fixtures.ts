@@ -21,8 +21,8 @@ export const GITHUB_TOKEN = "ghp_fakeGithubToken0123456789abcdefABCDEF";
 export const YOUTRACK_TOKEN = "perm:fake.youtrack.token.0123456789";
 export const YOUTRACK_BASE_URL = "https://youtrack.example.test";
 export const GITHUB_ORIGIN = "https://api.github.com";
-/** GET: the repository, for its open_issues_count (decision R11). */
-export const REPO_PATH = "/repos/acme/mirror";
+/** POST: GraphQL, for the repository's open issue count (decision R11). */
+export const GRAPHQL_PATH = "/graphql";
 export const ISSUES_PATH = "/repos/acme/mirror/issues";
 const ISSUE_PATH = /^\/repos\/acme\/mirror\/issues\/(\d+)$/;
 export const LABELS_PATH = /^\/repos\/acme\/mirror\/issues\/\d+\/labels$/;
@@ -228,8 +228,8 @@ export type CreateDrop = "milestone" | "type" | "parent_issue_id";
 
 export type World = {
   readonly githubIssues?: readonly JsonObject[];
-  /** The repository's open_issues_count; by default the open items (issues and PRs) of githubIssues. */
-  readonly openIssuesCount?: number;
+  /** The repository's open issue count (GraphQL); by default the open issues of githubIssues, PRs left out. */
+  readonly openIssueCount?: number;
   readonly milestones?: readonly JsonObject[];
   readonly youtrackRows?: readonly JsonObject[];
   /** Labels a create answers with; by default the requested ones ([] = silently dropped). */
@@ -431,19 +431,20 @@ function assigneeAnswer(call: RecordedCall, world: World): Response | undefined 
     : undefined;
 }
 
-/** The open items of the world's issue list, as GitHub's open_issues_count counts them. */
-function openItems(world: World): number {
-  return (world.githubIssues ?? []).filter((issue) => issue["state"] === "open").length;
+/** The open issues of the world's issue list, PRs left out, as GraphQL's issues(states: OPEN) counts them. */
+function openIssues(world: World): number {
+  return (world.githubIssues ?? []).filter((issue) => issue["state"] === "open" && !("pull_request" in issue)).length;
 }
 
-function repoAnswer(call: RecordedCall, world: World): Response | undefined {
-  if (call.method !== "GET" || call.url.pathname !== REPO_PATH) return undefined;
-  return json(200, { full_name: "acme/mirror", open_issues_count: world.openIssuesCount ?? openItems(world) });
+function countAnswer(call: RecordedCall, world: World): Response | undefined {
+  if (!isCountRead(call)) return undefined;
+  const totalCount = world.openIssueCount ?? openIssues(world);
+  return json(200, { data: { repository: { issues: { totalCount } } } });
 }
 
 function githubAnswer(call: RecordedCall, world: World, counters: Counters): Response {
   const answer =
-    repoAnswer(call, world) ??
+    countAnswer(call, world) ??
     milestoneAnswer(call, world, counters) ??
     issueAnswer(call, world, counters) ??
     assigneeAnswer(call, world);
@@ -507,9 +508,21 @@ export function harness(world: World = {}): Harness {
 // Assertion helpers
 // ---------------------------------------------------------------------------
 
-/** "POST /repos/acme/mirror/issues" etc. for every non-GET call, in order. */
+/** The GraphQL count query (R11): a POST that writes nothing. A mutation is never one. */
+export function isCountRead(call: RecordedCall): boolean {
+  const isGraphql = call.method === "POST" && call.url.origin === GITHUB_ORIGIN && call.url.pathname === GRAPHQL_PATH;
+  const query = isJsonObject(call.body) ? call.body["query"] : undefined;
+  return isGraphql && typeof query === "string" && query.startsWith("query(");
+}
+
+/** A call that writes nothing: every GET, and the GraphQL count query. */
+export function isRead(call: RecordedCall): boolean {
+  return call.method === "GET" || isCountRead(call);
+}
+
+/** "POST /repos/acme/mirror/issues" etc. for every call that is not a read, in order. */
 export function writeCalls(calls: readonly RecordedCall[]): readonly string[] {
-  return calls.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.url.pathname}`);
+  return calls.filter((call) => !isRead(call)).map((call) => `${call.method} ${call.url.pathname}`);
 }
 
 export function messages(lines: readonly LogLine[], level?: LogLine["level"]): readonly string[] {

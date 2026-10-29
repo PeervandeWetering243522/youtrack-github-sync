@@ -15,6 +15,7 @@ import {
   ghIssue,
   ghMilestone,
   harness,
+  isRead,
   ISSUES_PATH,
   json,
   lastLine,
@@ -108,7 +109,7 @@ describe("runSync reopen (R10)", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.ok(calls.every((call) => call.method === "GET"));
+    assert.ok(calls.every(isRead));
     assert.deepEqual(messages(lines, "info").slice(0, 2), [
       "[dry-run] would reopen CUI-1 #12",
       "[dry-run] would close CUI-3 #14",

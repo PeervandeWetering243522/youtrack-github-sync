@@ -10,8 +10,10 @@ import {
   ghIssue,
   GITHUB_ORIGIN,
   GITHUB_TOKEN,
+  GRAPHQL_PATH,
   harness,
   isCreate,
+  isRead,
   ISSUES_PATH,
   json,
   LABELS_PATH,
@@ -20,7 +22,6 @@ import {
   MILESTONES_PATH,
   MIXED_WORLD,
   rejection,
-  REPO_PATH,
   RESOLVED_AT,
   summary,
   titleOf,
@@ -112,8 +113,8 @@ describe("runSync in dry run", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.ok(calls.every((call) => call.method === "GET"));
-    // Four reads: GitHub issues, the repository, GitHub milestones, the YouTrack scan.
+    assert.ok(calls.every(isRead));
+    // Four reads: GitHub issues, the open issue count, GitHub milestones, the YouTrack scan.
     assert.deepEqual(
       result,
       summary({ dryRun: true, scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 4 }),
@@ -181,7 +182,7 @@ describe("runSync with writes enabled", () => {
     assert.deepEqual(result, summary({ scanned: 6, filtered: 1, unchanged: 3, created: 1, closed: 1, fetches: 6 }));
   });
 
-  it("reads GitHub issues, then the repository, then GitHub milestones, then YouTrack, before any write", async () => {
+  it("reads GitHub issues, then the open issue count, then GitHub milestones, then YouTrack, before any write", async () => {
     // Arrange
     const { deps, calls } = harness(MIXED_WORLD);
 
@@ -192,7 +193,7 @@ describe("runSync with writes enabled", () => {
     const reads = calls.slice(0, 4).map((call) => `${call.method} ${call.url.origin}${call.url.pathname}`);
     assert.deepEqual(reads, [
       `GET ${GITHUB_ORIGIN}${ISSUES_PATH}`,
-      `GET ${GITHUB_ORIGIN}${REPO_PATH}`,
+      `POST ${GITHUB_ORIGIN}${GRAPHQL_PATH}`,
       `GET ${GITHUB_ORIGIN}${MILESTONES_PATH}`,
       `GET ${YOUTRACK_BASE_URL}/api/issues`,
     ]);

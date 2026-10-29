@@ -19,7 +19,9 @@ import {
   ghAssignee,
   ghIssue,
   GITHUB_ORIGIN,
+  GRAPHQL_PATH,
   harness,
+  isRead,
   ISSUES_PATH,
   json,
   lastLine,
@@ -27,7 +29,6 @@ import {
   MILESTONES_PATH,
   openMirrorsOfResolved,
   rejection,
-  REPO_PATH,
   RESOLVED_AT,
   SEARCH_USERS_PATH,
   summary,
@@ -82,10 +83,10 @@ function isAt(call: RecordedCall, method: string, path: string): boolean {
 }
 
 function reads(calls: readonly RecordedCall[]): readonly string[] {
-  return calls.filter((call) => call.method === "GET").map((call) => call.url.pathname);
+  return calls.filter(isRead).map((call) => call.url.pathname);
 }
 
-const FOUR_READS = [ISSUES_PATH, REPO_PATH, MILESTONES_PATH, "/api/issues"];
+const FOUR_READS = [ISSUES_PATH, GRAPHQL_PATH, MILESTONES_PATH, "/api/issues"];
 const FIVE_READS = [...FOUR_READS, ASSIGNABLE_PATH];
 
 describe("runSync assignees: matching and writes", () => {
@@ -933,7 +934,7 @@ describe("runSync assignees: the switch (U1) and the dry run", () => {
     const result = await runSync(config({ dryRun: true }), deps);
 
     // Assert
-    assert.ok(calls.every((call) => call.method === "GET"));
+    assert.ok(calls.every(isRead));
     assert.deepEqual(reads(calls), [...FIVE_READS, COMMITS_PATH, SEARCH_USERS_PATH]);
     assert.deepEqual(messages(lines), [
       "assignees: 1 unmatched (CUI-6)",

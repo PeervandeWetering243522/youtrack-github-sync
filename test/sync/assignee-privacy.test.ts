@@ -17,6 +17,7 @@ import {
   ghAssignee,
   ghIssue,
   harness,
+  isRead,
   ISSUES_PATH,
   json,
   messages,
@@ -125,7 +126,7 @@ describe("runSync assignees: privacy (U8)", () => {
 
     // Assert
     assert.ok(cutBody().slice(0, BODY_EXCERPT_CHARS).endsWith("JaneD"));
-    assert.equal(run.calls.filter((call) => call.method !== "GET").length, 3);
+    assert.equal(run.calls.filter((call) => !isRead(call)).length, 3);
     assert.ok(texts.some((text) => text.startsWith("SyncFailedError: Sync finished with 3 failure(s): ")));
     assert.ok(texts.some((text) => text.startsWith("add 1 assignee to CUI-6 #13 failed: POST ")));
     assert.ok(texts.some((text) => text.includes("[person]")));
@@ -152,7 +153,7 @@ describe("runSync assignees: privacy (U8)", () => {
 
     // Assert
     assert.deepEqual(
-      run.calls.filter((call) => call.method !== "GET").map((call) => call.method),
+      run.calls.filter((call) => !isRead(call)).map((call) => call.method),
       ["POST", "DELETE"],
     );
     assert.ok(texts.some((text) => text.startsWith("remove 1 assignee from CUI-5 #12 failed: DELETE ")));

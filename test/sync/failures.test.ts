@@ -9,6 +9,7 @@ import {
   GITHUB_ORIGIN,
   GITHUB_TOKEN,
   harness,
+  isRead,
   isCreate,
   ISSUES_PATH,
   json,
@@ -222,7 +223,7 @@ describe("runSync read failures", () => {
     assert.ok(error instanceof HttpError);
     assert.equal(error.status, 404);
     assert.equal(calls.length, 3);
-    assert.ok(calls.every((call) => call.url.origin === GITHUB_ORIGIN && call.method === "GET"));
+    assert.ok(calls.every((call) => call.url.origin === GITHUB_ORIGIN && isRead(call)));
     assert.deepEqual(lastLine(lines), { level: "error", message: formatSummary(summary({ fetches: 3 }), "failed") });
   });
 
