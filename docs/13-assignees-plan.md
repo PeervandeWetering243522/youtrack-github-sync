@@ -30,7 +30,8 @@
   (`spareFetches` in `src/plan/assignee-lookups.ts`, the reserve the lookups use), so the list
   never eats into the writes' share of the guard. A list cut short counts as unreadable (U16):
   `assignees: could not read the assignable GitHub users (too many pages for the fetch budget); assignees are not synced this run`.
-  With the default 30 writes and one-page reads that allows 10 pages (1,000 assignable users).
+  With the default 30 writes and one-page reads that allows 9 pages (900 assignable users;
+  10 before the issue list check's read, R11).
 - **A remove waits for its add (§2.7, choice 23).** A failed add (A10) or one whose answer
   lacks a sent login (§2.8) does not stop the run, so the add-first order alone did not keep a
   reassignment from leaving nobody. The add now marks its issue in the run-local map

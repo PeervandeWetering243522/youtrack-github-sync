@@ -302,7 +302,7 @@ assignees: 1 unmatched (ABC-18)
 [dry-run] would remove 1 assignee from ABC-16 #22
 [dry-run] would add 1 assignee to ABC-41 (new)
 [dry-run] would add 1 assignee to ABC-42 (new)
-yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=34 capped=0 failed=0 filtered=28 unchanged=6 labelsReAdded=0 fetches=4 dryRun=true
+yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=34 capped=0 failed=0 filtered=28 unchanged=6 labelsReAdded=0 fetches=5 dryRun=true
 ```
 
 Check that `scanned` matches the number of issues in the project, and that the planned writes
@@ -593,6 +593,7 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 | `GitHub dropped the title on update` on every run           | GitHub stored another title than the one sent. Each run spends a write on it; please report the YouTrack summary.                                                   |
 | Duplicate mirror issues                                     | Two copies are running against one repo, or someone edited a mirror's `[ABC-n]` prefix so it no longer matches. Older versions: an incomplete list (next row).      |
 | `IncompleteIssueListError: GitHub issue list is incomplete` | GitHub sent the issue list with issues missing (an incident, see githubstatus.com). Nothing was written; the next run reads it again. v1.0.1 Action: upgrade.       |
+| `GitHub GraphQL answered with errors`                       | The open issue count read failed. `NOT_FOUND`: the token cannot see the repo. `RATE_LIMITED`: wait for the next run. Nothing was written.                           |
 | YouTrack answers 502 or 503 on every run                    | YouTrack is down or restarting. Each run fails before any write and syncs again once YouTrack is back; there is nothing to fix on your side.                        |
 | Nothing in Cron Events or `wrangler tail` after a deploy    | A new cron can take up to 15 minutes to start firing.                                                                                                               |
 | Action: 403 `Resource not accessible by integration`        | The workflow lacks `permissions: issues: write`.                                                                                                                    |
