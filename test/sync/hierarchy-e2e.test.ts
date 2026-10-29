@@ -9,6 +9,7 @@ import {
   ghIssue,
   ghMilestone,
   harness,
+  isRead,
   ISSUES_PATH,
   issueId,
   messages,
@@ -110,7 +111,7 @@ describe("runSync hierarchy, dry run", () => {
     // Assert
     assert.deepEqual(writeCalls(calls), []);
     assert.equal(calls.length, 4);
-    assert.ok(calls.every((call) => call.method === "GET"));
+    assert.ok(calls.every(isRead));
     assert.deepEqual(sleeps, []);
   });
 

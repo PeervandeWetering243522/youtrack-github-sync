@@ -302,7 +302,7 @@ assignees: 1 unmatched (ABC-18)
 [dry-run] would remove 1 assignee from ABC-16 #22
 [dry-run] would add 1 assignee to ABC-41 (new)
 [dry-run] would add 1 assignee to ABC-42 (new)
-yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=34 capped=0 failed=0 filtered=28 unchanged=6 labelsReAdded=0 fetches=4 dryRun=true
+yt-gh-sync ok scanned=40 created=2 closed=1 reopened=0 updated=1 assigneesAdded=3 assigneesRemoved=1 milestonesCreated=1 milestonesClosed=0 skipped=34 capped=0 failed=0 filtered=28 unchanged=6 labelsReAdded=0 fetches=5 dryRun=true
 ```
 
 Check that `scanned` matches the number of issues in the project, and that the planned writes
@@ -592,7 +592,8 @@ To pause writes, set it back to `"true"` and redeploy. To stop the Worker entire
 | `GitHub dropped ...` warnings, or `label ABC-n #m` lines    | The token's account lacks the Write role, or the organization lacks an issue type. The next run tries again.                                                        |
 | `GitHub dropped the title on update` on every run           | GitHub stored another title than the one sent. Each run spends a write on it; please report the YouTrack summary.                                                   |
 | Duplicate mirror issues                                     | Two copies are running against one repo, or someone edited a mirror's `[ABC-n]` prefix so it no longer matches. Older versions: an incomplete list (next row).      |
-| `IncompleteIssueListError: GitHub issue list is incomplete` | GitHub sent the issue list with issues missing, as during its incidents. Nothing was written; the next run reads the list again. See githubstatus.com if it lasts.  |
+| `IncompleteIssueListError: GitHub issue list is incomplete` | GitHub sent the issue list with issues missing (an incident, see githubstatus.com). Nothing was written; the next run reads it again. v1.0.1 Action: upgrade.       |
+| `GitHub GraphQL answered with errors`                       | The open issue count read failed. `NOT_FOUND`: the token cannot see the repo. `RATE_LIMITED`: wait for the next run. Nothing was written.                           |
 | YouTrack answers 502 or 503 on every run                    | YouTrack is down or restarting. Each run fails before any write and syncs again once YouTrack is back; there is nothing to fix on your side.                        |
 | Nothing in Cron Events or `wrangler tail` after a deploy    | A new cron can take up to 15 minutes to start firing.                                                                                                               |
 | Action: 403 `Resource not accessible by integration`        | The workflow lacks `permissions: issues: write`.                                                                                                                    |
@@ -622,10 +623,11 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    then renames (decision N1). One with the `youtrack` label wins. A title match without the
    label still counts as the mirror, and a warning is logged. If several issues match, the
    lowest number wins (warning). For each mirror it keeps the REST `id`, title, milestone,
-   issue type, parent and assignees. Then it **checks the list** against the repo's
-   `open_issues_count` (`GET /repos/{owner}/{repo}`, open issues plus open pull requests): when
-   the list holds fewer open items, the run fails with `IncompleteIssueListError` before any
-   write, because a mirror missing from the list would be created again (decision R11).
+   issue type, parent and assignees. Then it **checks the list** against the repo's count of
+   open issues (one GraphQL query, `POST /graphql`; pull requests are left out on both sides,
+   since a token that cannot read them gets a list without them): when the list holds fewer
+   open issues, the run fails with `IncompleteIssueListError` before any write, because a
+   mirror missing from the list would be created again (decision R11).
 2. **Lists every GitHub milestone** (`state=all`). A milestone whose title starts with
    `[<PROJECT>-<n>]` (or `[YT-<n>]`) is the milestone of YouTrack epic `n`. If several match,
    the lowest number wins (warning). Any other milestone counts as hand-made.
@@ -1020,20 +1022,20 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **Fetch guard:** the HTTP client refuses a 46th fetch. When it refuses a write, the run stops
   cleanly and that action and the remaining ones count as `capped`, not `failed`. A write that
   was sent and failed but whose retry the guard cannot pay for counts as `failed`.
-- **Fetches per run:** 3 reads (1 GitHub issues page, 1 milestones page, 1 YouTrack page) + at
-  most 30 writes = 33 fetches without retries. With assignee sync on and at least one open
-  issue assigned in YouTrack, a 4th read (the assignable users, 1 page per 100) makes it 34,
-  plus the commit and email lookups when someone needs them. A further page of assignable users
-  is read only while `fetches left - MAX_WRITES_PER_RUN - 2` is above 0 (10 pages with the
-  default 30 writes); a longer list skips assignee sync for that run with a warning, so the
-  writes keep their share of the guard. Each retry is one more fetch, up
-  to the 45-fetch guard. Every further 100 GitHub items (issues and pull requests), 100
-  milestones or 100 YouTrack issues costs one more page. A dry run sends only the reads, the
-  lookups included.
+- **Fetches per run:** 4 reads (1 GitHub issues page, the open issue count, 1 milestones page,
+  1 YouTrack page) + at most 30 writes = 34 fetches without retries. With assignee sync on and
+  at least one open issue assigned in YouTrack, a 5th read (the assignable users, one page
+  per 100) makes it 35, plus the commit and email lookups when someone needs them. A further
+  page of assignable users is read only while `fetches left - MAX_WRITES_PER_RUN - 2` is above 0
+  (9 pages with the default 30 writes); a longer list skips assignee sync for that run with a
+  warning, so the writes keep their share of the guard. Each retry is one more fetch, up to the
+  45-fetch guard. Every further 100 GitHub items (issues, and pull requests when the token can
+  read them), 100 milestones or 100 YouTrack issues costs one more page. A dry run sends only
+  the reads, the lookups included.
 - **Lookups:** at most `min(5, fetches left - MAX_WRITES_PER_RUN - 2)` per run, where the
-  fetches left are counted before the first lookup (41 after four one-page reads), so the writes
+  fetches left are counted before the first lookup (40 after five one-page reads), so the writes
   always keep their share of the guard; the last lookup may retry once. With the default 30
-  writes that is 5 (4 + 5 + 30 = 39 fetches), with 38 writes 1, and with 39 or 40 none. A lookup
+  writes that is 5 (5 + 5 + 30 = 40 fetches), with 37 writes 1, and with 38 to 40 none. A lookup
   starts only while the run is more than 40 s from its deadline.
   Commit lookups use the core rate limit and email lookups the search rate limit; a rate limit
   on the email search turns it off for the run, one on the commits stops all lookups.

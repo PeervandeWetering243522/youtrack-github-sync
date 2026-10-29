@@ -17,6 +17,7 @@ const FAKE_MAX_FETCHES = 45;
 
 /** URLs spelled out independently of the implementation. */
 export const REPO_URL = "https://api.github.com/repos/BredaUniversityADSAI/mirror-repo";
+export const GRAPHQL_URL = "https://api.github.com/graphql";
 export const ISSUES_URL = `${REPO_URL}/issues`;
 export const FIRST_PAGE_URL = `${ISSUES_URL}?state=all&per_page=100`;
 /** GitHub's own page links use the numeric repository id. */

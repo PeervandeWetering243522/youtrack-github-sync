@@ -20,6 +20,7 @@ import {
   ghMilestone,
   GITHUB_TOKEN,
   harness,
+  isRead,
   ISSUES_PATH,
   json,
   messages,
@@ -324,7 +325,8 @@ describe("runSync title sync (N2)", () => {
     const { deps, calls, lines } = harness({
       githubIssues: [ghIssue(21, "[YT-35] [team] Task 35", { type: "Feature" })],
       youtrackRows: [EPIC, story(35, 33)],
-      override: (call) => (call.method === "POST" ? json(422, { message: "Validation Failed" }) : undefined),
+      override: (call) =>
+        call.method === "POST" && !isRead(call) ? json(422, { message: "Validation Failed" }) : undefined,
     });
 
     // Act
@@ -355,7 +357,7 @@ describe("runSync title sync in dry run", () => {
 
     // Assert
     assert.deepEqual(writeCalls(calls), []);
-    assert.ok(calls.every((call) => call.method === "GET"));
+    assert.ok(calls.every(isRead));
     assert.deepEqual(messages(lines), [
       "[dry-run] would rename milestone CUI-1 #1: [CUI-1] [team] Epic 1",
       "[dry-run] would update CUI-5 #101: set title: [CUI-5] [team] Task 5",

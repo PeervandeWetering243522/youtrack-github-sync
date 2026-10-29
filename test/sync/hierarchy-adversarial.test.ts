@@ -8,6 +8,7 @@ import {
   ghIssue,
   ghMilestone,
   harness,
+  isRead,
   isCreate,
   ISSUES_PATH,
   issueId,
@@ -377,7 +378,7 @@ describe("runSync hierarchy pacing and retries", () => {
         ytRow(41, { type: "Task", parent: 36 }),
         ytRow(42, { type: "Task" }),
       ],
-      override: (call, attempt) => (call.method !== "GET" && attempt === 0 ? json(502, {}) : undefined),
+      override: (call, attempt) => (!isRead(call) && attempt === 0 ? json(502, {}) : undefined),
     });
 
     // Act

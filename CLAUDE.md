@@ -30,7 +30,7 @@ necessarily the project you are working with.
 
 - `src/sync.ts` + `src/sync/`: orchestration of one run (not pure: it does the I/O). Uses only
   `fetch`, takes config and deps as arguments, no Workers/Node APIs. Reads GitHub issues and
-  checks them against the repo's `open_issues_count` (R11, `plan/list-check.ts`), then
+  checks their open issues against the repo's open issue count (R11, `plan/list-check.ts`), then
   milestones, then YouTrack, then runs the assignee stage `sync/assignees.ts` (the assignable
   list and the email lookups, never fatal; it returns the planner's input, the warnings and
   every identity the run saw, for the identity redactor). `sync/execute.ts` runs the write loop and its stops (cap, fetch
@@ -60,7 +60,8 @@ necessarily the project you are working with.
 - `src/github/`: GitHub client, no barrel. `client.ts` has the target, headers, URLs and
   request builder, `link.ts` + `pages.ts` the Link paging, then `issues.ts`, `milestones.ts`,
   `sub-issues.ts`, `assignees.ts` (assignee parsing, the assignable list, add and remove),
-  `users.ts` (the commit-author and public-email lookups) and `repo.ts` (`open_issues_count`).
+  `users.ts` (the commit-author and public-email lookups) and `repo.ts` (the open issue count,
+  the only GraphQL call: one read-only query).
 - `src/config.ts`: env -> validated `Config`. `src/json.ts`: the only JSON entry point
   (`parseJson` -> `JsonValue`).
 - `src/generated/youtrack.ts`: openapi-typescript output, do not edit. Regenerate with
@@ -174,8 +175,14 @@ login and email the run saw replaced with `[person]` (U8). Plan and "As built" n
   response, or you get a duplicate mirror every run. The issues list includes PRs. A User-Agent
   is required. Milestone and type are dropped silently the same way.
 - GitHub: during an incident (2026-10-22) the issues list answered 200 with mirrors missing, and
-  8 runs created 48 duplicates in the CUI repo. Only a failed read is safe, so the list is
-  checked against `open_issues_count` (R11; a list missing only closed issues still passes).
+  8 runs created 48 duplicates in the CUI repo. Only a failed read is safe, so the list's open
+  issues are checked against GraphQL's `issues(states: OPEN)` count (R11; a list missing only
+  closed issues still passes).
+- GitHub: a token that cannot read pull requests (the Action's default token with `issues` and
+  `contents` only) gets `/issues` without any PR, while `open_issues_count` still counts open
+  PRs. v1.0.1 compared the two and failed every Action run (2026-10-29), so neither side of the
+  R11 check counts PRs. GraphQL answers errors with 200 and an `errors` array; `GET /graphql`
+  ignores the query.
 - GitHub: `parent_issue_id` and `sub_issue_id` take the issue's REST `id`, not its number. The
   sub-issue endpoints are `POST .../issues/{n}/sub_issues` but `DELETE .../issues/{n}/sub_issue`
   (singular, with a JSON body). Issue types exist only on organization repos.

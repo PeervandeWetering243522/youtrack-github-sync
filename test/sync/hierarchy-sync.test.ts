@@ -7,6 +7,7 @@ import {
   ghIssue,
   ghMilestone,
   harness,
+  isRead,
   ISSUES_PATH,
   issueId,
   json,
@@ -267,7 +268,8 @@ describe("runSync hierarchy sync: milestones and types", () => {
     const { deps, calls, lines } = harness({
       githubIssues: [ghIssue(21, "[CUI-35] [team] Task 35", { type: "Feature" })],
       youtrackRows: [EPIC, story(35, 33)],
-      override: (call) => (call.method === "POST" ? json(422, { message: "Validation Failed" }) : undefined),
+      override: (call) =>
+        call.method === "POST" && !isRead(call) ? json(422, { message: "Validation Failed" }) : undefined,
     });
 
     // Act

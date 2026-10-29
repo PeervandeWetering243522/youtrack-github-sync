@@ -17,6 +17,8 @@ export type GitHubTarget = {
 
 /** Origin of every GitHub API call, and the only origin a followed Link may point to. */
 export const GITHUB_API_BASE = "https://api.github.com";
+/** GitHub's GraphQL endpoint: POST only (a GET ignores the query and answers the schema). */
+export const GITHUB_GRAPHQL_URL = `${GITHUB_API_BASE}/graphql`;
 /** Pinned X-GitHub-Api-Version. */
 export const GITHUB_API_VERSION = "2026-03-10";
 /** per_page for list calls (GitHub's maximum). */
