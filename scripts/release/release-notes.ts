@@ -25,6 +25,8 @@ export async function releaseNotes(
   context: NotesContext,
   lookUp: LookUpSection,
 ): Promise<string> {
+  // A failed lookup fails the notes, for any commit: a release without the note a PR promised
+  // groups is worse than a rerun, and this step runs before semantic-release pushes the tag.
   const looked = await Promise.all(
     context.commits.map(async (commit) => ({
       commit,
