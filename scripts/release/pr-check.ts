@@ -1,7 +1,8 @@
 /**
- * The PR check (decisions V2 and V5). The squash commit on main is the PR title only, so the
- * title must be a conventional commit, and a PR has a "## Upgrading" section exactly when its
- * title has a `!`. It also previews the release the commit will make, with the real
+ * The PR check (decisions V2, V5 and V6). The squash commit on main is the PR title only, so the
+ * title must be a conventional commit. A PR with a `!` in its title must have a "## Upgrading"
+ * section, and a PR that makes no release may not have one (it would never reach the notes); any
+ * other PR may. It also previews the release the commit will make, with the real
  * .releaserc.json, analyzer and notes generator: the bump and the PR's notes entry.
  */
 
@@ -44,7 +45,7 @@ export function readReleaseConfig(text: string): ReleaseConfig {
   return { analyzer: options(ANALYZER), notes: options(NOTES) };
 }
 
-function problemsOf(pr: PullRequest, section: string | null): readonly Problem[] {
+function problemsOf(pr: PullRequest, section: string | null, bump: Bump): readonly Problem[] {
   if (!TITLE.test(pr.title)) {
     return [
       {
@@ -62,12 +63,12 @@ function problemsOf(pr: PullRequest, section: string | null): readonly Problem[]
       },
     ];
   }
-  if (!isBreakingTitle(pr.title) && section !== null) {
+  if (bump === null && section !== null) {
     return [
       {
         title: "Upgrading section",
         message:
-          "The '## Upgrading' section is only for breaking changes. Add a `!` to the title if groups must act before updating (a major release), or empty the section.",
+          "This PR makes no release, so its '## Upgrading' section would never reach the release notes. Empty the section, or use a type that releases (feat, fix, perf, revert) if groups should read it before updating.",
       },
     ];
   }
@@ -92,9 +93,10 @@ export async function checkPullRequest(pr: PullRequest, options: CheckOptions): 
     },
     () => Promise.resolve(section),
   );
-  // Drop the version header; the rest is this PR's entry.
-  const notes = generated.replace(/^## .*\n/, "").trim();
-  return { problems: problemsOf(pr, section), bump, notes };
+  // Drop the version header; the rest is this PR's entry. A PR that makes no release has none,
+  // whatever its description holds.
+  const notes = bump === null ? "" : generated.replace(/^## .*\n/, "").trim();
+  return { problems: problemsOf(pr, section, bump), bump, notes };
 }
 
 /** Markdown for the check's job summary. */

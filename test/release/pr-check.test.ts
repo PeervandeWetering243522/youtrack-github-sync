@@ -1,7 +1,7 @@
 /**
- * The PR check (V5): a conventional title, a "## Upgrading" section exactly when the title has
- * a `!`, and a preview of the release the squash commit will make, from the real
- * .releaserc.json and the real analyzer and notes generator.
+ * The PR check (V5, V6): a conventional title, a "## Upgrading" section whenever the title has a
+ * `!` and never on a PR that makes no release, and a preview of the release the squash commit
+ * will make, from the real .releaserc.json and the real analyzer and notes generator.
  */
 
 import assert from "node:assert/strict";
@@ -82,9 +82,26 @@ describe("checkPullRequest", () => {
     }
   });
 
-  it("rejects an Upgrading section without a `!`, but not the template's empty one", async () => {
-    assert.deepEqual(problemTitles(await check("feat: add", "## Upgrading\n\nDo this.")), ["Upgrading section"]);
-    assert.deepEqual(problemTitles(await check("feat: add", "## Upgrading\n\n<!-- hint -->\n")), []);
+  it("previews a feat, fix, perf or revert PR's Upgrading section under Before updating", async () => {
+    const result = await check("feat: sync bodies", "## Upgrading\n\nEdits on GitHub are reverted.");
+    assert.deepEqual(result.problems, []);
+    assert.equal(result.bump, "minor");
+    assert.equal(
+      result.notes,
+      `### Before updating\n\n* sync bodies (#5)\n\n  Edits on GitHub are reverted.\n\n### Features\n\n* sync bodies ([#5](${REPO}/issues/5))`,
+    );
+    for (const title of ["fix(action): a fix", "perf: fewer fetches", "revert: undo a thing"]) {
+      assert.deepEqual(problemTitles(await check(title, "## Upgrading\n\nDo this.")), [], title);
+    }
+  });
+
+  it("rejects an Upgrading section on a PR that makes no release, but not the template's empty one", async () => {
+    for (const title of ["docs: explain", "ci: a workflow", "chore(deps-dev): bump x"]) {
+      const result = await check(title, "## Upgrading\n\nDo this.");
+      assert.deepEqual(problemTitles(result), ["Upgrading section"], title);
+      assert.equal(result.notes, "", `${title}: no release, so no entry in the notes`);
+    }
+    assert.deepEqual(problemTitles(await check("docs: explain", "## Upgrading\n\n<!-- hint -->\n")), []);
   });
 
   it("ignores a BREAKING CHANGE line in the description, which never reaches the commit", async () => {

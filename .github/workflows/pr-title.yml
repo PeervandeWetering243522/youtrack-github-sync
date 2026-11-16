@@ -2,9 +2,10 @@ name: PR title
 
 # The squash commit on main is the PR title only (V5), and semantic-release reads those commits
 # to pick the next version, so the title must be a conventional commit (CONTRIBUTING.md). A
-# breaking PR (`!`) needs a "## Upgrading" section, which becomes its release note. The job
-# summary previews the release the PR will make. Runs again when the title or description is
-# edited. The job name is the check the main ruleset requires.
+# breaking PR (`!`) needs a "## Upgrading" section, which becomes its release note; any other PR
+# that makes a release may have one (listed under "Before updating", V6), one that makes none
+# may not. The job summary previews the release the PR will make. Runs again when the title or
+# description is edited. The job name is the check the main ruleset requires.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]

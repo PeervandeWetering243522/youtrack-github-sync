@@ -6,7 +6,9 @@ description is for reviewers only: it is not copied into the commit or the relea
 ## Upgrading
 
 <!--
-Only for a breaking change (a `!` in the title): what a group running the mirror must do
-before updating, written for them. It becomes the release's breaking-change note. Leave this
-empty otherwise; the check fails when it is filled in without a `!`.
+What a group running the mirror must do or know before updating, written for them.
+Required for a breaking change (a `!` in the title): it becomes the release's breaking-change
+note. For a feat or fix that groups will notice after updating, fill it in too: the release
+lists it under "Before updating". Leave it empty otherwise; the check fails when a PR that
+makes no release (docs, ci, chore, ...) fills it in.
 -->
