@@ -22,14 +22,34 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("parseGitHubMilestone", () => {
-  it("keeps only number, title and state", () => {
+  it("keeps only number, title, state and description", () => {
     // Act
     const milestone = parseGitHubMilestone(milestoneJson({ number: 4, title: "[YT-9] Business", description: "d" }));
 
     // Assert
-    const expected: GitHubMilestone = { number: 4, title: "[YT-9] Business", state: "open" };
+    const expected: GitHubMilestone = { number: 4, title: "[YT-9] Business", state: "open", description: "d" };
     assert.deepEqual(milestone, expected);
   });
+
+  it("reads a missing key and a null value as no description (N4)", () => {
+    assert.equal(parseGitHubMilestone(withoutKey(milestoneJson(), "description")).description, null);
+    assert.equal(parseGitHubMilestone(milestoneJson({ description: null })).description, null);
+  });
+
+  it("keeps a description verbatim (no trimming or line-ending changes)", () => {
+    for (const description of ["", " padded \r\n", "Epic\n\n---\nMirrored from YouTrack: https://x/issue/CUI-3"]) {
+      assert.equal(parseGitHubMilestone(milestoneJson({ description })).description, description);
+    }
+  });
+
+  for (const value of [1, true, ["x"], { text: "x" }]) {
+    it(`rejects description = ${JSON.stringify(value)} and names the milestone`, () => {
+      assert.throws(
+        () => parseGitHubMilestone(milestoneJson({ number: 4, description: value })),
+        schemaError(/^GitHub milestone #4: "description" must be a string or null/),
+      );
+    });
+  }
 
   it("parses a closed milestone", () => {
     assert.equal(parseGitHubMilestone(milestoneJson({ state: "closed" })).state, "closed");
@@ -129,7 +149,7 @@ describe("listAllMilestones", () => {
     assert.deepEqual(request.headers, EXPECTED_HEADERS);
     assert.equal(request.retry, "retry-once");
     assert.equal("body" in request, false);
-    assert.deepEqual(milestones, [{ number: 1, title: "[YT-33] Epic", state: "open" }]);
+    assert.deepEqual(milestones, [{ number: 1, title: "[YT-33] Epic", state: "open", description: null }]);
   });
 
   it("returns an empty list for a repository without milestones", async () => {
@@ -157,9 +177,9 @@ describe("listAllMilestones", () => {
     );
     assert.ok(fake.requests.every((request) => request.method === "GET" && request.retry === "retry-once"));
     assert.deepEqual(milestones, [
-      { number: 3, title: "[YT-9] a", state: "open" },
-      { number: 1, title: "[YT-33] Epic", state: "closed" },
-      { number: 2, title: "[YT-40] b", state: "open" },
+      { number: 3, title: "[YT-9] a", state: "open", description: null },
+      { number: 1, title: "[YT-33] Epic", state: "closed", description: null },
+      { number: 2, title: "[YT-40] b", state: "open", description: null },
     ]);
   });
 

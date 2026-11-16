@@ -116,7 +116,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
     assert.deepEqual(writeCalls(calls), [`PATCH ${MILESTONES_PATH}/7`]);
     assert.deepEqual(onlyBody(calls, "PATCH", `${MILESTONES_PATH}/7`), { title: "[CUI-33] [team] Epic 33" });
     assert.deepEqual(result, summary({ scanned: 2, updated: 1, unchanged: 1, fetches: 5 }));
-    assert.deepEqual(messages(lines), ["rename milestone CUI-33 #7", formatSummary(result, "ok")]);
+    assert.deepEqual(messages(lines), ["update milestone CUI-33 #7: set title", formatSummary(result, "ok")]);
   });
 
   it("renames, then closes, the legacy milestone of a resolved epic, before any create", async () => {
@@ -141,7 +141,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
     ]);
     assert.deepEqual(result, summary({ scanned: 2, created: 1, updated: 1, milestonesClosed: 1, fetches: 7 }));
     assert.deepEqual(messages(lines).slice(0, 3), [
-      "rename milestone CUI-33 #7",
+      "update milestone CUI-33 #7: set title",
       "close milestone CUI-33 #7",
       "create CUI-1 -> #101",
     ]);
@@ -229,7 +229,7 @@ describe("runSync legacy [YT-n] mirrors (N1)", () => {
     assert.deepEqual(result, summary({ scanned: 3, created: 1, updated: 2, fetches: 7 }));
     assert.deepEqual(messages(lines), [
       'DEMO-5: #12 matched by title only (no "youtrack" label)',
-      "rename milestone DEMO-1 #1",
+      "update milestone DEMO-1 #1: set title",
       "create DEMO-6 with type Feature -> #101",
       "update DEMO-5 #12: set title, set milestone DEMO-1 #1, set type Task",
       formatSummary(result, "ok"),
@@ -359,7 +359,7 @@ describe("runSync title sync in dry run", () => {
     assert.deepEqual(writeCalls(calls), []);
     assert.ok(calls.every(isRead));
     assert.deepEqual(messages(lines), [
-      "[dry-run] would rename milestone CUI-1 #1: [CUI-1] [team] Epic 1",
+      "[dry-run] would update milestone CUI-1 #1: set title: [CUI-1] [team] Epic 1",
       "[dry-run] would update CUI-5 #101: set title: [CUI-5] [team] Task 5",
       "[dry-run] would update CUI-6 #102: set title, set milestone CUI-1 #1, set type Feature: [CUI-6] [team] Task 6",
       formatSummary(result, "ok"),
@@ -414,7 +414,7 @@ describe("runSync title sync and the write cap", () => {
 
     // Assert
     assert.deepEqual(messages(lines).slice(0, -1), [
-      "[dry-run] would rename milestone CUI-1 #1: [CUI-1] [team] Epic 1",
+      "[dry-run] would update milestone CUI-1 #1: set title: [CUI-1] [team] Epic 1",
     ]);
     assert.deepEqual(result, summary({ dryRun: true, scanned: 3, updated: 1, capped: 2, fetches: 4 }));
   });
@@ -511,7 +511,10 @@ describe("runSync title sync outcomes", () => {
       { title: "[CUI-33] [team] Epic 33" },
       { state: "closed" },
     ]);
-    assert.match(error.failures[0] ?? "", /^rename milestone CUI-33 #7 failed: PATCH .*\/milestones\/7 -> HTTP 422/);
+    assert.match(
+      error.failures[0] ?? "",
+      /^update milestone CUI-33 #7: set title failed: PATCH .*\/milestones\/7 -> HTTP 422/,
+    );
     assert.deepEqual(error.summary, summary({ scanned: 1, milestonesClosed: 1, failed: 1, fetches: 6 }));
   });
 

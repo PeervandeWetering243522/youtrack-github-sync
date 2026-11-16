@@ -25,7 +25,7 @@ import type { World } from "./fixtures.ts";
 /**
  * One world that needs every action kind except reopen (R10, covered by test/sync/reopen.test.ts)
  * (docs/11 §1.3, N2), in execution order (§1.4):
- * CUI-33 resolved epic, open milestone #7 with a  -> renameMilestone, then closeMilestone
+ * CUI-33 resolved epic, open milestone #7 with a  -> updateMilestone (title), then closeMilestone
  *        legacy [YT-33] title
  * CUI-34 new epic                                 -> createMilestone (#201 in a real run)
  * CUI-35 new story under CUI-34                   -> create, Feature, milestone of CUI-34 (#101)
@@ -85,7 +85,7 @@ describe("runSync hierarchy, dry run", () => {
 
     // Assert: a milestone or mirror created in this run has no GitHub number yet ("(new)").
     assert.deepEqual(messages(lines), [
-      "[dry-run] would rename milestone CUI-33 #7: [CUI-33] [team] Epic 33",
+      "[dry-run] would update milestone CUI-33 #7: set title: [CUI-33] [team] Epic 33",
       "[dry-run] would close milestone CUI-33 #7",
       "[dry-run] would create milestone CUI-34: [CUI-34] [team] Epic 34",
       "[dry-run] would create CUI-35 with type Feature, milestone CUI-34 (new): [CUI-35] [team] Task 35",
@@ -213,7 +213,7 @@ describe("runSync hierarchy, writes enabled", () => {
 
     // Assert
     assert.deepEqual(messages(lines), [
-      "rename milestone CUI-33 #7",
+      "update milestone CUI-33 #7: set title",
       "close milestone CUI-33 #7",
       "create milestone CUI-34 -> #201",
       "create CUI-35 with type Feature, milestone CUI-34 #201 -> #101",

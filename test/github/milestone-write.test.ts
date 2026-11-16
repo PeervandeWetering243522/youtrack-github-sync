@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { closeMilestone, createMilestone, renameMilestone } from "../../src/github/milestones.ts";
+import { closeMilestone, createMilestone, updateMilestone } from "../../src/github/milestones.ts";
 import type { NewMilestone } from "../../src/github/milestones.ts";
 import { HttpError } from "../../src/http.ts";
 import {
@@ -45,7 +45,12 @@ describe("createMilestone", () => {
 
   it("returns the milestone parsed from the 201 response (its number, not the request's)", async () => {
     const fake = createFakeHttp([{ status: 201, body: created }]);
-    assert.deepEqual(await createMilestone(fake.http, TARGET, input), { number: 6, title: input.title, state: "open" });
+    assert.deepEqual(await createMilestone(fake.http, TARGET, input), {
+      number: 6,
+      title: input.title,
+      state: "open",
+      description: input.description,
+    });
   });
 
   it("sends an empty description as an empty string", async () => {
@@ -123,18 +128,19 @@ describe("createMilestone", () => {
 });
 
 // ---------------------------------------------------------------------------
-// renameMilestone
+// updateMilestone
 // ---------------------------------------------------------------------------
 
-describe("renameMilestone", () => {
+describe("updateMilestone", () => {
   const title = "[CUI-33] Data Structures";
+  const description = "Epic text\n\n---\nMirrored from YouTrack: https://youtrack.example.test/issue/CUI-33";
 
-  it("PATCHes exactly the title with retry-once, like closeMilestone", async () => {
+  it("PATCHes exactly the title with retry-once, like closeMilestone (N2)", async () => {
     // Arrange
     const fake = createFakeHttp([{ body: milestoneJson({ number: 6, title }) }]);
 
     // Act
-    await renameMilestone(fake.http, TARGET, 6, title);
+    await updateMilestone(fake.http, TARGET, 6, { title });
 
     // Assert
     assert.equal(fake.requests.length, 1);
@@ -146,29 +152,52 @@ describe("renameMilestone", () => {
     assert.equal(JSON.stringify(request.body), '{"title":"[CUI-33] Data Structures"}');
   });
 
-  it("never sends a state or description, so a closed milestone stays closed (D7)", async () => {
-    const fake = createFakeHttp([{ body: milestoneJson({ number: 6, title, state: "closed" }) }]);
-    await renameMilestone(fake.http, TARGET, 6, title);
-    assert.deepEqual(Object.keys(requestAt(fake.requests, 0).body ?? {}), ["title"]);
+  it("PATCHes only the description, or title and description in one request (N4)", async () => {
+    const fake = createFakeHttp([{ body: null }, { body: null }]);
+    await updateMilestone(fake.http, TARGET, 6, { description });
+    await updateMilestone(fake.http, TARGET, 6, { title, description });
+    assert.deepEqual(requestAt(fake.requests, 0).body, { description });
+    assert.equal(JSON.stringify(requestAt(fake.requests, 1).body), JSON.stringify({ title, description }));
   });
 
-  it("sends the title exactly as given, without trimming or escaping it", async () => {
+  it("never sends a state, so a closed milestone stays closed (D7)", async () => {
+    const fake = createFakeHttp([{ body: milestoneJson({ number: 6, title, state: "closed" }) }]);
+    await updateMilestone(fake.http, TARGET, 6, { title, description });
+    assert.deepEqual(Object.keys(requestAt(fake.requests, 0).body ?? {}), ["title", "description"]);
+  });
+
+  it("sends the title and description exactly as given, without trimming or escaping them", async () => {
     const odd = ' [CUI-33] "quoted" <b>ü</b> 😀 @bob #3 … ';
     const fake = createFakeHttp([{ body: null }]);
-    await renameMilestone(fake.http, TARGET, 6, odd);
-    assert.deepEqual(requestAt(fake.requests, 0).body, { title: odd });
+    await updateMilestone(fake.http, TARGET, 6, { title: odd, description: `${odd}\r\n` });
+    assert.deepEqual(requestAt(fake.requests, 0).body, { title: odd, description: `${odd}\r\n` });
+  });
+
+  it("sends an empty description as an empty string", async () => {
+    const fake = createFakeHttp([{ body: null }]);
+    await updateMilestone(fake.http, TARGET, 6, { description: "" });
+    assert.deepEqual(requestAt(fake.requests, 0).body, { description: "" });
+  });
+
+  it("refuses an update with neither title nor description before sending anything", async () => {
+    const fake = createFakeHttp([]);
+    await assert.rejects(updateMilestone(fake.http, TARGET, 6, {}), {
+      name: "RangeError",
+      message: "GitHub milestone update needs a title or description to change",
+    });
+    assert.equal(fake.requests.length, 0);
   });
 
   it("does not validate the response body", async () => {
     const fake = createFakeHttp([{ body: null }]);
-    await renameMilestone(fake.http, TARGET, 6, title);
+    await updateMilestone(fake.http, TARGET, 6, { title });
     assert.equal(fake.requests.length, 1);
   });
 
   for (const milestoneNumber of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
     it(`refuses milestone number ${String(milestoneNumber)} before sending anything`, async () => {
       const fake = createFakeHttp([]);
-      await assert.rejects(renameMilestone(fake.http, TARGET, milestoneNumber, title), {
+      await assert.rejects(updateMilestone(fake.http, TARGET, milestoneNumber, { title }), {
         name: "RangeError",
         message: /GitHub milestone number must be a positive integer/,
       });
@@ -178,15 +207,23 @@ describe("renameMilestone", () => {
 
   it("percent-encodes owner and repo in the PATCH URL", async () => {
     const fake = createFakeHttp([{ body: null }]);
-    await renameMilestone(fake.http, { owner: "o w", repo: "r?x", token: TOKEN }, 2, title);
+    await updateMilestone(fake.http, { owner: "o w", repo: "r?x", token: TOKEN }, 2, { title });
     assert.equal(requestAt(fake.requests, 0).url, "https://api.github.com/repos/o%20w/r%3Fx/milestones/2");
   });
 
   it("propagates an HttpError from the client", async () => {
     const failure = new HttpError("PATCH", `${MILESTONES_URL}/6`, 422, '{"message":"Validation Failed"}');
     const fake = createFakeHttp([], failure);
-    await assert.rejects(renameMilestone(fake.http, TARGET, 6, title), (error: Error) => error === failure);
+    await assert.rejects(updateMilestone(fake.http, TARGET, 6, { title }), (error: Error) => error === failure);
     assert.equal(fake.requests.length, 1);
+  });
+
+  it("does not mutate or alias the caller's patch", async () => {
+    const patch = Object.freeze({ title, description });
+    const fake = createFakeHttp([{ body: null }]);
+    await updateMilestone(fake.http, TARGET, 6, patch);
+    assert.deepEqual(patch, { title, description });
+    assert.notEqual(requestAt(fake.requests, 0).body, patch);
   });
 });
 

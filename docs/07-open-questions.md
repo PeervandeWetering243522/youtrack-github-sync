@@ -130,3 +130,21 @@ fallback. 25 is U14, 26 is U15, 27 is U16.
     `redact_query_string` strips subrequest URLs in traces at all (rollout step 2); if not,
     should the example turn trace persistence off? See [13](13-assignees-plan.md#7-risks). **Answered: U18**
     (keep the default; the README note covers upgraders).
+
+## E. Body sync (2026-11-16)
+
+Keep mirror bodies in step with YouTrack descriptions instead of writing them once (D7, N2). A
+GET-only check against CUI found 16 of 99 mirror bodies out of date (all in the description part,
+none from line endings) and all 5 milestone descriptions current. **All answered** the same day
+in [08](08-decisions.md) as N4 and V6.
+
+34. **Milestones too?** Epic descriptions become milestone descriptions (H10). _Answer: yes (N4)._
+35. **Closed mirrors?** Like titles (N2, D8), or open only (like U7)? _Answer: open and closed (N4)._
+36. **Edits made on GitHub,** ticked task-list boxes included: always overwrite, or keep them
+    until YouTrack changes (a hidden hash of the description in each body)? _Answer: always
+    overwrite (N4)._
+37. **Release:** minor, major with a switch, or minor with the switch off by default? _Answer:
+    minor, no switch, with the change spelled out on the release page (N4)._
+38. **How the release page says it:** let a non-breaking PR carry an Upgrading section that the
+    release lists under "Before updating", or edit the release by hand? _Answer: the former,
+    and write one for every such change (V6)._

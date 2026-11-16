@@ -38,8 +38,8 @@ export const NO_HIERARCHY = {
   parentIsForeign: false,
 } as const;
 
-/** NO_HIERARCHY plus no closer and no assignees: the optional fields of a parsed issue that has none of them. */
-export const NO_EXTRAS = { ...NO_HIERARCHY, closedBy: null, assignees: [] } as const;
+/** NO_HIERARCHY plus no body, no closer and no assignees: the optional fields of a parsed issue that has none of them. */
+export const NO_EXTRAS = { ...NO_HIERARCHY, body: null, closedBy: null, assignees: [] } as const;
 
 /** The assignable-users list, the commit lookup and the user search, spelled out (2.4, docs/13). */
 export const ASSIGNABLE_URL = `${REPO_URL}/assignees?per_page=100`;

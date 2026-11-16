@@ -10,6 +10,7 @@ import {
   closedMirror,
   counts,
   describeActions,
+  desiredBody,
   desiredTitle,
   epic,
   FILTERED,
@@ -171,9 +172,9 @@ describe("planActions: reopening own closes (R10)", () => {
 
   it("reopens a title-only (unlabelled) mirror by the same rule as a labelled one", () => {
     const githubIssues = Object.freeze([
-      unlabelled(12, desiredTitle(5), { state: "closed", closedBy: ACTIONS_BOT }),
-      unlabelled(13, desiredTitle(6), { state: "closed", closedBy: "a-person" }),
-      ghIssue(14, desiredTitle(7), { state: "closed", closedBy: ACTIONS_BOT }),
+      unlabelled(12, desiredTitle(5), { state: "closed", closedBy: ACTIONS_BOT, body: desiredBody(5) }),
+      unlabelled(13, desiredTitle(6), { state: "closed", closedBy: "a-person", body: desiredBody(6) }),
+      ghIssue(14, desiredTitle(7), { state: "closed", closedBy: ACTIONS_BOT, body: desiredBody(7) }),
     ]);
     const { index, warnings } = buildMirrorIndex(githubIssues, LABEL, PROJECT);
 
@@ -283,7 +284,7 @@ describe("planActions: milestones are never reopened (R10, D7)", () => {
 
     const result = plan([epic(3)], { ...REOPEN, milestones });
 
-    assert.deepEqual(describeActions(result.actions), ["renameMilestone 3 -> m7"]);
+    assert.deepEqual(describeActions(result.actions), ["updateMilestone 3 -> m7 title"]);
   });
 
   it("never reopens an epic's old issue mirror either; epics are only milestones", () => {

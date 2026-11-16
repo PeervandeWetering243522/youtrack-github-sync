@@ -208,6 +208,32 @@ describe("parseGitHubIssue: closed_by", () => {
 });
 
 // ---------------------------------------------------------------------------
+// body (N4)
+// ---------------------------------------------------------------------------
+
+describe("parseGitHubIssue: body", () => {
+  it("reads a missing key and a null value as no body", () => {
+    assert.equal(parse(issueJson()).body, null);
+    assert.equal(parse(issueJson({ body: null })).body, null);
+  });
+
+  for (const body of ["", "Text\n\n---\nMirrored from YouTrack: https://x/issue/CUI-1", " padded \r\n", "ü 😀"]) {
+    it(`keeps the body ${JSON.stringify(body)} verbatim (no trimming or line-ending changes)`, () => {
+      assert.equal(parse(issueJson({ body })).body, body);
+    });
+  }
+
+  for (const value of [1, true, ["x"], { text: "x" }]) {
+    it(`rejects body = ${JSON.stringify(value)}`, () => {
+      assert.throws(
+        () => parse(issueJson({ number: 8, body: value })),
+        schemaError(/#8: "body" must be a string or null/),
+      );
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // parent_issue_url
 // ---------------------------------------------------------------------------
 
@@ -359,6 +385,7 @@ describe("parseGitHubIssue: hierarchy fields together", () => {
       typeName: "Task",
       parentNumber: 24,
       parentIsForeign: false,
+      body: null,
       closedBy: null,
       assignees: [],
     };

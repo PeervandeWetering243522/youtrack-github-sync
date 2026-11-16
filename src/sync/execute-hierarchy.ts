@@ -1,9 +1,9 @@
 /**
- * The hierarchy writes of the write phase (docs/11 §1.3): create, rename and close
- * milestones, and keep an existing mirror's title, milestone, type and parent in sync
- * (update, setParent, removeParent; N2 for titles). Dependencies resolve through the
- * run-local map; a missing one caps the action (D4). Only the milestone create is never
- * retried.
+ * The hierarchy writes of the write phase (docs/11 §1.3): create, update and close
+ * milestones, and keep an existing mirror's title, body, milestone, type and parent in sync
+ * (update, setParent, removeParent; N2 for titles, N4 for bodies and descriptions).
+ * Dependencies resolve through the run-local map; a missing one caps the action (D4). Only
+ * the milestone create is never retried.
  */
 
 import type { GitHubIssue, IssueUpdate } from "../github/issues.ts";
@@ -13,16 +13,16 @@ import {
   describeCloseMilestone,
   describeDetach,
   describeMove,
-  describeRenameMilestone,
   describeUpdate,
+  describeUpdateMilestone,
   mirrorLabel,
 } from "./describe.ts";
 import type {
   CloseMilestoneAction,
   RemoveParentAction,
-  RenameMilestoneAction,
   SetParentAction,
   UpdateAction,
+  UpdateMilestoneAction,
 } from "./describe.ts";
 import { attemptWrite, notWritten, sendWrite, waitsFor } from "./execute-write.ts";
 import type { Step, WriteContext } from "./execute-write.ts";
@@ -53,11 +53,12 @@ export async function executeCreateMilestone(
   };
 }
 
-/** PATCH the title of an epic's milestone to the epic's mirror title (N2); counted as a sync write. */
-export function executeRenameMilestone(action: RenameMilestoneAction, context: WriteContext): Promise<Tally> {
-  const { milestoneNumber } = action.milestone;
-  const write = (): Promise<void> => context.writer.renameMilestone(milestoneNumber, action.title);
-  return sendWrite(context, describeRenameMilestone(action), write, "updated");
+/** PATCH the title (N2) and/or description (N4) of an epic's milestone; counted as a sync write. */
+export function executeUpdateMilestone(action: UpdateMilestoneAction, context: WriteContext): Promise<Tally> {
+  const { title, description } = action;
+  const patch = { ...(title === undefined ? {} : { title }), ...(description === undefined ? {} : { description }) };
+  const write = (): Promise<void> => context.writer.updateMilestone(action.milestone.milestoneNumber, patch);
+  return sendWrite(context, describeUpdateMilestone(action), write, "updated");
 }
 
 /** PATCH the open milestone of a resolved epic to closed. */
@@ -68,7 +69,7 @@ export function executeCloseMilestone(action: CloseMilestoneAction, context: Wri
 }
 
 /**
- * One PATCH of the mirror's title, milestone (null clears it) and/or type, once the
+ * One PATCH of the mirror's title, body, milestone (null clears it) and/or type, once the
  * milestone resolves; a missing one caps it (D4). A response that does not show the change
  * is warned about (no extra write; the next run's plan sees the difference again).
  */
@@ -101,10 +102,14 @@ export function executeRemoveParent(action: RemoveParentAction, context: WriteCo
   return sendWrite(context, describeDetach(action), write, "updated");
 }
 
-/** The PATCH of `action`: its title and type as is, its milestone epic resolved to a milestone number. */
+/** The PATCH of `action`: its title, body and type as is, its milestone epic resolved to a milestone number. */
 function issuePatch(action: UpdateAction, resolved: Resolved): Dependency<IssueUpdate> {
-  const { title, milestoneEpic, githubType } = action;
-  const rest = { ...(title === undefined ? {} : { title }), ...(githubType === undefined ? {} : { type: githubType }) };
+  const { title, body, milestoneEpic, githubType } = action;
+  const rest = {
+    ...(title === undefined ? {} : { title }),
+    ...(body === undefined ? {} : { body }),
+    ...(githubType === undefined ? {} : { type: githubType }),
+  };
   if (milestoneEpic === undefined) return { found: true, value: rest };
   const milestone = optional(milestoneEpic, (epic) => milestoneFor(resolved, epic, action.issue));
   return milestone.found ? { found: true, value: { milestone: milestone.value, ...rest } } : milestone;
@@ -112,9 +117,10 @@ function issuePatch(action: UpdateAction, resolved: Resolved): Dependency<IssueU
 
 /** One warning naming every change the PATCH response does not show. */
 function warnDropped(context: WriteContext, updated: GitHubIssue, label: string, patch: IssueUpdate): void {
-  const { title, milestone, type } = patch;
+  const { title, body, milestone, type } = patch;
   const dropped = [
     ...(title !== undefined && updated.title !== title ? ["the title"] : []),
+    ...(body !== undefined && updated.body !== body ? ["the body"] : []),
     ...(milestone !== undefined && updated.milestoneNumber !== milestone ? [milestoneText(milestone)] : []),
     ...(type !== undefined && updated.typeName !== type ? [`type ${type}`] : []),
   ];

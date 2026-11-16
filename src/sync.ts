@@ -83,7 +83,7 @@ export type RunSummary = {
   readonly closed: number;
   /** Closed mirrors reopened because their YouTrack issue is unresolved again (R10). */
   readonly reopened: number;
-  /** Sync writes: `update` (title, milestone and/or type), `setParent`, `removeParent` and `renameMilestone`. */
+  /** Sync writes: `update` (title, body, milestone and/or type), `setParent`, `removeParent` and `updateMilestone`. */
   readonly updated: number;
   /** `addAssignees` writes (one may name several logins; docs/13 §5). */
   readonly assigneesAdded: number;
@@ -158,7 +158,7 @@ export function formatSummary(summary: RunSummary, outcome: "ok" | "failed"): st
  *    - createMilestone / create (unresolved only, decision R9): POST, never retried; a create
  *      sends milestone, type and parent_issue_id; if its response lacks MIRROR_LABEL and
  *      writes remain, addLabel (counts as a write); other dropped fields are warned about;
- *    - renameMilestone / closeMilestone / close / reopen / update / setParent / removeParent:
+ *    - updateMilestone / closeMilestone / close / reopen / update / setParent / removeParent:
  *      retried once;
  *    - an action whose milestone or parent was not created in this run is capped with a
  *      warning and execution continues (D4);
@@ -207,6 +207,7 @@ export async function runSync(config: Config, deps: SyncDeps): Promise<RunSummar
     mirrors: inputs.mirrors,
     milestones: inputs.milestones,
     excludePrefix: config.excludePrefix,
+    youtrackBaseUrl: config.youtrackBaseUrl,
     maxWrites: config.maxWritesPerRun,
     reopenClosedBy: config.reopenClosedBy,
     assignees: stage.sync,

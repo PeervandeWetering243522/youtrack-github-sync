@@ -10,6 +10,8 @@ import type { Config } from "../../src/config.ts";
 import { MIRROR_LABEL } from "../../src/github/client.ts";
 import { isInteger, isJsonArray, isJsonObject, isString, parseJson } from "../../src/json.ts";
 import type { JsonObject, JsonValue } from "../../src/json.ts";
+import { formatMirror, parseMirrorTitle } from "../../src/mirror.ts";
+import { parseYouTrackIssue } from "../../src/youtrack.ts";
 import { WRITE_PAUSE_MS } from "../../src/sync.ts";
 import type { Logger, RunSummary, SyncDeps } from "../../src/sync.ts";
 
@@ -175,9 +177,51 @@ export function ghIssue(issueNumber: number, title: string, options: IssueOption
   };
 }
 
-/** A milestone as GitHub lists it. */
+/**
+ * A milestone as GitHub lists it. Without a description key: the fake list fills in the one
+ * formatMirror makes of its epic's row (see withMirrorText), so it needs no description update.
+ */
 export function ghMilestone(milestoneNumber: number, title: string, state: "open" | "closed" = "open"): JsonObject {
-  return { number: milestoneNumber, title, state, description: null, open_issues: 0, closed_issues: 0 };
+  return { number: milestoneNumber, title, state, open_issues: 0, closed_issues: 0 };
+}
+
+/**
+ * What formatMirror makes of the YouTrack row that `title` names ([<project>-n] or the legacy
+ * [YT-n], N1): the body or description a mirror has when nothing changed since it was made
+ * (N4). Null when no row matches or the row does not parse (the run itself then fails or
+ * ignores it).
+ */
+function mirroredText(title: JsonValue | undefined, rows: readonly JsonObject[]): string | null {
+  if (!isString(title)) return null;
+  const row = rows.find((candidate) => {
+    const id = candidate["idReadable"];
+    const project = isString(id) ? id.slice(0, id.lastIndexOf("-")) : "";
+    return parseMirrorTitle(title, project) === candidate["numberInProject"];
+  });
+  if (row === undefined) return null;
+  try {
+    return formatMirror(parseYouTrackIssue(row), YOUTRACK_BASE_URL).body;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A listed issue (`body`) or milestone (`description`) as the fake list answers it: a test that
+ * left the key out gets mirroredText, so only tests about bodies see a body change; one that
+ * gave the key, null included, gets it unchanged.
+ */
+function withMirrorText(item: JsonObject, key: "body" | "description", rows: readonly JsonObject[]): JsonObject {
+  return key in item ? item : { ...item, [key]: mirroredText(item["title"], rows) };
+}
+
+/**
+ * `issues` as the fake issue list answers them in a world with YouTrack `rows`: each mirror
+ * without a body key gets the body formatMirror makes of its row. For overrides that answer
+ * the list themselves.
+ */
+export function listedIssues(issues: readonly JsonObject[], rows: readonly JsonObject[]): JsonObject[] {
+  return issues.map((issue) => withMirrorText(issue, "body", rows));
 }
 
 /** Open milestones #1.. of resolved epics CUI-1.., titled as the epics: each needs a closeMilestone only. */
@@ -334,15 +378,16 @@ function createdIssue(body: JsonValue | undefined, issueNumber: number, world: W
   });
 }
 
-/** A PATCH answer: closed for a close, otherwise the requested title, milestone and type echoed back. */
+/** A PATCH answer: closed for a close, otherwise the requested title, body, milestone and type echoed back. */
 function patchedIssue(body: JsonValue | undefined, issueNumber: number): JsonObject {
-  const { state, title, milestone, type } = requestOf(body);
+  const { state, title, body: issueBody, milestone, type } = requestOf(body);
   if (state === "closed") return ghIssue(issueNumber, "[CUI-0] closed", { state: "closed", assignees: [] });
   return {
     ...ghIssue(issueNumber, isString(title) ? title : "[CUI-0] patched", {
       assignees: [],
       ...(isString(type) ? { type } : {}),
     }),
+    ...(isString(issueBody) ? { body: issueBody } : {}),
     ...(milestone === undefined ? {} : { milestone: isInteger(milestone) ? { number: milestone } : null }),
   };
 }
@@ -361,7 +406,13 @@ function patchedMilestone(body: JsonValue | undefined, milestoneNumber: number):
 
 function milestoneAnswer(call: RecordedCall, world: World, counters: Counters): Response | undefined {
   const path = call.url.pathname;
-  if (path === MILESTONES_PATH && call.method === "GET") return json(200, world.milestones ?? []);
+  if (path === MILESTONES_PATH && call.method === "GET") {
+    const rows = world.youtrackRows ?? [];
+    return json(
+      200,
+      (world.milestones ?? []).map((milestone) => withMirrorText(milestone, "description", rows)),
+    );
+  }
   if (path === MILESTONES_PATH && call.method === "POST") {
     return json(201, createdMilestone(call.body, counters.nextMilestone()));
   }
@@ -374,7 +425,9 @@ function milestoneAnswer(call: RecordedCall, world: World, counters: Counters): 
 
 function issueAnswer(call: RecordedCall, world: World, counters: Counters): Response | undefined {
   const path = call.url.pathname;
-  if (path === ISSUES_PATH && call.method === "GET") return json(200, world.githubIssues ?? []);
+  if (path === ISSUES_PATH && call.method === "GET") {
+    return json(200, listedIssues(world.githubIssues ?? [], world.youtrackRows ?? []));
+  }
   if (path === ISSUES_PATH && call.method === "POST") {
     return json(201, createdIssue(call.body, counters.nextIssue(), world));
   }

@@ -9,11 +9,12 @@ import { parseMirrorTitle } from "../mirror.ts";
 import { groupCandidates } from "./candidates.ts";
 import type { Candidate } from "./candidates.ts";
 
-/** One epic's milestone: its number, title and state as listed. */
+/** One epic's milestone: its number, title, state and description as listed. */
 export type MilestoneRef = {
   readonly milestoneNumber: GitHubMilestone["number"];
   readonly title: GitHubMilestone["title"];
   readonly state: GitHubMilestone["state"];
+  readonly description: GitHubMilestone["description"];
 };
 
 /** Epic numberInProject -> its milestone. */
@@ -89,7 +90,8 @@ function milestoneCandidates(
     const numberInProject = parseMirrorTitle(milestone.title, project);
     if (numberInProject === null || seen.has(milestone.number)) continue;
     seen.add(milestone.number);
-    const ref = { milestoneNumber: milestone.number, title: milestone.title, state: milestone.state };
+    const { title, state, description } = milestone;
+    const ref = { milestoneNumber: milestone.number, title, state, description };
     candidates.push({ numberInProject, ref });
   }
   return candidates.sort(compareCandidates);

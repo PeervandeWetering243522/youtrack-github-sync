@@ -121,8 +121,8 @@ describe("planActions: title sync in the execution order (N2)", () => {
   };
   const order = [
     "createMilestone 1",
-    "renameMilestone 2 -> m5",
-    "renameMilestone 3 -> m6",
+    "updateMilestone 2 -> m5 title",
+    "updateMilestone 3 -> m6 title",
     "closeMilestone 3 -> m6",
     "create 4 type=Feature",
     "update 5 #15 title",
