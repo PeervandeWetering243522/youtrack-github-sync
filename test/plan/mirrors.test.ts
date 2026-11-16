@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildMirrorIndex, mirrorNumbers } from "../../src/plan/mirrors.ts";
+import type { MirrorRef } from "../../src/plan/mirrors.ts";
 import { ghIssue, LABEL, mirror, mirrors, PROJECT, unlabelled } from "./fixtures.ts";
+import type { MirrorDraft } from "./fixtures.ts";
+
+/** The ref buildMirrorIndex makes of a fixture ghIssue, which has no body unless given. */
+function indexed(issueNumber: number, fields: Partial<MirrorRef> = {}): MirrorDraft {
+  return mirror(issueNumber, { body: null, ...fields });
+}
 
 describe("buildMirrorIndex: matching", () => {
   it("returns an empty index and no warnings for an empty list", () => {
@@ -20,8 +27,8 @@ describe("buildMirrorIndex: matching", () => {
     assert.deepEqual(
       [...result.index.entries()],
       [
-        [5, mirror(12, { title: "[CUI-5] Fix it" })],
-        [6, mirror(13, { title: "[CUI-6] Done", state: "closed" })],
+        [5, indexed(12, { title: "[CUI-5] Fix it" })],
+        [6, indexed(13, { title: "[CUI-6] Done", state: "closed" })],
       ],
     );
     assert.deepEqual(result.warnings, []);
@@ -48,7 +55,7 @@ describe("buildMirrorIndex: matching", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(12, { title: "[CUI-5] Fix it" }));
+    assert.deepEqual(result.index.get(5), indexed(12, { title: "[CUI-5] Fix it" }));
     assert.deepEqual(result.warnings, []);
   });
 
@@ -75,7 +82,7 @@ describe("buildMirrorIndex: matching", () => {
 
     const result = buildMirrorIndex(Object.freeze([issue, issue]), LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(12, { title: "[CUI-5] Fix it" }));
+    assert.deepEqual(result.index.get(5), indexed(12, { title: "[CUI-5] Fix it" }));
     assert.deepEqual(result.warnings, []);
   });
 
@@ -84,7 +91,7 @@ describe("buildMirrorIndex: matching", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(12, { title: "[CUI-5] Fix it" }));
+    assert.deepEqual(result.index.get(5), indexed(12, { title: "[CUI-5] Fix it" }));
     assert.deepEqual(result.warnings, []);
   });
 
@@ -130,8 +137,8 @@ describe("buildMirrorIndex: project ids in titles (N1)", () => {
     assert.deepEqual(
       [...result.index.entries()],
       [
-        [5, mirror(12, { title: "[CUI-5] New style" })],
-        [6, mirror(13, { title: "[YT-6] Old style" })],
+        [5, indexed(12, { title: "[CUI-5] New style" })],
+        [6, indexed(13, { title: "[YT-6] Old style" })],
       ],
     );
     assert.deepEqual(result.warnings, []);
@@ -205,7 +212,7 @@ describe("buildMirrorIndex: project ids in titles (N1)", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(20, { title: "[YT-5] Old" }));
+    assert.deepEqual(result.index.get(5), indexed(20, { title: "[YT-5] Old" }));
     assert.deepEqual(result.warnings, ["CUI-5: 2 GitHub issues match; using #20 (labelled), ignoring #21"]);
   });
 
@@ -214,7 +221,7 @@ describe("buildMirrorIndex: project ids in titles (N1)", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(21, { title: "[CUI-5] New" }));
+    assert.deepEqual(result.index.get(5), indexed(21, { title: "[CUI-5] New" }));
     assert.deepEqual(result.warnings, ["CUI-5: 2 GitHub issues match; using #21 (labelled), ignoring #20"]);
   });
 });
@@ -230,11 +237,26 @@ describe("buildMirrorIndex: hierarchy fields", () => {
 
     assert.deepEqual(
       result.index.get(5),
-      mirror(12, { id: 777, title: "[CUI-5] Task", milestoneNumber: 3, typeName: "Task", parentNumber: 11 }),
+      indexed(12, { id: 777, title: "[CUI-5] Task", milestoneNumber: 3, typeName: "Task", parentNumber: 11 }),
     );
     assert.deepEqual(
       result.index.get(6),
-      mirror(13, { title: "[CUI-6] Story", typeName: "Feature", parentIsForeign: true }),
+      indexed(13, { title: "[CUI-6] Story", typeName: "Feature", parentIsForeign: true }),
+    );
+  });
+
+  it("copies the body verbatim, for the body sync (N4)", () => {
+    const issues = Object.freeze([
+      ghIssue(12, "[CUI-5] Task", { body: "Text\r\n\n---\nMirrored from YouTrack: x " }),
+      ghIssue(13, "[CUI-6] Story", { body: "" }),
+      ghIssue(14, "[CUI-7] Bug"),
+    ]);
+
+    const result = buildMirrorIndex(issues, LABEL, PROJECT);
+
+    assert.deepEqual(
+      [5, 6, 7].map((n) => result.index.get(n)?.body),
+      ["Text\r\n\n---\nMirrored from YouTrack: x ", "", null],
     );
   });
 
@@ -246,7 +268,10 @@ describe("buildMirrorIndex: hierarchy fields", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(21, { title: "[CUI-5] Winner", state: "closed", milestoneNumber: 4 }));
+    assert.deepEqual(
+      result.index.get(5),
+      indexed(21, { title: "[CUI-5] Winner", state: "closed", milestoneNumber: 4 }),
+    );
   });
 
   it("copies who closed the issue verbatim, from labelled and title-only mirrors alike (R10)", () => {
@@ -260,11 +285,11 @@ describe("buildMirrorIndex: hierarchy fields", () => {
 
     assert.deepEqual(
       result.index.get(5),
-      mirror(12, { title: "[CUI-5] Task", state: "closed", closedBy: "GitHub-Actions[bot]" }),
+      indexed(12, { title: "[CUI-5] Task", state: "closed", closedBy: "GitHub-Actions[bot]" }),
     );
     assert.deepEqual(
       result.index.get(6),
-      mirror(13, { title: "[CUI-6] Story", state: "closed", hasLabel: false, closedBy: "someone" }),
+      indexed(13, { title: "[CUI-6] Story", state: "closed", hasLabel: false, closedBy: "someone" }),
     );
     assert.equal(result.index.get(7)?.closedBy, null);
   });
@@ -300,7 +325,7 @@ describe("buildMirrorIndex: hierarchy fields", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(21, { title: "[CUI-5] Winner", assignees }));
+    assert.deepEqual(result.index.get(5), indexed(21, { title: "[CUI-5] Winner", assignees }));
   });
 
   it("gives a mirror without assignees an empty list", () => {
@@ -316,7 +341,7 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(15, { title: "[CUI-5] New" }));
+    assert.deepEqual(result.index.get(5), indexed(15, { title: "[CUI-5] New" }));
     assert.deepEqual(result.warnings, ["CUI-5: 2 GitHub issues match; using #15 (labelled), ignoring #12"]);
   });
 
@@ -325,7 +350,7 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(12, { title: "[CUI-5] A" }));
+    assert.deepEqual(result.index.get(5), indexed(12, { title: "[CUI-5] A" }));
     assert.deepEqual(result.warnings, ["CUI-5: 2 GitHub issues match; using #12 (labelled), ignoring #15"]);
   });
 
@@ -334,7 +359,7 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(7), mirror(18, { title: "[CUI-7] A", hasLabel: false }));
+    assert.deepEqual(result.index.get(7), indexed(18, { title: "[CUI-7] A", hasLabel: false }));
     assert.deepEqual(result.warnings, [
       'CUI-7: #18 matched by title only (no "youtrack" label)',
       "CUI-7: 2 GitHub issues match; using #18 (unlabelled), ignoring #20",
@@ -358,7 +383,7 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(12, { title: "[CUI-5] Fix it", state: "closed", hasLabel: false }));
+    assert.deepEqual(result.index.get(5), indexed(12, { title: "[CUI-5] Fix it", state: "closed", hasLabel: false }));
     assert.deepEqual(result.warnings, ['CUI-5: #12 matched by title only (no "youtrack" label)']);
   });
 
@@ -426,7 +451,7 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 
     const result = buildMirrorIndex(issues, LABEL, PROJECT);
 
-    assert.deepEqual(result.index.get(5), mirror(15, { title: "[CUI-5] Closed", state: "closed" }));
+    assert.deepEqual(result.index.get(5), indexed(15, { title: "[CUI-5] Closed", state: "closed" }));
   });
 
   it("never puts issue titles into warnings", () => {
@@ -450,7 +475,7 @@ describe("buildMirrorIndex: precedence and warnings", () => {
 
 describe("mirrorNumbers", () => {
   it("maps each mirror's GitHub issue number back to its YouTrack number", () => {
-    const index = mirrors([5, mirror(12)], [6, mirror(40, { state: "closed" })]);
+    const index = mirrors([5, indexed(12)], [6, indexed(40, { state: "closed" })]);
 
     assert.deepEqual(
       [...mirrorNumbers(index).entries()],

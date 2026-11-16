@@ -1,7 +1,8 @@
 /**
  * How log lines describe planned actions, shared by the dry-run preview and the write phase
- * so both name an action alike. YouTrack ids and GitHub numbers only; the dry-run preview
- * appends the mirror title to its create and rename lines (decision R3). A milestone or
+ * so both name an action alike. YouTrack ids and GitHub numbers only, never a body or
+ * description; the dry-run preview appends the mirror title to its create lines and the
+ * lines that set a title (decision R3). A milestone or
  * mirror that is not in the resolution map yet is named "(new)": the dry run creates
  * nothing, so one it would create earlier in the run has no GitHub number (the write phase
  * resolves every dependency before logging).
@@ -18,11 +19,11 @@ export type CreateAction = Extract<Action, { readonly kind: "create" }>;
 export type CloseAction = Extract<Action, { readonly kind: "close" }>;
 /** A planned `reopen` of a closed issue mirror (R10). */
 export type ReopenAction = Extract<Action, { readonly kind: "reopen" }>;
-/** A planned `renameMilestone` of an epic milestone. */
-export type RenameMilestoneAction = Extract<Action, { readonly kind: "renameMilestone" }>;
+/** A planned `updateMilestone` of an epic milestone's title and/or description. */
+export type UpdateMilestoneAction = Extract<Action, { readonly kind: "updateMilestone" }>;
 /** A planned `closeMilestone` of an open epic milestone. */
 export type CloseMilestoneAction = Extract<Action, { readonly kind: "closeMilestone" }>;
-/** A planned `update` of a mirror's title, milestone and/or type. */
+/** A planned `update` of a mirror's title, body, milestone and/or type. */
 export type UpdateAction = Extract<Action, { readonly kind: "update" }>;
 /** A planned `setParent` (move under another mirror). */
 export type SetParentAction = Extract<Action, { readonly kind: "setParent" }>;
@@ -73,13 +74,17 @@ export function createDetails(resolved: Resolved, action: CreateAction): string 
   return parts.length === 0 ? "" : ` with ${parts.join(", ")}`;
 }
 
-/** "update CUI-15 #21: set title, set milestone CUI-33 #7, set type Task" (or "...: clear milestone"). */
+/**
+ * "update CUI-15 #21: set title, set body, set milestone CUI-33 #7, set type Task" (or "...:
+ * clear milestone"). Never the body itself (R3).
+ */
 export function describeUpdate(resolved: Resolved, action: UpdateAction): string {
-  const { title, milestoneEpic, githubType } = action;
+  const { title, body, milestoneEpic, githubType } = action;
   const titleChange = title === undefined ? [] : ["set title"];
+  const bodyChange = body === undefined ? [] : ["set body"];
   const milestone = milestoneEpic === undefined ? [] : [milestoneChange(resolved, action.issue, milestoneEpic)];
   const type = githubType === undefined ? [] : [`set type ${githubType}`];
-  return `update ${mirrorLabel(action)}: ${[...titleChange, ...milestone, ...type].join(", ")}`;
+  return `update ${mirrorLabel(action)}: ${[...titleChange, ...bodyChange, ...milestone, ...type].join(", ")}`;
 }
 
 /** "move CUI-40 #25 under CUI-36 #22". */
@@ -121,9 +126,13 @@ export function assigneeCount(logins: readonly string[]): string {
   return `${String(logins.length)} ${logins.length === 1 ? "assignee" : "assignees"}`;
 }
 
-/** "rename milestone CUI-33 #7". */
-export function describeRenameMilestone(action: RenameMilestoneAction): string {
-  return `rename milestone ${milestoneLabel(action)}`;
+/** "update milestone CUI-33 #7: set title, set description". Never the description itself (R3). */
+export function describeUpdateMilestone(action: UpdateMilestoneAction): string {
+  const changes = [
+    ...(action.title === undefined ? [] : ["set title"]),
+    ...(action.description === undefined ? [] : ["set description"]),
+  ];
+  return `update milestone ${milestoneLabel(action)}: ${changes.join(", ")}`;
 }
 
 /** "close milestone CUI-33 #7". */
@@ -132,7 +141,7 @@ export function describeCloseMilestone(action: CloseMilestoneAction): string {
 }
 
 /** "CUI-33 #7": the epic of a milestone action and its existing milestone. */
-function milestoneLabel(action: RenameMilestoneAction | CloseMilestoneAction): string {
+function milestoneLabel(action: UpdateMilestoneAction | CloseMilestoneAction): string {
   return `${mirrorName(action.issue)} #${String(action.milestone.milestoneNumber)}`;
 }
 

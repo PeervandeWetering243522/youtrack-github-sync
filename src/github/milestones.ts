@@ -1,8 +1,8 @@
 /**
  * GitHub milestones (the mirrors of YouTrack epics, H1/H7): the typed milestone shape, the
- * paged list read, create, rename and close. A milestone's title follows its epic (N2); it
- * is never re-described or reopened (D7). Types derive from @octokit/openapi-types. Writes
- * are never called in DRY_RUN; sync.ts enforces that.
+ * paged list read, create, update and close. A milestone's title (N2) and description (N4)
+ * follow its epic; it is never reopened (D7). Types derive from @octokit/openapi-types.
+ * Writes are never called in DRY_RUN; sync.ts enforces that.
  */
 
 import type { components, operations } from "@octokit/openapi-types";
@@ -26,11 +26,16 @@ type UpdateMilestoneBody = NonNullable<
   operations["issues/update-milestone"]["requestBody"]
 >["content"]["application/json"];
 
-/** The subset of a GitHub milestone this tool reads. */
-export type GitHubMilestone = Readonly<Pick<MilestoneSchema, "number" | "title" | "state">>;
+/** The subset of a GitHub milestone this tool reads; `description` verbatim, or null when GitHub reports none. */
+export type GitHubMilestone = Readonly<Pick<MilestoneSchema, "number" | "title" | "state">> & {
+  readonly description: string | null;
+};
 
 /** What createMilestone sends: exactly these two fields (no due date, H1). */
 export type NewMilestone = Readonly<Pick<CreateMilestoneBody, "title">> & { readonly description: string };
+
+/** What updateMilestone changes: the title (N2) and/or the description (N4); a key left out is not sent. */
+export type MilestoneUpdate = { readonly title?: string; readonly description?: string };
 
 /** The only status that proves POST /milestones created a new milestone. */
 const HTTP_CREATED = 201;
@@ -55,7 +60,11 @@ export function parseGitHubMilestone(value: JsonValue): GitHubMilestone {
   if (state !== "open" && state !== "closed") {
     throw new GitHubSchemaError(`${prefix} "state" must be "open" or "closed", got ${describeJson(state)}`);
   }
-  return { number: milestoneNumber, title, state };
+  const description = value["description"] ?? null;
+  if (description !== null && !isString(description)) {
+    throw new GitHubSchemaError(`${prefix} "description" must be a string or null, got ${describeJson(description)}`);
+  }
+  return { number: milestoneNumber, title, state, description };
 }
 
 /**
@@ -89,17 +98,30 @@ export async function createMilestone(
 }
 
 /**
- * PATCH /repos/{owner}/{repo}/milestones/{n} with {title} and nothing else. retry-once
- * (idempotent). Throws RangeError before any request unless n is a positive safe integer.
+ * PATCH /repos/{owner}/{repo}/milestones/{n} with the title and/or description of `patch` and
+ * nothing else (never a state, so a closed milestone stays closed). retry-once (idempotent).
+ * Returns the milestone from the response, whose title and description show whether GitHub
+ * applied the change; throws GitHubSchemaError for a response that is not a milestone. Throws
+ * RangeError before any request unless n is a positive safe integer, or for a patch with
+ * neither key.
  */
-export async function renameMilestone(
+export async function updateMilestone(
   http: HttpClient,
   target: GitHubTarget,
   milestoneNumber: number,
-  title: string,
-): Promise<void> {
-  const body = { title } satisfies UpdateMilestoneBody;
-  await http.request(githubRequest(target, "PATCH", milestoneUrl(target, milestoneNumber), "retry-once", body));
+  patch: MilestoneUpdate,
+): Promise<GitHubMilestone> {
+  const { title, description } = patch;
+  if (title === undefined && description === undefined) {
+    throw new RangeError("GitHub milestone update needs a title or description to change");
+  }
+  const body = {
+    ...(title === undefined ? {} : { title }),
+    ...(description === undefined ? {} : { description }),
+  } satisfies UpdateMilestoneBody;
+  const url = milestoneUrl(target, milestoneNumber);
+  const response = await http.request(githubRequest(target, "PATCH", url, "retry-once", body));
+  return parseGitHubMilestone(response.body);
 }
 
 /**

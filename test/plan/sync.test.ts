@@ -4,10 +4,12 @@ import { describe, it } from "node:test";
 import { formatMirror } from "../../src/mirror.ts";
 import { writeCost } from "../../src/plan.ts";
 import { buildMirrorIndex } from "../../src/plan/mirrors.ts";
+import type { YouTrackIssue } from "../../src/youtrack.ts";
 import {
   bug,
   counts,
   describeActions,
+  desiredBody,
   desiredTitle,
   epic,
   FILTERED,
@@ -26,6 +28,7 @@ import {
   titled,
   under,
   unlabelled,
+  YOUTRACK_BASE_URL,
   ytIssue,
 } from "./fixtures.ts";
 
@@ -280,7 +283,7 @@ describe("planActions: task parent sync (H3, H5, D2)", () => {
     const githubIssues = Object.freeze([
       ghIssue(21, "[CUI-2] Story"),
       ghIssue(22, "[CUI-2] Story copy"),
-      ghIssue(12, desiredTitle(5), { typeName: "Task", parentNumber: 22 }),
+      ghIssue(12, desiredTitle(5), { typeName: "Task", parentNumber: 22, body: desiredBody(5) }),
     ]);
     const { index } = buildMirrorIndex(githubIssues, LABEL, PROJECT);
 
@@ -401,7 +404,8 @@ describe("planActions: title sync (N1, N2)", () => {
   });
 
   it("renames a legacy [YT-n] mirror found by the index to the YouTrack id (N1)", () => {
-    const { index } = buildMirrorIndex(Object.freeze([ghIssue(12, "[YT-5] Issue 5")]), LABEL, PROJECT);
+    const legacy = ghIssue(12, "[YT-5] Issue 5", { body: desiredBody(5) });
+    const { index } = buildMirrorIndex(Object.freeze([legacy]), LABEL, PROJECT);
 
     const result = plan([ytIssue(5)], { mirrors: lockedMap(index) });
 
@@ -410,7 +414,8 @@ describe("planActions: title sync (N1, N2)", () => {
   });
 
   it("renames an unlabelled legacy mirror like a labelled one, never creating a second mirror", () => {
-    const { index } = buildMirrorIndex(Object.freeze([unlabelled(12, "[YT-5] Old")]), LABEL, PROJECT);
+    const legacy = unlabelled(12, "[YT-5] Old", { body: desiredBody(5) });
+    const { index } = buildMirrorIndex(Object.freeze([legacy]), LABEL, PROJECT);
 
     const result = plan([ytIssue(5)], { mirrors: lockedMap(index) });
 
@@ -436,10 +441,11 @@ describe("planActions: title sync (N1, N2)", () => {
   it("wants the title formatMirror gave the mirror: trimmed, and cut for a long summary", () => {
     const padded = ytIssue(5, { summary: "  Padded  " });
     const long = ytIssue(6, { summary: "x".repeat(300) });
-    const created = formatMirror(long, "https://youtrack.example");
+    const created = formatMirror(long, YOUTRACK_BASE_URL);
     const index = mirrors(
-      [5, mirror(12, { title: formatMirror(padded, "https://youtrack.example").title })],
-      [6, mirror(13, { title: created.title })],
+      [5, mirror(12, { title: formatMirror(padded, YOUTRACK_BASE_URL).title })],
+      // A cut title adds a notice to the body (A9), so the body is as formatMirror made it too.
+      [6, mirror(13, { title: created.title, body: created.body })],
     );
 
     const result = plan([padded, long], { mirrors: index });
@@ -497,5 +503,165 @@ describe("planActions: title sync (N1, N2)", () => {
 
     assert.deepEqual(result.actions, []);
     assert.deepEqual(counts(result), { scanned: 2, filtered: 2, unchanged: 0, capped: 0 });
+  });
+});
+
+describe("planActions: body sync (N4)", () => {
+  const bodyOf = (issue: YouTrackIssue): string => formatMirror(issue, YOUTRACK_BASE_URL).body;
+
+  it("updates the body of an open mirror whose YouTrack description changed", () => {
+    const issue = ytIssue(5, { description: "New text" });
+    const index = mirrors([5, mirror(12)]);
+
+    const result = plan([issue], { mirrors: index });
+
+    assert.deepEqual(result.actions, [{ kind: "update", issue, mirror: index.get(5), body: bodyOf(issue) }]);
+    assert.deepEqual(counts(result), { scanned: 1, filtered: 0, unchanged: 0, capped: 0 });
+  });
+
+  it("updates the body of a closed mirror too, without reopening it (D8)", () => {
+    const issues = [ytIssue(5, { description: "Reopened" }), ytIssue(6, { ...RESOLVED, description: "Done" })];
+    const index = mirrors([5, mirror(12, { state: "closed" })], [6, mirror(13, { state: "closed" })]);
+
+    const result = plan(issues, { mirrors: index });
+
+    assert.deepEqual(describeActions(result.actions), ["update 5 #12 body", "update 6 #13 body"]);
+  });
+
+  it("restores a body that was edited or emptied on GitHub, since YouTrack owns it", () => {
+    const index = mirrors(
+      [5, mirror(12, { body: "Edited on GitHub" })],
+      [6, mirror(13, { body: null })],
+      [7, mirror(14, { body: "" })],
+    );
+
+    const result = plan([ytIssue(5), ytIssue(6), ytIssue(7)], { mirrors: index });
+
+    assert.deepEqual(
+      result.actions.map((action) => (action.kind === "update" ? action.body : action.kind)),
+      [desiredBody(5), desiredBody(6), desiredBody(7)],
+    );
+  });
+
+  it("leaves a mirror whose body is already the desired one unchanged", () => {
+    const issue = ytIssue(5, { description: "Some **text** with @bob and #12" });
+    const index = mirrors([5, mirror(12, { body: bodyOf(issue) })]);
+
+    const result = plan([issue], { mirrors: index });
+
+    assert.deepEqual(result.actions, []);
+    assert.equal(result.unchanged, 1);
+  });
+
+  it("compares bodies exactly: line endings and trailing whitespace count", () => {
+    const five = ytIssue(5, { description: "Line one\nLine two" });
+    const six = ytIssue(6, { description: "Text" });
+    const index = mirrors(
+      [5, mirror(12, { body: bodyOf(five).replace(/\n/g, "\r\n") })],
+      [6, mirror(13, { body: `${bodyOf(six)} ` })],
+    );
+
+    const result = plan([five, six], { mirrors: index });
+
+    assert.deepEqual(describeActions(result.actions), ["update 5 #12 body", "update 6 #13 body"]);
+  });
+
+  it("wants the body formatMirror makes: references neutralised, a notice for a cut title, a cut description", () => {
+    const issues = [
+      ytIssue(5, { description: "Ping @bob about #12" }),
+      ytIssue(6, { summary: "x".repeat(300) }),
+      ytIssue(7, { description: "y".repeat(70_000) }),
+    ];
+    const index = mirrors(
+      [5, mirror(12, { body: "Ping @bob about #12" })],
+      [6, mirror(13, { title: formatMirror(issues[1] ?? ytIssue(6), YOUTRACK_BASE_URL).title })],
+      [7, mirror(14)],
+    );
+
+    const result = plan(issues, { mirrors: index });
+
+    const bodies = result.actions.map((action) => (action.kind === "update" ? action.body : null));
+    assert.deepEqual(bodies, issues.map(bodyOf));
+    assert.match(bodies[0] ?? "", /`@bob`/);
+    assert.match(bodies[1] ?? "", /^Title character limit hit/);
+    assert.match(bodies[2] ?? "", /Character limit hit, see the full YouTrack issue: /);
+  });
+
+  it("carries title, body, milestone and type in one update that costs one write", () => {
+    const issue = task(5, { ...under(1), summary: "Renamed", description: "New" });
+    const index = mirrors([5, mirror(12, { title: "[CUI-5] Old", typeName: "Bug", milestoneNumber: 7 })]);
+
+    const result = plan([epic(1), issue], { mirrors: index, milestones: MILESTONES, maxWrites: 1 });
+
+    assert.deepEqual(result.actions, [
+      {
+        kind: "update",
+        issue,
+        mirror: index.get(5),
+        title: "[CUI-5] Renamed",
+        body: bodyOf(issue),
+        milestoneEpic: 1,
+        githubType: "Task",
+      },
+    ]);
+    assert.deepEqual(result.actions.map(writeCost), [1]);
+  });
+
+  it("puts only the body into a body-only update", () => {
+    const result = plan([ytIssue(5, { description: "New" })], { mirrors: mirrors([5, mirror(12)]) });
+
+    assert.deepEqual(Object.keys(result.actions[0] ?? {}).sort(), ["body", "issue", "kind", "mirror"]);
+  });
+
+  it("never updates the body of an excluded issue's mirror, nor of one below it (F1, F3, F2)", () => {
+    const issues = [story(5, { ...FILTERED, description: "New" }), task(6, { ...under(5), description: "New" })];
+    const index = mirrors(
+      [5, mirror(12, { typeName: "Feature", body: "Old" })],
+      [6, mirror(13, { typeName: "Task", body: "Old" })],
+    );
+
+    const result = plan(issues, { mirrors: index });
+
+    assert.deepEqual(result.actions, []);
+    assert.deepEqual(counts(result), { scanned: 2, filtered: 2, unchanged: 0, capped: 0 });
+  });
+
+  it("plans nothing on the next run once the bodies it wrote are on GitHub (no write loop)", () => {
+    // Arrange: descriptions that neutralising, closing blocks, CRLF and cutting all touch.
+    const issues = [
+      ytIssue(5, { description: "Ping @bob about #12\r\nand GH-3\r\n" }),
+      ytIssue(6, { description: "```js\nunclosed fence" }),
+      ytIssue(7, { description: "z".repeat(70_000) }),
+      ytIssue(8, { summary: "x".repeat(300) }),
+      ytIssue(9, { description: "   " }),
+    ];
+    const stale = mirrors(
+      ...issues.map((issue) => [issue.numberInProject, mirror(issue.numberInProject + 20, { body: "Old" })] as const),
+    );
+    const first = plan(issues, { mirrors: stale });
+
+    // Act: apply each update as GitHub stores it (verbatim), then plan again.
+    const written = new Map(first.actions.map((action) => [action.issue.numberInProject, action]));
+    const applied = mirrors(
+      ...issues.map((issue) => {
+        const action = written.get(issue.numberInProject);
+        const { title, body } = action?.kind === "update" ? action : {};
+        const fields = { ...(title === undefined ? {} : { title }), ...(body === undefined ? {} : { body }) };
+        return [issue.numberInProject, mirror(issue.numberInProject + 20, fields)] as const;
+      }),
+    );
+    const second = plan(issues, { mirrors: applied });
+
+    // Assert
+    assert.equal(first.actions.length, issues.length);
+    assert.deepEqual(second.actions, []);
+    assert.equal(second.unchanged, issues.length);
+  });
+
+  it("plans nothing for a resolved issue without a mirror, whatever its description (R9)", () => {
+    const result = plan([ytIssue(5, { ...RESOLVED, description: "Changed" })]);
+
+    assert.deepEqual(result.actions, []);
+    assert.equal(result.unchanged, 1);
   });
 });

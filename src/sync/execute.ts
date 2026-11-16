@@ -16,9 +16,9 @@ import {
   executeCloseMilestone,
   executeCreateMilestone,
   executeRemoveParent,
-  executeRenameMilestone,
   executeSetParent,
   executeUpdate,
+  executeUpdateMilestone,
 } from "./execute-hierarchy.ts";
 import { executeClose, executeCreate, executeReopen } from "./execute-issues.ts";
 import type { Step, WriteContext } from "./execute-write.ts";
@@ -84,8 +84,8 @@ function executeAction(action: Action, context: WriteContext, resolved: Resolved
       return executeCreateMilestone(action.issue, context, resolved);
     case "create":
       return executeCreate(action, context, resolved);
-    case "renameMilestone":
-      return unchangedMap(resolved, executeRenameMilestone(action, context));
+    case "updateMilestone":
+      return unchangedMap(resolved, executeUpdateMilestone(action, context));
     case "closeMilestone":
       return unchangedMap(resolved, executeCloseMilestone(action, context));
     case "close":

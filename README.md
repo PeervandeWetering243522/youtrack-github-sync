@@ -51,8 +51,8 @@ job or as a systemd timer on a Debian host ([Other ways to run it](#other-ways-t
 - **The hierarchy:** epics become milestones; User Story, Bug and Task become the issue types
   Feature, Bug and Task; tasks become sub-issues of their parent's mirror; every mirror goes in
   its nearest epic's milestone ([Hierarchy](#hierarchy)).
-- **Kept in step:** every run syncs each mirror's title, milestone, type and parent, open or
-  closed, and each milestone's title. A mirror is closed when its issue is resolved, and with
+- **Kept in step:** every run syncs each mirror's title, description, milestone, type and
+  parent, open or closed, and each milestone's title and description. A mirror is closed when its issue is resolved, and with
   `REOPEN_CLOSED_BY` (on in the GitHub Action) reopened when the issue goes back to unresolved,
   if the mirror closed it itself.
 - **Assignees:** each open mirror is assigned to the GitHub accounts of its YouTrack issue's
@@ -72,11 +72,13 @@ job or as a systemd timer on a Debian host ([Other ways to run it](#other-ways-t
 For everyone in the group, once someone has set it up:
 
 - **Work in YouTrack.** Create, edit, nest and resolve issues there. Within about 10 minutes
-  GitHub follows: a new mirror, a new title, a new milestone or parent, or a close.
-- **Treat mirrors as read-only.** Label, comment and link PRs on GitHub as you like, but title
-  edits are undone by the next run. Keep the `[ABC-12]` prefix and the `youtrack` label: a
-  mirror without them is no longer recognised and gets a duplicate. The description is copied
-  once, at creation; the YouTrack link always has the current one.
+  GitHub follows: a new mirror, a new title or description, a new milestone or parent, or a
+  close.
+- **Treat mirrors as read-only.** Label, comment and link PRs on GitHub as you like, but edits
+  to a mirror's title or description, or a milestone's, are undone by the next run. That
+  includes ticking a task-list checkbox, which edits the description: tick it in YouTrack.
+  Keep the `[ABC-12]` prefix and the `youtrack` label: a mirror without them is no longer
+  recognised and gets a duplicate.
 - **Assign in YouTrack, not on GitHub.** Within about 10 minutes the open mirror is assigned to
   the GitHub account of each YouTrack assignee the tool can match
   ([how people are matched](#how-people-are-matched)). Those accounts belong to the mirror:
@@ -416,6 +418,18 @@ fixes and updated pins of the actions it uses. A minor or patch release that cha
 mirror does in a way your group will notice says so under "Before updating" at the top of its
 notes: read that before merging the bump. Before v1.0.0, a minor bump could break things too.
 
+### Updating to body sync (v1.1.0)
+
+From v1.1.0 every run also keeps each mirror's body and each milestone's description in step
+with YouTrack, open or closed (decision N4). Before merging the bump, tell your group: an edit
+made to a mirror's description on GitHub, ticked checkboxes included, is put back within one
+run, so descriptions are edited in YouTrack only. The first run rewrites every mirror whose
+YouTrack description changed since it was created; a dry run lists them as `set body`. They
+count against `max-writes-per-run`, so a long list spreads over a few runs. An issue or
+milestone made by hand with a title starting `[ABC-12]` counts as that issue's mirror, as
+before, so its description is replaced too. GitHub does not notify anyone of a body edit
+(mentions in descriptions are wrapped in backticks). Nothing to change in the workflow.
+
 ### Updating from v0.x to v1.0.0
 
 **v1.0.0** turns on [assignee sync](#assignees): add `contents: read` and
@@ -623,7 +637,7 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    mirror of YouTrack issue `n`; so is one with the `[YT-<n>]` of older versions, which the run
    then renames (decision N1). One with the `youtrack` label wins. A title match without the
    label still counts as the mirror, and a warning is logged. If several issues match, the
-   lowest number wins (warning). For each mirror it keeps the REST `id`, title, milestone,
+   lowest number wins (warning). For each mirror it keeps the REST `id`, title, body, milestone,
    issue type, parent and assignees. Then it **checks the list** against the repo's count of
    open issues (one GraphQL query, `POST /graphql`; pull requests are left out on both sides,
    since a token that cannot read them gets a list without them): when the list holds fewer
@@ -666,10 +680,12 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
      gets the same title, the body as its description, and no due date.
    - no mirror and already resolved: nothing (`unchanged`). Issues and epics that are resolved
      before they are ever mirrored never get a mirror (decision R9).
-   - every existing mirror, open or closed: **sync** its title, milestone, type and parent with
-     YouTrack (an update, a move or a detach). Title, milestone and type go in one update.
-   - every existing milestone, open or closed: **rename** it when its epic's title changed
-     (decision N2).
+   - every existing mirror, open or closed: **sync** its title, body, milestone, type and parent
+     with YouTrack (an update, a move or a detach). Title, body, milestone and type go in one
+     update. The body is compared exactly with the one a create would write now, so a
+     description edited in YouTrack, or a body edited on GitHub, is written again (decision N4).
+   - every existing milestone, open or closed: **update** it when its epic's title or
+     description changed (decisions N2, N4); both go in one update.
    - open mirror or milestone, and resolved in YouTrack: **close** it (issues with
      `state_reason: completed`).
    - closed mirror, unresolved in YouTrack again, and closed by the `REOPEN_CLOSED_BY` login:
@@ -681,7 +697,7 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
      whose YouTrack assignees include someone matched: **add** the matched accounts it lacks,
      and **remove** the matched accounts YouTrack does not assign to it (decisions U4-U7).
    - anything else: nothing (`unchanged`).
-7. **Writes** serially, 1 s apart, in this order: milestone creates, renames and closes; creates of
+7. **Writes** serially, 1 s apart, in this order: milestone creates, updates and closes; creates of
    everything except tasks; creates of tasks, parents before children; syncs; closes and
    reopens; assignee adds and removes (per mirror the add first). Within a
    group the oldest (lowest issue number) goes first. At most `MAX_WRITES_PER_RUN` writes run
@@ -709,10 +725,11 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
    ```
 
    The headline counts come first. `updated` counts updates, moves, detaches and milestone
-   renames, `assigneesAdded` and `assigneesRemoved` count assignee writes (one write may name
+   updates, `assigneesAdded` and `assigneesRemoved` count assignee writes (one write may name
    several people), and `skipped` = `filtered` + `unchanged`. The other write lines look like
-   `rename milestone ABC-33 #7`, `close milestone ABC-33 #7`,
-   `update ABC-15 #21: set milestone ABC-33 #7`, `update ABC-15 #21: clear milestone`,
+   `update milestone ABC-33 #7: set title, set description`, `close milestone ABC-33 #7`,
+   `update ABC-15 #21: set body`, `update ABC-15 #21: set milestone ABC-33 #7`,
+   `update ABC-15 #21: clear milestone`,
    `move ABC-42 #31 under ABC-36 #22`, `detach ABC-42 #31 from parent ABC-41 #30` and
    `label ABC-41 #30` (label re-added). Assignee lines name counts, never a person; when GitHub
    ignores one, a warning such as
@@ -753,8 +770,7 @@ Decision codes such as F1 or R9 refer to [docs/08-decisions.md](docs/08-decision
 
 YouTrack is only ever read: the only call is `GET /api/issues`. On GitHub the tool never
 reopens a milestone, never reopens an issue that the `REOPEN_CLOSED_BY` login did not close
-(and reopens nothing when it is unset, decision R10), never changes a body or milestone
-description after creation (titles do follow YouTrack, decision N2), never comments, never
+(and reopens nothing when it is unset, decision R10), never comments, never
 reorders sub-issues, never clears an issue type, never creates labels and never touches pull
 requests. It never adds or removes an assignee it does not match to someone assigned in the
 YouTrack project, never removes a bot, never changes the assignees of a closed mirror, and
@@ -780,7 +796,8 @@ never logged, and with assignee sync on neither are usernames or emails.
 
 Dry run is on by default: only `DRY_RUN=false` turns it off. With it on, the run reads both
 sides and logs one `[dry-run] would ...` line per planned write, but sends no GitHub write at
-all. The create lines, and the lines that change a title, end with the new title. A milestone or mirror that the run would create
+all. The create lines, and the lines that change a title, end with the new title; a body or
+description change shows as `set body` or `set description`, never with its text. A milestone or mirror that the run would create
 earlier shows as `(new)`. It sends the same reads as a real run, the assignable users and the
 lookups included, so it shows who would be matched. See the Action's
 [step 4](#4-do-a-dry-run) for an example.
@@ -1063,14 +1080,19 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **GitHub:** writes are serial and 1 s apart, well within the secondary limit of 80
   content-creating requests per minute. If the token lacks push access, GitHub silently drops
   labels, milestones and types, and ignores assignee adds and removes. The label re-add and the
-  title fallback stop that from causing duplicates. When GitHub's answer lacks a milestone,
-  type, parent or added assignee that was sent, or still holds a removed one, a warning is
+  title fallback stop that from causing duplicates. When GitHub's answer lacks a title, body,
+  milestone, type, parent, milestone description or added assignee that was sent, or still
+  holds a removed one, a warning is
   logged and the next run tries again (no extra write in the same run). GitHub allows 100
   sub-issues per parent and 8 levels; a create or move beyond that is expected to fail on every
   run (unverified). It allows 10 assignees per issue: matched people beyond that are left out
   with a warning such as `ABC-9 #40: 1 matched assignee not added: GitHub allows 10 per issue`.
 - **Workers CPU:** the larger YouTrack response (the `Assignee` field adds about a quarter), the
-  matching and the redaction were not measured against the 10 ms limit.
+  matching and the redaction were not measured against the 10 ms limit. Body sync formats every
+  mirror's body on every run: for 99 issues with 38,000 characters of descriptions that took
+  about 12 ms cold and 3 ms warm in Node 22 on a laptop (2026-11-16), so a Worker on a large
+  project may hit the limit (`exceededCpu` in Cron Events). The GitHub Action and systemd hosts
+  have no such limit.
 - **Swapping two task mirrors** (A under B on GitHub, B under A in YouTrack) can fail one run.
   When B has the lower number, its move under A runs before A leaves B, and GitHub is expected
   to refuse the cycle. A still leaves B in that run (detached, or moved to its new parent), and

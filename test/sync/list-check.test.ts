@@ -12,6 +12,7 @@ import {
   ISSUES_PATH,
   json,
   lastLine,
+  listedIssues,
   MILESTONES_PATH,
   rejection,
   RESOLVED_AT,
@@ -32,8 +33,8 @@ const MIRRORED: World = {
 
 /** Answers the issue list with `issues` instead of the world's own list, as GitHub did on 2026-10-22. */
 function listAnswers(issues: World["githubIssues"]): Override {
-  return (call) =>
-    call.method === "GET" && call.url.pathname === ISSUES_PATH ? json(200, [...(issues ?? [])]) : undefined;
+  const listed = listedIssues(issues ?? [], MIRRORED.youtrackRows ?? []);
+  return (call) => (call.method === "GET" && call.url.pathname === ISSUES_PATH ? json(200, listed) : undefined);
 }
 
 /** "GET /repos/acme/mirror/issues" etc. for every call, in order. */

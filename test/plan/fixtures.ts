@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import type { GitHubIssue } from "../../src/github/issues.ts";
 import type { GitHubMilestone } from "../../src/github/milestones.ts";
 import { YOUTRACK_TYPES } from "../../src/hierarchy.ts";
+import { formatMirror, parseMirrorTitle } from "../../src/mirror.ts";
 import { planActions } from "../../src/plan.ts";
 import type { Action, AssigneeSync, Plan } from "../../src/plan.ts";
 import { loginKey } from "../../src/plan/assignee-match.ts";
@@ -23,6 +24,8 @@ export const LABEL = "youtrack";
 export const PROJECT = "CUI";
 export const EXCLUDE_PREFIX = "[individual]";
 export const RESOLVED_AT = 1_758_000_000_000;
+/** YOUTRACK_BASE_URL of every plan: the link in the desired bodies. */
+export const YOUTRACK_BASE_URL = "https://youtrack.example.test";
 
 /**
  * The mirror or milestone title planActions wants for ytIssue(n) with its default summary,
@@ -30,6 +33,15 @@ export const RESOLVED_AT = 1_758_000_000_000;
  */
 export function desiredTitle(numberInProject: number): string {
   return `[${PROJECT}-${String(numberInProject)}] Issue ${String(numberInProject)}`;
+}
+
+/**
+ * The mirror body or milestone description planActions wants for ytIssue(n) without a
+ * description: the link line only (N4). A fixture mirror gets it from mirrors(...), and a
+ * fixture milestone titled "[CUI-<n>] ..." from ghMilestone, unless the test gives one.
+ */
+export function desiredBody(numberInProject: number): string {
+  return formatMirror(ytIssue(numberInProject), YOUTRACK_BASE_URL).body;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +59,7 @@ export function ghIssue(issueNumber: number, title: string, overrides: Partial<G
     id: idOf(issueNumber),
     title,
     state: "open",
+    body: null,
     labelNames,
     isPullRequest: false,
     milestoneNumber: null,
@@ -63,21 +76,32 @@ export function unlabelled(issueNumber: number, title: string, overrides: Partia
   return ghIssue(issueNumber, title, { ...overrides, labelNames: [] });
 }
 
+/**
+ * A frozen milestone. Its description defaults to desiredBody of the epic its title names
+ * ("[CUI-<n>] ...", N1), so it needs no description update; any other title: none.
+ */
 export function ghMilestone(
   milestoneNumber: number,
   title: string,
   state: GitHubMilestone["state"] = "open",
+  description: string | null = defaultDescription(title),
 ): GitHubMilestone {
-  return Object.freeze({ number: milestoneNumber, title, state });
+  return Object.freeze({ number: milestoneNumber, title, state, description });
 }
 
-/** A mirror ref that may still lack its title, which depends on its YouTrack number (see titled). */
-export type MirrorDraft = Omit<MirrorRef, "title"> & Partial<Pick<MirrorRef, "title">>;
+function defaultDescription(title: string): string | null {
+  const numberInProject = parseMirrorTitle(title, PROJECT);
+  return numberInProject === null ? null : desiredBody(numberInProject);
+}
+
+/** A mirror ref that may still lack its title and body, which depend on its YouTrack number (see titled). */
+export type MirrorDraft = Omit<MirrorRef, "title" | "body"> & Partial<Pick<MirrorRef, "title" | "body">>;
 
 /**
  * A mirror ref as buildMirrorIndex makes it: open, labelled, id idOf(n), no milestone, type,
- * parent, closer or assignees unless `fields` says otherwise. It has no title unless `fields` gives one;
- * mirrors(...) and titled(...) fill in desiredTitle of its YouTrack number.
+ * parent, closer or assignees unless `fields` says otherwise. It has no title or body unless
+ * `fields` gives them; mirrors(...) and titled(...) fill in desiredTitle and desiredBody of
+ * its YouTrack number.
  */
 export function mirror(issueNumber: number, fields: Partial<MirrorRef> = {}): MirrorDraft {
   return Object.freeze({
@@ -113,14 +137,21 @@ export function lockedMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap
 
 export const NO_MIRRORS: MirrorIndex = lockedMap<number, MirrorRef>([]);
 
-/** `draft` as the whole mirror ref of YouTrack issue `numberInProject`: its own title, else desiredTitle. */
+/**
+ * `draft` as the whole mirror ref of YouTrack issue `numberInProject`: its own title and body
+ * (a body of null included), else desiredTitle and desiredBody.
+ */
 export function titled(numberInProject: number, draft: MirrorDraft): MirrorRef {
-  return Object.freeze({ ...draft, title: draft.title ?? desiredTitle(numberInProject) });
+  return Object.freeze({
+    ...draft,
+    title: draft.title ?? desiredTitle(numberInProject),
+    body: draft.body === undefined ? desiredBody(numberInProject) : draft.body,
+  });
 }
 
 /**
  * A locked MirrorIndex from [numberInProject, mirror] pairs, each one titled: a mirror the
- * test gave no title already has the desired one, so it needs no title update.
+ * test gave no title or body already has the desired one, so it needs no title or body update.
  */
 export function mirrors(...entries: readonly (readonly [number, MirrorDraft])[]): MirrorIndex {
   return lockedMap(
@@ -207,6 +238,7 @@ export function plan(youtrackIssues: readonly YouTrackIssue[], options: PlanOpti
     mirrors: options.mirrors ?? NO_MIRRORS,
     milestones: options.milestones ?? NO_MILESTONES,
     excludePrefix: options.excludePrefix ?? EXCLUDE_PREFIX,
+    youtrackBaseUrl: YOUTRACK_BASE_URL,
     maxWrites: options.maxWrites ?? 30,
     reopenClosedBy: options.reopenClosedBy ?? null,
     assignees: options.assignees ?? null,
@@ -254,8 +286,11 @@ function describeAction(action: Action): string {
   switch (action.kind) {
     case "createMilestone":
       return `createMilestone ${n}`;
-    case "renameMilestone":
-      return `renameMilestone ${n} -> m${String(action.milestone.milestoneNumber)}`;
+    case "updateMilestone": {
+      const title = action.title === undefined ? "" : " title";
+      const description = action.description === undefined ? "" : " description";
+      return `updateMilestone ${n} -> m${String(action.milestone.milestoneNumber)}${title}${description}`;
+    }
     case "closeMilestone":
       return `closeMilestone ${n} -> m${String(action.milestone.milestoneNumber)}`;
     case "create":
@@ -266,8 +301,10 @@ function describeAction(action: Action): string {
       return `reopen ${n} -> #${String(action.mirror.issueNumber)}`;
     case "update": {
       const title = action.title === undefined ? "" : " title";
+      const body = action.body === undefined ? "" : " body";
       const type = action.githubType === undefined ? "" : ` type=${action.githubType}`;
-      return `update ${n} #${String(action.mirror.issueNumber)}${title}${milestoneText(action.milestoneEpic)}${type}`;
+      const fields = `${title}${body}${milestoneText(action.milestoneEpic)}${type}`;
+      return `update ${n} #${String(action.mirror.issueNumber)}${fields}`;
     }
     case "setParent":
       return `setParent ${n} #${String(action.mirror.issueNumber)} under YT-${String(action.parentYt)}`;
@@ -282,9 +319,10 @@ function describeAction(action: Action): string {
 
 /**
  * Compact view of actions: "create 3", "create 5 type=Task milestone=YT-1 parent=YT-2",
- * "close 5 -> #12", "reopen 5 -> #12", "update 5 #12 title milestone=none type=Bug" (the new title itself is not
- * shown), "setParent 5 #12 under YT-2", "removeParent 5 #12 from #20 (YT-2)",
- * "createMilestone 9", "renameMilestone 9 -> m3", "closeMilestone 9 -> m3",
+ * "close 5 -> #12", "reopen 5 -> #12", "update 5 #12 title body milestone=none type=Bug" (the
+ * new title and body themselves are not shown), "setParent 5 #12 under YT-2",
+ * "removeParent 5 #12 from #20 (YT-2)", "createMilestone 9",
+ * "updateMilestone 9 -> m3 title description", "closeMilestone 9 -> m3",
  * "addAssignees 5 +a,b" (the mirror is resolved at execution), "removeAssignees 5 #12 -c".
  * YT-<n> here is just YouTrack number n, not a title or log format.
  */

@@ -25,6 +25,7 @@ import {
   ISSUES_PATH,
   json,
   lastLine,
+  listedIssues,
   messages,
   MILESTONES_PATH,
   openMirrorsOfResolved,
@@ -582,10 +583,11 @@ describe("runSync assignees: the assignable list fails (U16)", () => {
       if (call.method !== "GET" || call.url.pathname !== ISSUES_PATH) return undefined;
       const page = Number(call.url.searchParams.get("page") ?? "1");
       const next = `${GITHUB_ORIGIN}${ISSUES_PATH}?state=all&per_page=100&page=${String(page + 1)}`;
-      const issues = page === 1 ? [ghIssue(12, "[CUI-5] [team] Task 5")] : [];
+      const issues = page === 1 ? listedIssues([ghIssue(12, "[CUI-5] [team] Task 5")], world.youtrackRows ?? []) : [];
       return json(200, issues, page < 42 ? { link: `<${next}>; rel="next"` } : {});
     };
-    const { deps, calls, lines } = harness({ ...mirrored([JDOE]), override: issuePages });
+    const world = mirrored([JDOE]);
+    const { deps, calls, lines } = harness({ ...world, override: issuePages });
 
     // Act
     const result = await runSync(config(), deps);

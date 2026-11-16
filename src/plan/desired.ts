@@ -1,8 +1,8 @@
 /**
- * Desired GitHub state of one scanned YouTrack issue (docs/11 §1.2) and how a mirror's
- * current state differs from it (§1.3). Only mirror-owned links are changed (D2) and a
- * desired type of none never clears one (D3). Pure, no I/O; src/plan.ts turns the
- * differences into actions.
+ * Desired GitHub state of one scanned YouTrack issue (docs/11 §1.2) and how a mirror's or
+ * milestone's current state differs from it (§1.3): title (N2), body or description (N4),
+ * milestone, type and parent. Only mirror-owned links are changed (D2) and a desired type of
+ * none never clears one (D3). Pure, no I/O; src/plan.ts turns the differences into actions.
  *
  * Dependencies are YouTrack numbers: a milestone or parent mirror created in the same run
  * has no GitHub number yet, so execution resolves them (D4).
@@ -11,7 +11,7 @@
 import type { GitHubTypeName, Hierarchy } from "../hierarchy.ts";
 import { nearestEpic, parentChain } from "../hierarchy.ts";
 import type { YouTrackIssue } from "../youtrack.ts";
-import type { MilestoneIndexResult } from "./milestones.ts";
+import type { MilestoneIndexResult, MilestoneRef } from "./milestones.ts";
 import type { MirrorIndex, MirrorRef } from "./mirrors.ts";
 
 /**
@@ -33,28 +33,57 @@ export type PlanContext = {
   readonly newMilestones: ReadonlySet<number>;
   /** PlanInput.reopenClosedBy: the login whose closes a reopen undoes (R10); null: never reopen. */
   readonly reopenClosedBy: string | null;
+  /** PlanInput.youtrackBaseUrl: the link formatMirror puts in every desired body (N4). */
+  readonly youtrackBaseUrl: string;
 };
 
 /**
  * The fields of an `update`, at least one of them present (updateIssue refuses an empty
- * patch); a key left out is not changed. `title` sets the mirror title (N2);
- * `milestoneEpic` null clears the milestone, a number sets the milestone of that epic;
- * `githubType` sets the issue type.
+ * patch); a key left out is not changed. `title` sets the mirror title (N2); `body` the
+ * mirror body (N4); `milestoneEpic` null clears the milestone, a number sets the milestone of
+ * that epic; `githubType` sets the issue type.
  */
 export type UpdateFields =
-  | { readonly title: string; readonly milestoneEpic?: number | null; readonly githubType?: GitHubTypeName }
-  | { readonly title?: never; readonly milestoneEpic: number | null; readonly githubType?: GitHubTypeName }
-  | { readonly title?: never; readonly milestoneEpic?: never; readonly githubType: GitHubTypeName };
+  | {
+      readonly title: string;
+      readonly body?: string;
+      readonly milestoneEpic?: number | null;
+      readonly githubType?: GitHubTypeName;
+    }
+  | {
+      readonly title?: never;
+      readonly body: string;
+      readonly milestoneEpic?: number | null;
+      readonly githubType?: GitHubTypeName;
+    }
+  | {
+      readonly title?: never;
+      readonly body?: never;
+      readonly milestoneEpic: number | null;
+      readonly githubType?: GitHubTypeName;
+    }
+  | {
+      readonly title?: never;
+      readonly body?: never;
+      readonly milestoneEpic?: never;
+      readonly githubType: GitHubTypeName;
+    };
 
-/** What a mirror should look like: the fields updateFields compares (docs/11 §1.3, N2). */
+/** What a mirror should look like: the fields updateFields compares (docs/11 §1.3, N2, N4). */
 export type DesiredFields = {
-  /** mirrorTitle of the YouTrack issue. */
+  /** formatMirror's title of the YouTrack issue. */
   readonly title: string;
+  /** formatMirror's body of the YouTrack issue. */
+  readonly body: string;
   /** desiredMilestoneEpic of the issue; null: no mirror milestone. */
   readonly milestoneEpic: number | null;
   /** The GitHub type of its YouTrack type; null: none (D3). */
   readonly githubType: GitHubTypeName | null;
 };
+
+/** The fields of an `updateMilestone`, at least one of them present (updateMilestone refuses an empty patch). */
+export type MilestoneFields =
+  { readonly title: string; readonly description?: string } | { readonly title?: never; readonly description: string };
 
 /** A milestone change of an `update`: null clears it, a number sets that epic's milestone. */
 type MilestoneChange = { readonly milestoneEpic: number | null };
@@ -95,6 +124,8 @@ export function desiredParent(context: PlanContext, issue: YouTrackIssue): numbe
 /**
  * What an `update` of `mirror` must change, or null when nothing:
  * - title: a desired title that differs from the current one (compared exactly, N2);
+ * - body: a desired body that differs from the current one, compared exactly, so line
+ *   endings count and a body edited or emptied on GitHub is put back (N4);
  * - milestone: a desired epic whose milestone is not the current one -> that epic; no desired
  *   epic but the current milestone is a mirror milestone -> null (clear); a milestone not in
  *   the milestone index (hand-made) is otherwise left alone (D2);
@@ -106,8 +137,25 @@ export function updateFields(context: PlanContext, mirror: MirrorRef, desired: D
   const { githubType: desiredType } = desired;
   const type = desiredType === null || desiredType === mirror.typeName ? null : { githubType: desiredType };
   const rest = milestone === null ? type : { ...milestone, ...type };
-  if (desired.title !== mirror.title) return { title: desired.title, ...rest };
-  return rest;
+  const withBody = desired.body === mirror.body ? rest : { body: desired.body, ...rest };
+  if (desired.title !== mirror.title) return { title: desired.title, ...withBody };
+  return withBody;
+}
+
+/**
+ * What an `updateMilestone` of `milestone` must change, or null when nothing: the desired
+ * title when it differs (compared exactly, N2) and no other milestone has it (`isTitleTaken`:
+ * GitHub would refuse it on every run), and the desired description when it differs (compared
+ * exactly, N4). A skipped title never holds back the description.
+ */
+export function milestoneFields(
+  milestone: MilestoneRef,
+  desired: { readonly title: string; readonly description: string },
+  isTitleTaken: boolean,
+): MilestoneFields | null {
+  const description = desired.description === milestone.description ? null : { description: desired.description };
+  if (desired.title !== milestone.title && !isTitleTaken) return { title: desired.title, ...description };
+  return description;
 }
 
 /**

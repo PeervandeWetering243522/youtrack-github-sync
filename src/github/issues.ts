@@ -1,6 +1,6 @@
 /**
- * GitHub issues: the typed issue shape (including the hierarchy fields of docs/11: id,
- * milestone, type and parent, and the assignees of docs/13), the paged list read and the
+ * GitHub issues: the typed issue shape (including the body, N4, the hierarchy fields of
+ * docs/11: id, milestone, type and parent, and the assignees of docs/13), the paged list read and the
  * issue writes. Assignees are never sent here (docs/13 2.7); see assignees.ts. Types derive
  * from @octokit/openapi-types (GitHub's official OpenAPI description). Writes are never
  * called in DRY_RUN; sync.ts enforces that.
@@ -42,9 +42,10 @@ export type CreateIssueBody = OctokitCreateIssueBody & { readonly parent_issue_i
 /** Request body of PATCH /repos/{owner}/{repo}/issues/{n}. */
 export type UpdateIssueBody = NonNullable<operations["issues/update"]["requestBody"]>["content"]["application/json"];
 
-/** What updateIssue changes: the title, the milestone by number (null clears it) and the issue type by name. */
+/** What updateIssue changes: the title, the body, the milestone by number (null clears it) and the issue type by name. */
 export type IssueUpdate = {
   readonly title?: string;
+  readonly body?: string;
   readonly milestone?: number | null;
   readonly type?: GitHubTypeName;
 };
@@ -57,6 +58,8 @@ export type GitHubIssue = Readonly<Pick<IssueSchema, "number" | "title">> & {
   /** The REST `id` (not the number): what parent_issue_id and sub_issue_id take. */
   readonly id: number;
   readonly state: IssueState;
+  /** `body` verbatim, or null when GitHub reports none (N4 compares it with the desired body). */
+  readonly body: string | null;
   readonly labelNames: readonly string[];
   /** Items from /issues that are really pull requests (have a `pull_request` key). */
   readonly isPullRequest: boolean;
@@ -108,6 +111,7 @@ export function parseGitHubIssue(value: JsonValue, target: GitHubTarget): GitHub
     id: parseIssueId(value["id"], issueNumber),
     title,
     state: parseIssueState(value["state"], issueNumber),
+    body: parseBody(value["body"], issueNumber),
     labelNames: parseLabelNames(value["labels"], issueNumber),
     isPullRequest: isPresent(value["pull_request"]),
     milestoneNumber: parseMilestoneNumber(value["milestone"], issueNumber),
@@ -153,11 +157,11 @@ export async function createIssue(http: HttpClient, target: GitHubTarget, body: 
 }
 
 /**
- * PATCH /repos/{owner}/{repo}/issues/{n} with the title, milestone and/or type of `patch`; a
- * key left out is not sent. retry-once (idempotent). Returns the issue from the response,
- * whose title, milestoneNumber and typeName show whether GitHub applied the change (it drops
- * milestone and type silently without push access). Throws RangeError before any request
- * for a bad issue or milestone number, or for a patch with none of the keys.
+ * PATCH /repos/{owner}/{repo}/issues/{n} with the title, body, milestone and/or type of
+ * `patch`; a key left out is not sent. retry-once (idempotent). Returns the issue from the
+ * response, whose title, body, milestoneNumber and typeName show whether GitHub applied the
+ * change (it drops milestone and type silently without push access). Throws RangeError before
+ * any request for a bad issue or milestone number, or for a patch with none of the keys.
  */
 export async function updateIssue(
   http: HttpClient,
@@ -205,15 +209,16 @@ export async function addLabel(
 
 /** A new body with only the keys `patch` sets. */
 function updateBody(patch: IssueUpdate): IssueUpdate {
-  const { title, milestone, type } = patch;
-  if (title === undefined && milestone === undefined && type === undefined) {
-    throw new RangeError("GitHub issue update needs a title, milestone or type to change");
+  const { title, body, milestone, type } = patch;
+  if (title === undefined && body === undefined && milestone === undefined && type === undefined) {
+    throw new RangeError("GitHub issue update needs a title, body, milestone or type to change");
   }
   if (milestone !== undefined && milestone !== null) {
     positiveInteger("GitHub milestone number", milestone);
   }
   return {
     ...(title === undefined ? {} : { title }),
+    ...(body === undefined ? {} : { body }),
     ...(milestone === undefined ? {} : { milestone }),
     ...(type === undefined ? {} : { type }),
   } satisfies UpdateIssueBody;
@@ -245,6 +250,17 @@ function parseIssueState(value: JsonValue | undefined, issueNumber: number): Iss
     return value;
   }
   throw issueError(issueNumber, `"state" must be "open" or "closed", got ${describeJson(value)}`);
+}
+
+/** Missing or null: no body. Otherwise a string, kept verbatim (line endings included). */
+function parseBody(value: JsonValue | undefined, issueNumber: number): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (isString(value)) {
+    return value;
+  }
+  throw issueError(issueNumber, `"body" must be a string or null, got ${describeJson(value)}`);
 }
 
 /** Label items are strings or objects with a string `name`; anything else is ignored. */

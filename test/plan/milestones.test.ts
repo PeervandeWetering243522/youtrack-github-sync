@@ -3,11 +3,17 @@ import { describe, it } from "node:test";
 
 import type { GitHubMilestone } from "../../src/github/milestones.ts";
 import { buildMilestoneIndex } from "../../src/plan/milestones.ts";
-import type { MilestoneIndexResult } from "../../src/plan/milestones.ts";
+import type { MilestoneIndexResult, MilestoneRef } from "../../src/plan/milestones.ts";
 import { ghMilestone, PROJECT } from "./fixtures.ts";
 
 function build(...milestones: readonly GitHubMilestone[]): MilestoneIndexResult {
   return buildMilestoneIndex(Object.freeze([...milestones]), PROJECT);
+}
+
+/** The ref the index keeps of ghMilestone(n, title, state): its number, title, state and description. */
+function ref(milestoneNumber: number, title: string, state: GitHubMilestone["state"] = "open"): MilestoneRef {
+  const { description } = ghMilestone(milestoneNumber, title, state);
+  return { milestoneNumber, title, state, description };
 }
 
 describe("buildMilestoneIndex: matching", () => {
@@ -19,17 +25,23 @@ describe("buildMilestoneIndex: matching", () => {
     assert.deepEqual(result.warnings, []);
   });
 
-  it("indexes each milestone by the epic number in its title, keeping number, title and state", () => {
+  it("indexes each milestone by the epic number in its title, keeping number, title, state and description", () => {
     const result = build(ghMilestone(3, "[CUI-9] Epic nine"), ghMilestone(4, "[CUI-33] Done", "closed"));
 
     assert.deepEqual(
       [...result.index.entries()],
       [
-        [9, { milestoneNumber: 3, title: "[CUI-9] Epic nine", state: "open" }],
-        [33, { milestoneNumber: 4, title: "[CUI-33] Done", state: "closed" }],
+        [9, ref(3, "[CUI-9] Epic nine")],
+        [33, ref(4, "[CUI-33] Done", "closed")],
       ],
     );
     assert.deepEqual(result.warnings, []);
+  });
+
+  it("keeps the description verbatim, a missing one as null, for the description sync (N4)", () => {
+    const result = build(ghMilestone(3, "[CUI-9] A", "open", " Text\r\n"), ghMilestone(4, "[CUI-10] B", "open", null));
+
+    assert.deepEqual([result.index.get(9)?.description, result.index.get(10)?.description], [" Text\r\n", null]);
   });
 
   it("maps each indexed milestone number back to its epic number", () => {
@@ -68,7 +80,7 @@ describe("buildMilestoneIndex: matching", () => {
   it("keeps a milestone listed twice once, from its first copy, without a warning", () => {
     const result = build(ghMilestone(3, "[CUI-9] Epic"), ghMilestone(3, "[CUI-9] Renamed", "closed"));
 
-    assert.deepEqual(result.index.get(9), { milestoneNumber: 3, title: "[CUI-9] Epic", state: "open" });
+    assert.deepEqual(result.index.get(9), ref(3, "[CUI-9] Epic"));
     assert.deepEqual(result.warnings, []);
   });
 
@@ -90,8 +102,8 @@ describe("buildMilestoneIndex: project ids in titles (N1)", () => {
     assert.deepEqual(
       [...result.index.entries()],
       [
-        [9, { milestoneNumber: 3, title: "[CUI-9] New style", state: "open" }],
-        [10, { milestoneNumber: 4, title: "[YT-10] Old style", state: "closed" }],
+        [9, ref(3, "[CUI-9] New style")],
+        [10, ref(4, "[YT-10] Old style", "closed")],
       ],
     );
     assert.deepEqual(result.warnings, []);
@@ -140,7 +152,7 @@ describe("buildMilestoneIndex: project ids in titles (N1)", () => {
   it("counts a legacy and a new title for the same epic as duplicates, named after the project", () => {
     const result = build(ghMilestone(4, "[CUI-9] New"), ghMilestone(3, "[YT-9] Old"));
 
-    assert.deepEqual(result.index.get(9), { milestoneNumber: 3, title: "[YT-9] Old", state: "open" });
+    assert.deepEqual(result.index.get(9), ref(3, "[YT-9] Old"));
     assert.deepEqual([...result.byNumber.entries()], [[3, 9]]);
     assert.deepEqual(result.warnings, ["CUI-9: 2 GitHub milestones match; using milestone #3, ignoring milestone #4"]);
   });
@@ -159,14 +171,14 @@ describe("buildMilestoneIndex: duplicates", () => {
   it("uses the lowest milestone number, whatever the list order, and warns about the other", () => {
     const result = build(ghMilestone(5, "[CUI-9] Later copy"), ghMilestone(3, "[CUI-9] First"));
 
-    assert.deepEqual(result.index.get(9), { milestoneNumber: 3, title: "[CUI-9] First", state: "open" });
+    assert.deepEqual(result.index.get(9), ref(3, "[CUI-9] First"));
     assert.deepEqual(result.warnings, ["CUI-9: 2 GitHub milestones match; using milestone #3, ignoring milestone #5"]);
   });
 
   it("prefers the lowest number even when it is closed and the other is open", () => {
     const result = build(ghMilestone(5, "[CUI-9] Open"), ghMilestone(3, "[CUI-9] Closed", "closed"));
 
-    assert.deepEqual(result.index.get(9), { milestoneNumber: 3, title: "[CUI-9] Closed", state: "closed" });
+    assert.deepEqual(result.index.get(9), ref(3, "[CUI-9] Closed", "closed"));
   });
 
   it("maps only the winner back to the epic; an ignored duplicate is not a mirror milestone", () => {

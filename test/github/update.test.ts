@@ -149,11 +149,42 @@ describe("updateIssue", () => {
     });
   }
 
-  it("refuses an update with none of title, milestone and type before sending anything", async () => {
+  it("PATCHes only the body, exactly as given, with retry-once (N4)", async () => {
+    const body = "Desc `@x`\r\n\n---\nMirrored from YouTrack: https://youtrack.example.test/issue/CUI-15";
+    const fake = createFakeHttp([{ body: UPDATED }]);
+    await updateIssue(fake.http, TARGET, 21, { body });
+    const request = requestAt(fake.requests, 0);
+    assert.equal(request.method, "PATCH");
+    assert.equal(request.retry, "retry-once");
+    assert.deepEqual(request.body, { body });
+  });
+
+  it("PATCHes title, body, milestone and type in one request, in that key order", async () => {
+    const fake = createFakeHttp([{ body: UPDATED }]);
+    await updateIssue(fake.http, TARGET, 21, { type: "Task", milestone: null, body: "B", title: TITLE });
+    assert.equal(
+      JSON.stringify(requestAt(fake.requests, 0).body),
+      JSON.stringify({ title: TITLE, body: "B", milestone: null, type: "Task" }),
+    );
+  });
+
+  it("sends an empty body as an empty string", async () => {
+    const fake = createFakeHttp([{ body: UPDATED }]);
+    await updateIssue(fake.http, TARGET, 21, { body: "" });
+    assert.deepEqual(requestAt(fake.requests, 0).body, { body: "" });
+  });
+
+  it("returns the body from the response, so the caller can see whether it was applied", async () => {
+    const fake = createFakeHttp([{ body: issueJson({ number: 21, body: "As stored" }) }]);
+    const updated = await updateIssue(fake.http, TARGET, 21, { body: "As sent" });
+    assert.equal(updated.body, "As stored");
+  });
+
+  it("refuses an update with none of title, body, milestone and type before sending anything", async () => {
     const fake = createFakeHttp([{ body: UPDATED }]);
     await assert.rejects(updateIssue(fake.http, TARGET, 21, {}), {
       name: "RangeError",
-      message: "GitHub issue update needs a title, milestone or type to change",
+      message: "GitHub issue update needs a title, body, milestone or type to change",
     });
     assert.equal(fake.requests.length, 0);
   });

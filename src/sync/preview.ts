@@ -18,9 +18,9 @@ import {
   describeDetach,
   describeMove,
   describeRemoveAssignees,
-  describeRenameMilestone,
   describeReopen,
   describeUpdate,
+  describeUpdateMilestone,
 } from "./describe.ts";
 import type { Logger } from "./log.ts";
 import type { Resolved } from "./resolved.ts";
@@ -56,8 +56,10 @@ function preview(action: Action, context: PreviewContext): { readonly text: stri
         text: `create milestone ${mirrorName(action.issue)}: ${title(action, context)}`,
         counter: "milestonesCreated",
       };
-    case "renameMilestone":
-      return { text: `${describeRenameMilestone(action)}: ${action.title}`, counter: "updated" };
+    case "updateMilestone": {
+      const newTitle = action.title === undefined ? "" : `: ${action.title}`;
+      return { text: `${describeUpdateMilestone(action)}${newTitle}`, counter: "updated" };
+    }
     case "closeMilestone":
       return { text: describeCloseMilestone(action), counter: "milestonesClosed" };
     case "create": {

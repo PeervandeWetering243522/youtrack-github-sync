@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { formatMirror } from "../../src/mirror.ts";
+import { writeCost } from "../../src/plan.ts";
+import type { YouTrackIssue } from "../../src/youtrack.ts";
 import {
   counts,
   describeActions,
+  desiredBody,
   epic,
   FILTERED,
   ghMilestone,
@@ -14,6 +18,7 @@ import {
   RESOLVED_AT,
   story,
   under,
+  YOUTRACK_BASE_URL,
   ytIssue,
 } from "./fixtures.ts";
 
@@ -53,7 +58,11 @@ describe("planActions: epics become milestones (H1, H2, R9)", () => {
     const result = plan([issue], { milestones });
 
     assert.deepEqual(result.actions, [
-      { kind: "closeMilestone", issue, milestone: { milestoneNumber: 3, title: "[CUI-9] Issue 9", state: "open" } },
+      {
+        kind: "closeMilestone",
+        issue,
+        milestone: { milestoneNumber: 3, title: "[CUI-9] Issue 9", state: "open", description: desiredBody(9) },
+      },
     ]);
     const [action] = result.actions;
     assert.equal(action?.kind === "closeMilestone" ? action.milestone : null, milestones.index.get(9));
@@ -78,14 +87,14 @@ describe("planActions: epics become milestones (H1, H2, R9)", () => {
   });
 
   it("renames a milestone whose epic summary changed, and nothing more (N2, D7)", () => {
-    // Before N2 this was never renamed (D7); the description still never changes.
+    // Before N2 this was never renamed (D7); the description is already the desired one (N4).
     const issue = epic(9, { summary: "A completely new name" });
     const milestones = milestoneIndex(ghMilestone(3, "[CUI-9] Old name"));
 
     const result = plan([issue], { milestones });
 
     assert.deepEqual(result.actions, [
-      { kind: "renameMilestone", issue, milestone: milestones.index.get(9), title: "[CUI-9] A completely new name" },
+      { kind: "updateMilestone", issue, milestone: milestones.index.get(9), title: "[CUI-9] A completely new name" },
     ]);
     assert.equal(result.unchanged, 0);
   });
@@ -155,14 +164,14 @@ describe("planActions: milestone titles are kept in sync (N1, N2)", () => {
 
     assert.deepEqual(result.actions, [
       {
-        kind: "renameMilestone",
+        kind: "updateMilestone",
         issue,
-        milestone: { milestoneNumber: 3, title: "[CUI-9] Old name", state: "open" },
+        milestone: { milestoneNumber: 3, title: "[CUI-9] Old name", state: "open", description: desiredBody(9) },
         title: "[CUI-9] New name",
       },
     ]);
     const [action] = result.actions;
-    assert.equal(action?.kind === "renameMilestone" ? action.milestone : null, milestones.index.get(9));
+    assert.equal(action?.kind === "updateMilestone" ? action.milestone : null, milestones.index.get(9));
   });
 
   it("renames a closed milestone too, without reopening it (D7)", () => {
@@ -173,9 +182,12 @@ describe("planActions: milestone titles are kept in sync (N1, N2)", () => {
 
     const result = plan([epic(9), epic(10, RESOLVED)], { milestones });
 
-    assert.deepEqual(describeActions(result.actions), ["renameMilestone 9 -> m3", "renameMilestone 10 -> m4"]);
+    assert.deepEqual(describeActions(result.actions), [
+      "updateMilestone 9 -> m3 title",
+      "updateMilestone 10 -> m4 title",
+    ]);
     assert.deepEqual(
-      result.actions.map((action) => (action.kind === "renameMilestone" ? action.title : null)),
+      result.actions.map((action) => (action.kind === "updateMilestone" ? action.title : null)),
       ["[CUI-9] Issue 9", "[CUI-10] Issue 10"],
     );
   });
@@ -185,8 +197,8 @@ describe("planActions: milestone titles are kept in sync (N1, N2)", () => {
 
     const result = plan([epic(9)], { milestones });
 
-    assert.deepEqual(describeActions(result.actions), ["renameMilestone 9 -> m3"]);
-    assert.equal(result.actions[0]?.kind === "renameMilestone" ? result.actions[0].title : null, "[CUI-9] Issue 9");
+    assert.deepEqual(describeActions(result.actions), ["updateMilestone 9 -> m3 title"]);
+    assert.equal(result.actions[0]?.kind === "updateMilestone" ? result.actions[0].title : null, "[CUI-9] Issue 9");
   });
 
   it("renames, then closes, the open milestone of a resolved epic with an outdated title", () => {
@@ -194,7 +206,7 @@ describe("planActions: milestone titles are kept in sync (N1, N2)", () => {
 
     const result = plan([epic(9, RESOLVED)], { milestones });
 
-    assert.deepEqual(describeActions(result.actions), ["renameMilestone 9 -> m3", "closeMilestone 9 -> m3"]);
+    assert.deepEqual(describeActions(result.actions), ["updateMilestone 9 -> m3 title", "closeMilestone 9 -> m3"]);
     assert.deepEqual(counts(result), { scanned: 1, filtered: 0, unchanged: 0, capped: 0 });
   });
 
@@ -212,7 +224,10 @@ describe("planActions: milestone titles are kept in sync (N1, N2)", () => {
 
     const result = plan([epic(9), epic(10)], { milestones });
 
-    assert.deepEqual(describeActions(result.actions), ["renameMilestone 9 -> m3", "renameMilestone 10 -> m4"]);
+    assert.deepEqual(describeActions(result.actions), [
+      "updateMilestone 9 -> m3 title",
+      "updateMilestone 10 -> m4 title",
+    ]);
   });
 
   it("does not rename the winning milestone to a title a duplicate already has, which GitHub would refuse", () => {
@@ -286,9 +301,96 @@ describe("planActions: milestone titles are kept in sync (N1, N2)", () => {
     const renames = plan([epic(1), epic(2), epic(3)], { milestones, maxWrites: 2 });
     const closing = plan([epic(1, RESOLVED)], { milestones, maxWrites: 1 });
 
-    assert.deepEqual(describeActions(renames.actions), ["renameMilestone 1 -> m3", "renameMilestone 2 -> m4"]);
+    assert.deepEqual(describeActions(renames.actions), [
+      "updateMilestone 1 -> m3 title",
+      "updateMilestone 2 -> m4 title",
+    ]);
     assert.deepEqual(counts(renames), { scanned: 3, filtered: 0, unchanged: 0, capped: 1 });
-    assert.deepEqual(describeActions(closing.actions), ["renameMilestone 1 -> m3"]);
+    assert.deepEqual(describeActions(closing.actions), ["updateMilestone 1 -> m3 title"]);
     assert.deepEqual(counts(closing), { scanned: 1, filtered: 0, unchanged: 0, capped: 1 });
+  });
+});
+
+describe("planActions: milestone descriptions are kept in sync (N4)", () => {
+  const descriptionOf = (issue: YouTrackIssue): string => formatMirror(issue, YOUTRACK_BASE_URL).body;
+
+  it("updates the description of a milestone whose epic description changed", () => {
+    const issue = epic(9, { description: "New plan" });
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-9] Issue 9"));
+
+    const result = plan([issue], { milestones });
+
+    assert.deepEqual(result.actions, [
+      { kind: "updateMilestone", issue, milestone: milestones.index.get(9), description: descriptionOf(issue) },
+    ]);
+    assert.deepEqual(counts(result), { scanned: 1, filtered: 0, unchanged: 0, capped: 0 });
+  });
+
+  it("updates the description of a closed milestone too, without reopening it (D7)", () => {
+    const milestones = milestoneIndex(
+      ghMilestone(3, "[CUI-9] Issue 9", "closed", "Old"),
+      ghMilestone(4, "[CUI-10] Issue 10", "closed", null),
+    );
+
+    const result = plan([epic(9), epic(10, RESOLVED)], { milestones });
+
+    assert.deepEqual(describeActions(result.actions), [
+      "updateMilestone 9 -> m3 description",
+      "updateMilestone 10 -> m4 description",
+    ]);
+  });
+
+  it("sends title and description in one update that costs one write, before the close", () => {
+    const issue = epic(9, { ...RESOLVED, summary: "Renamed", description: "New" });
+    const milestones = milestoneIndex(ghMilestone(3, "[YT-9] Old", "open", "Old"));
+
+    const result = plan([issue], { milestones, maxWrites: 2 });
+
+    assert.deepEqual(result.actions, [
+      {
+        kind: "updateMilestone",
+        issue,
+        milestone: milestones.index.get(9),
+        title: "[CUI-9] Renamed",
+        description: descriptionOf(issue),
+      },
+      { kind: "closeMilestone", issue, milestone: milestones.index.get(9) },
+    ]);
+    assert.deepEqual(result.actions.map(writeCost), [1, 1]);
+  });
+
+  it("still updates the description when the rename is skipped for a taken title", () => {
+    const milestones = milestoneIndex(ghMilestone(3, "[YT-9] Old", "open", "Old"), ghMilestone(4, "[CUI-9] Issue 9"));
+
+    const result = plan([epic(9)], { milestones });
+
+    assert.deepEqual(describeActions(result.actions), ["updateMilestone 9 -> m3 description"]);
+  });
+
+  it("compares descriptions exactly", () => {
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-9] Issue 9", "open", `${desiredBody(9)}\n`));
+
+    const result = plan([epic(9)], { milestones });
+
+    assert.deepEqual(describeActions(result.actions), ["updateMilestone 9 -> m3 description"]);
+  });
+
+  it("never updates the description of an excluded epic's milestone, nor of one under it (F1, F3, F2)", () => {
+    const milestones = milestoneIndex(
+      ghMilestone(3, "[CUI-9] Issue 9", "open", "Old"),
+      ghMilestone(4, "[CUI-10] Issue 10", "open", "Old"),
+    );
+
+    const result = plan([epic(9, FILTERED), epic(10, under(9))], { milestones });
+
+    assert.deepEqual(result.actions, []);
+  });
+
+  it("never updates a losing duplicate milestone", () => {
+    const milestones = milestoneIndex(ghMilestone(3, "[CUI-9] Issue 9"), ghMilestone(5, "[YT-9] Copy", "open", "Old"));
+
+    const result = plan([epic(9)], { milestones });
+
+    assert.deepEqual(result.actions, []);
   });
 });

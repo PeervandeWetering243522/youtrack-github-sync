@@ -13,7 +13,6 @@ import {
   MAX_TITLE_LENGTH,
   formatMirror,
   hasTitlePrefix,
-  mirrorTitle,
   parseMirrorTitle,
   youtrackIssueUrl,
 } from "../../src/mirror.ts";
@@ -147,35 +146,30 @@ describe("parseMirrorTitle", () => {
   });
 });
 
-describe("mirrorTitle", () => {
-  it("equals the title formatMirror gives, cut or not", () => {
-    const summaries = ["[team] Fix it", "  [team] Fix  ", "   ", "x".repeat(600), `${"a".repeat(246)}😀b`];
-    for (const summary of summaries) {
-      const issue = makeIssue({ summary });
-      assert.equal(mirrorTitle(issue), formatMirror(issue, BASE_URL).title, summary);
-    }
-  });
+describe("formatMirror: the title the sync compares (N2)", () => {
+  const titleOf = (overrides: Parameters<typeof makeIssue>[0]): string =>
+    formatMirror(makeIssue(overrides), BASE_URL).title;
 
   it("cuts a long title to MAX_TITLE_LENGTH, ending with the ellipsis", () => {
-    const title = mirrorTitle(makeIssue({ summary: "x".repeat(600) }));
+    const title = titleOf({ summary: "x".repeat(600) });
     assert.equal(title.length, MAX_TITLE_LENGTH);
     assert.equal(title, `[CUI-7] ${"x".repeat(MAX_TITLE_LENGTH - 9)}${ELLIPSIS}`);
   });
 
   it("takes the prefix from idReadable verbatim (N1), whatever numberInProject says", () => {
-    assert.equal(mirrorTitle({ idReadable: "CUI-24", summary: "Fix login" }), "[CUI-24] Fix login");
-    assert.equal(mirrorTitle({ idReadable: "cui-24", summary: "Fix login" }), "[cui-24] Fix login");
-    assert.equal(mirrorTitle({ idReadable: "MY-PROJ-3", summary: "x" }), "[MY-PROJ-3] x");
-    assert.equal(mirrorTitle(makeIssue({ idReadable: "CUI-24", numberInProject: 7 })), "[CUI-24] [team] Fix it");
+    assert.equal(titleOf({ idReadable: "CUI-24", summary: "Fix login" }), "[CUI-24] Fix login");
+    assert.equal(titleOf({ idReadable: "cui-24", summary: "Fix login" }), "[cui-24] Fix login");
+    assert.equal(titleOf({ idReadable: "MY-PROJ-3", summary: "x" }), "[MY-PROJ-3] x");
+    assert.equal(titleOf({ idReadable: "CUI-24", numberInProject: 7 }), "[CUI-24] [team] Fix it");
   });
 
   it("differs from a legacy [YT-n] title that still finds the same issue, so the sync renames it (N2)", () => {
     const legacy = "[YT-7] [team] Fix it";
-    const issue = makeIssue();
-    assert.equal(parseMirrorTitle(legacy, PROJECT), issue.numberInProject);
-    assert.equal(mirrorTitle(issue), "[CUI-7] [team] Fix it");
-    assert.notEqual(mirrorTitle(issue), legacy);
-    assert.equal(parseMirrorTitle(mirrorTitle(issue), PROJECT), issue.numberInProject);
+    const title = titleOf({});
+    assert.equal(parseMirrorTitle(legacy, PROJECT), 7);
+    assert.equal(title, "[CUI-7] [team] Fix it");
+    assert.notEqual(title, legacy);
+    assert.equal(parseMirrorTitle(title, PROJECT), 7);
   });
 });
 

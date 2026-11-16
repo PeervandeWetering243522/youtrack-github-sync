@@ -12,8 +12,8 @@ import { MIRROR_LABEL } from "../github/client.ts";
 import type { GitHubTarget } from "../github/client.ts";
 import { addLabel, closeIssue, createIssue, reopenIssue, updateIssue } from "../github/issues.ts";
 import type { CreateIssueBody, GitHubIssue, IssueUpdate } from "../github/issues.ts";
-import { closeMilestone, createMilestone, renameMilestone } from "../github/milestones.ts";
-import type { GitHubMilestone, NewMilestone } from "../github/milestones.ts";
+import { closeMilestone, createMilestone, updateMilestone } from "../github/milestones.ts";
+import type { GitHubMilestone, MilestoneUpdate, NewMilestone } from "../github/milestones.ts";
 import { addSubIssue, removeSubIssue } from "../github/sub-issues.ts";
 import { FetchBudgetExceededError, HttpError } from "../http.ts";
 import type { HttpClient } from "../http.ts";
@@ -35,14 +35,15 @@ export type GitHubWriter = {
   readonly close: (issueNumber: number) => Promise<void>;
   readonly reopen: (issueNumber: number) => Promise<void>;
   readonly addLabel: (issueNumber: number) => Promise<void>;
-  /** PATCH title, milestone and/or type; resolves to the issue GitHub answered with. */
+  /** PATCH title, body, milestone and/or type; resolves to the issue GitHub answered with. */
   readonly update: (issueNumber: number, patch: IssueUpdate) => Promise<GitHubIssue>;
   /** Puts issue `childId` (REST id) under #parentNumber, replacing any current parent (replace_parent). */
   readonly addSubIssue: (parentNumber: number, childId: number) => Promise<void>;
   /** Takes issue `childId` (REST id) out from under #parentNumber. */
   readonly removeSubIssue: (parentNumber: number, childId: number) => Promise<void>;
   readonly createMilestone: (milestone: NewMilestone) => Promise<GitHubMilestone>;
-  readonly renameMilestone: (milestoneNumber: number, title: string) => Promise<void>;
+  /** PATCH a milestone's title and/or description; resolves to the milestone GitHub answered with. */
+  readonly updateMilestone: (milestoneNumber: number, patch: MilestoneUpdate) => Promise<GitHubMilestone>;
   readonly closeMilestone: (milestoneNumber: number) => Promise<void>;
   /** POST `logins` to #issueNumber's assignees (U5); resolves to the assignees GitHub answered with. */
   readonly addAssignees: (issueNumber: number, logins: readonly string[]) => Promise<readonly GitHubAssignee[]>;
@@ -101,7 +102,7 @@ export function githubWriter(
     addSubIssue: (parentNumber, childId) => send(() => addSubIssue(http, target, parentNumber, childId, true)),
     removeSubIssue: (parentNumber, childId) => send(() => removeSubIssue(http, target, parentNumber, childId)),
     createMilestone: (milestone) => send(() => createMilestone(http, target, milestone)),
-    renameMilestone: (milestoneNumber, title) => send(() => renameMilestone(http, target, milestoneNumber, title)),
+    updateMilestone: (milestoneNumber, patch) => send(() => updateMilestone(http, target, milestoneNumber, patch)),
     closeMilestone: (milestoneNumber) => send(() => closeMilestone(http, target, milestoneNumber)),
     addAssignees: (issueNumber, logins) => send(() => addAssignees(http, target, issueNumber, logins)),
     removeAssignees: (issueNumber, logins) => send(() => removeAssignees(http, target, issueNumber, logins)),

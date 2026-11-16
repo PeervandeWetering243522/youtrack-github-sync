@@ -36,15 +36,16 @@ necessarily the project you are working with.
   every identity the run saw, for the identity redactor). `sync/execute.ts` runs the write loop and its stops (cap, fetch
   guard, rate limit, deadline). `sync/execute-write.ts` holds the only GitHub writer (built
   only when `DRY_RUN` is off) and turns write outcomes into counts. `sync/execute-issues.ts`
-  (create, label re-add, close), `sync/execute-hierarchy.ts` (milestone create, rename and
-  close, update, move, detach) and `sync/execute-assignees.ts` (assignee add and remove, the
+  (create, label re-add, close), `sync/execute-hierarchy.ts` (milestone create, update and
+  close, issue update, move, detach) and `sync/execute-assignees.ts` (assignee add and remove, the
   response check, trimmed 422 excerpts) do the writes. `sync/resolved.ts` maps YouTrack numbers to GitHub numbers and ids
   within a run, `sync/preview.ts` is the dry run, `sync/describe.ts` the log wording both
   share, `sync/tally.ts` counts, and `sync/log.ts` redacts every log line.
 - `src/plan.ts` + `src/plan/`, `src/hierarchy.ts`, `src/mirror.ts`, `src/utils/`: pure decision
   and formatting logic, no I/O. `hierarchy.ts` classifies `Type` values and walks parent links
   (cycle-safe). `plan/exclude.ts` decides which issues are excluded (F1, F3).
-  `plan/desired.ts` works out each mirror's desired title, milestone, type and parent and how
+  `plan/desired.ts` works out each mirror's desired title, body, milestone, type and parent (and
+  each milestone's title and description) and how
   it differs. `plan/mirrors.ts` and `plan/milestones.ts` build the `[<project>-n]` indexes
   (legacy `[YT-n]` titles match too, N1),
   and `plan.ts` builds the actions, their order and the cap. Assignees: `plan/assignee-scope.ts`
@@ -118,7 +119,7 @@ ignored entirely, existing mirror or milestone left as it is (F2); `isExcluded` 
 issue without one is never mirrored (R9). Plan (implemented, see its "As built" section):
 `docs/09-implementation-plan.md`.
 
-## Hierarchy (H1-H10, D1-D8, N1-N2; docs/10 and docs/11)
+## Hierarchy (H1-H10, D1-D8, N1-N4; docs/10 and docs/11)
 
 Epic -> milestone `[<project>-n] <summary>` (the epic's idReadable, N1). User Story -> issue with type Feature, Bug -> issue with
 type Bug, any other type -> issue with no type; these are always top-level (H9). Task -> issue
@@ -126,10 +127,13 @@ with type Task, as a sub-issue of the mirror of its nearest non-epic ancestor th
 top-level if there is none. Every mirror gets the milestone of its nearest epic, if that epic
 has one (D1). Epics use the same exclude filter (F1, F3) and the same R9 rule as issues, and an
 excluded issue's mirror or milestone is never used as a parent or milestone. Every run
-syncs title, milestone, type and parent on all mirrors, open or closed (D8), and the title of
-every milestone (N2). Bodies and milestone descriptions never change after creation, and
-nothing is reopened (D7) except a mirror closed by the `REOPEN_CLOSED_BY` login whose issue is
-unresolved again (R10; never a milestone). Only
+syncs title, body, milestone, type and parent on all mirrors, open or closed (D8), and the
+title and description of every milestone (N2, N4). The desired title and body are
+`formatMirror` of the YouTrack issue now, compared exactly; a body edited on GitHub is put
+back (the team does not edit mirrors, A6). A body change rides in the same PATCH as the other
+fields, and a milestone's title and description in one `updateMilestone`; logs say `set body`
+or `set description`, never the text (R3). Nothing is reopened (D7) except a mirror closed by
+the `REOPEN_CLOSED_BY` login whose issue is unresolved again (R10; never a milestone). Only
 mirror-owned links are changed (D2) and a type is never cleared (D3). A child whose parent
 mirror or milestone is created in the same run waits for it and is capped if that create fails
 or waits itself (D4). Order: milestones, non-task creates, task creates by depth, syncs, closes,
@@ -177,6 +181,11 @@ login and email the run saw replaced with `[person]` (U8). Plan and "As built" n
 - GitHub: labels on `POST /issues` are silently dropped without push access. Verify them in the
   response, or you get a duplicate mirror every run. The issues list includes PRs. A User-Agent
   is required. Milestone and type are dropped silently the same way.
+- GitHub stores issue bodies and milestone descriptions exactly as sent (live, 2026-11-16: 83
+  of 99 CUI bodies and all 5 milestone descriptions matched `formatMirror` byte for byte, no
+  CRLF), which is what lets N4 compare them exactly. A web-UI edit may bring `\r\n`; that just
+  differs once and is rewritten. If GitHub ever normalised bodies, every run would PATCH every
+  mirror until the cap: check a dry run's `set body` count after any formatting change.
 - GitHub: during an incident (2026-10-22) the issues list answered 200 with mirrors missing, and
   8 runs created 48 duplicates in the CUI repo. Only a failed read is safe, so the list's open
   issues are checked against GraphQL's `issues(states: OPEN)` count (R11; a list missing only

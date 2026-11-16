@@ -15,6 +15,7 @@ import {
   resolvedIssue,
   task,
   titled,
+  YOUTRACK_BASE_URL,
   ytIssue,
 } from "./fixtures.ts";
 
@@ -42,29 +43,34 @@ describe("writeCost", () => {
     assert.equal(writeCost({ kind: "close", issue: resolvedIssue(1), mirror: titled(1, mirror(12)) }), 1);
   });
 
-  it("costs 1 for each milestone write, a rename included", () => {
-    const milestone = { milestoneNumber: 3, title: "[YT-9] Old", state: "open" } as const;
+  it("costs 1 for each milestone write, an update of title and description included", () => {
+    const milestone = { milestoneNumber: 3, title: "[YT-9] Old", state: "open", description: null } as const;
+    const update = { kind: "updateMilestone", issue: epic(9), milestone, title: "[CUI-9] Issue 9" } as const;
 
     assert.equal(writeCost({ kind: "createMilestone", issue: epic(9) }), 1);
-    assert.equal(writeCost({ kind: "renameMilestone", issue: epic(9), milestone, title: "[CUI-9] Issue 9" }), 1);
+    assert.equal(writeCost(update), 1);
+    assert.equal(writeCost({ ...update, description: "New" }), 1);
     assert.equal(writeCost({ kind: "closeMilestone", issue: epic(9), milestone }), 1);
   });
 
-  it("costs 1 for an update, even one that changes title, milestone and type together", () => {
+  it("costs 1 for an update, even one that changes title, body, milestone and type together", () => {
     const ref = titled(5, mirror(12));
     const both: Action = { kind: "update", issue: task(5), mirror: ref, milestoneEpic: 9, githubType: "Task" };
     const titleOnly: Action = { kind: "update", issue: task(5), mirror: ref, title: "[CUI-5] New" };
+    const bodyOnly: Action = { kind: "update", issue: task(5), mirror: ref, body: "New" };
     const all: Action = {
       kind: "update",
       issue: task(5),
       mirror: ref,
       title: "[CUI-5] New",
+      body: "New",
       milestoneEpic: 9,
       githubType: "Task",
     };
 
     assert.equal(writeCost(both), 1);
     assert.equal(writeCost(titleOnly), 1);
+    assert.equal(writeCost(bodyOnly), 1);
     assert.equal(writeCost(all), 1);
   });
 
@@ -338,6 +344,7 @@ describe("planActions: immutability", () => {
       mirrors: index,
       milestones: NO_MILESTONES,
       excludePrefix: EXCLUDE_PREFIX,
+      youtrackBaseUrl: YOUTRACK_BASE_URL,
       maxWrites: 30,
       reopenClosedBy: null,
       assignees: null,

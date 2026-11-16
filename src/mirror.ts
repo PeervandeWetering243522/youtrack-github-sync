@@ -57,14 +57,6 @@ export function parseMirrorTitle(title: string, project: string): number | null 
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-/**
- * The mirror title of `issue`: `[<idReadable>] <summary>` (N1), cut as formatMirror cuts it.
- * The sync compares it with a mirror's or milestone's current title on every run (N2).
- */
-export function mirrorTitle(issue: Pick<YouTrackIssue, "idReadable" | "summary">): string {
-  return formatTitle(issue.idReadable, issue.summary).text;
-}
-
 /** Summary starts with `prefix`, case-insensitive, ignoring leading whitespace. */
 export function hasTitlePrefix(summary: string, prefix: string): boolean {
   return summary.trimStart().toLowerCase().startsWith(prefix.trim().toLowerCase());
@@ -85,7 +77,8 @@ export function neutraliseReferences(markdown: string): string {
 /**
  * Title: `[<idReadable>] <summary>` (N1, e.g. "[CUI-7] Fix login"), at most
  * MAX_TITLE_LENGTH UTF-16 units, never splitting a surrogate pair; when cut, ends with
- * ELLIPSIS. Only the title is kept in sync later (N2); the body never changes.
+ * ELLIPSIS. Deterministic and pure: the planner compares this title and body with every
+ * mirror's and milestone's on every run and writes them when they differ (N2, N4).
  *
  * Body (decisions A4, A9):
  *   [if title cut]  "Title character limit hit, see the full YouTrack issue: <url>\n\n"

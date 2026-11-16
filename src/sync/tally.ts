@@ -14,7 +14,7 @@ export type Tally = {
   readonly closed: number;
   /** Closed mirrors reopened because their YouTrack issue is unresolved again (R10). */
   readonly reopened: number;
-  /** Sync writes done: `update`, `setParent`, `removeParent` and `renameMilestone` (docs/11 §1.7, N2). */
+  /** Sync writes done: `update`, `setParent`, `removeParent` and `updateMilestone` (docs/11 §1.7, N2, N4). */
   readonly updated: number;
   /** `addAssignees` writes done (one write may name several logins; docs/13 §5). */
   readonly assigneesAdded: number;

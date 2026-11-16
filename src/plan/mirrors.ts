@@ -12,13 +12,14 @@ import type { Candidate } from "./candidates.ts";
 /**
  * One YouTrack issue's mirror as the GitHub list reported it: its number and REST `id`
  * (what sub-issue writes take), state, whether it carries the mirror label, and its
- * title, milestone, issue type, parent, who closed it and its assignees (see GitHubIssue).
+ * title, body, milestone, issue type, parent, who closed it and its assignees (see GitHubIssue).
  */
 export type MirrorRef = Pick<
   GitHubIssue,
   | "id"
   | "state"
   | "title"
+  | "body"
   | "milestoneNumber"
   | "typeName"
   | "parentNumber"
@@ -102,6 +103,7 @@ function toMirrorRef(issue: GitHubIssue, hasLabel: boolean): MirrorRef {
     state: issue.state,
     hasLabel,
     title: issue.title,
+    body: issue.body,
     milestoneNumber: issue.milestoneNumber,
     typeName: issue.typeName,
     parentNumber: issue.parentNumber,

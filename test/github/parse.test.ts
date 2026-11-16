@@ -20,7 +20,7 @@ function parse(value: JsonValue): GitHubIssue {
 describe("parseGitHubIssue", () => {
   it("parses an open issue into the minimal typed shape", () => {
     // Arrange
-    const raw = issueJson({ number: 42, title: "[YT-7] Fix it", body: "ignored", id: 999, labels: ["youtrack"] });
+    const raw = issueJson({ number: 42, title: "[YT-7] Fix it", body: "Kept", id: 999, labels: ["youtrack"] });
 
     // Act
     const issue = parse(raw);
@@ -34,6 +34,7 @@ describe("parseGitHubIssue", () => {
       labelNames: ["youtrack"],
       isPullRequest: false,
       ...NO_EXTRAS,
+      body: "Kept",
     };
     assert.deepEqual(issue, expected);
   });
