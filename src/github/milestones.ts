@@ -100,15 +100,17 @@ export async function createMilestone(
 /**
  * PATCH /repos/{owner}/{repo}/milestones/{n} with the title and/or description of `patch` and
  * nothing else (never a state, so a closed milestone stays closed). retry-once (idempotent).
- * Throws RangeError before any request unless n is a positive safe integer, or for a patch
- * with neither key.
+ * Returns the milestone from the response, whose title and description show whether GitHub
+ * applied the change; throws GitHubSchemaError for a response that is not a milestone. Throws
+ * RangeError before any request unless n is a positive safe integer, or for a patch with
+ * neither key.
  */
 export async function updateMilestone(
   http: HttpClient,
   target: GitHubTarget,
   milestoneNumber: number,
   patch: MilestoneUpdate,
-): Promise<void> {
+): Promise<GitHubMilestone> {
   const { title, description } = patch;
   if (title === undefined && description === undefined) {
     throw new RangeError("GitHub milestone update needs a title or description to change");
@@ -117,7 +119,9 @@ export async function updateMilestone(
     ...(title === undefined ? {} : { title }),
     ...(description === undefined ? {} : { description }),
   } satisfies UpdateMilestoneBody;
-  await http.request(githubRequest(target, "PATCH", milestoneUrl(target, milestoneNumber), "retry-once", body));
+  const url = milestoneUrl(target, milestoneNumber);
+  const response = await http.request(githubRequest(target, "PATCH", url, "retry-once", body));
+  return parseGitHubMilestone(response.body);
 }
 
 /**

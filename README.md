@@ -425,9 +425,10 @@ with YouTrack, open or closed (decision N4). Before merging the bump, tell your 
 made to a mirror's description on GitHub, ticked checkboxes included, is put back within one
 run, so descriptions are edited in YouTrack only. The first run rewrites every mirror whose
 YouTrack description changed since it was created; a dry run lists them as `set body`. They
-count against `max-writes-per-run`, so a long list spreads over a few runs. GitHub does not
-notify anyone of a body edit (mentions in descriptions are wrapped in backticks). Nothing to
-change in the workflow.
+count against `max-writes-per-run`, so a long list spreads over a few runs. An issue or
+milestone made by hand with a title starting `[ABC-12]` counts as that issue's mirror, as
+before, so its description is replaced too. GitHub does not notify anyone of a body edit
+(mentions in descriptions are wrapped in backticks). Nothing to change in the workflow.
 
 ### Updating from v0.x to v1.0.0
 
@@ -1079,8 +1080,9 @@ writes on, set `DRY_RUN=false` in `config.env`; the next run picks it up.
 - **GitHub:** writes are serial and 1 s apart, well within the secondary limit of 80
   content-creating requests per minute. If the token lacks push access, GitHub silently drops
   labels, milestones and types, and ignores assignee adds and removes. The label re-add and the
-  title fallback stop that from causing duplicates. When GitHub's answer lacks a milestone,
-  type, parent or added assignee that was sent, or still holds a removed one, a warning is
+  title fallback stop that from causing duplicates. When GitHub's answer lacks a title, body,
+  milestone, type, parent, milestone description or added assignee that was sent, or still
+  holds a removed one, a warning is
   logged and the next run tries again (no extra write in the same run). GitHub allows 100
   sub-issues per parent and 8 levels; a create or move beyond that is expected to fail on every
   run (unverified). It allows 10 assignees per issue: matched people beyond that are left out

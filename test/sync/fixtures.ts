@@ -397,11 +397,14 @@ function createdMilestone(body: JsonValue | undefined, milestoneNumber: number):
   return ghMilestone(milestoneNumber, isString(title) ? title : "");
 }
 
-/** A milestone PATCH answer: closed for a close, otherwise open with the requested title (a rename). */
+/** A milestone PATCH answer: closed for a close, otherwise open with the requested title and description echoed back. */
 function patchedMilestone(body: JsonValue | undefined, milestoneNumber: number): JsonObject {
-  const { state, title } = requestOf(body);
+  const { state, title, description } = requestOf(body);
   if (state === "closed") return ghMilestone(milestoneNumber, "[CUI-0] closed", "closed");
-  return ghMilestone(milestoneNumber, isString(title) ? title : "");
+  return {
+    ...ghMilestone(milestoneNumber, isString(title) ? title : "[CUI-0] patched"),
+    ...(isString(description) ? { description } : {}),
+  };
 }
 
 function milestoneAnswer(call: RecordedCall, world: World, counters: Counters): Response | undefined {

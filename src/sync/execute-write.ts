@@ -42,8 +42,8 @@ export type GitHubWriter = {
   /** Takes issue `childId` (REST id) out from under #parentNumber. */
   readonly removeSubIssue: (parentNumber: number, childId: number) => Promise<void>;
   readonly createMilestone: (milestone: NewMilestone) => Promise<GitHubMilestone>;
-  /** PATCH a milestone's title and/or description. */
-  readonly updateMilestone: (milestoneNumber: number, patch: MilestoneUpdate) => Promise<void>;
+  /** PATCH a milestone's title and/or description; resolves to the milestone GitHub answered with. */
+  readonly updateMilestone: (milestoneNumber: number, patch: MilestoneUpdate) => Promise<GitHubMilestone>;
   readonly closeMilestone: (milestoneNumber: number) => Promise<void>;
   /** POST `logins` to #issueNumber's assignees (U5); resolves to the assignees GitHub answered with. */
   readonly addAssignees: (issueNumber: number, logins: readonly string[]) => Promise<readonly GitHubAssignee[]>;

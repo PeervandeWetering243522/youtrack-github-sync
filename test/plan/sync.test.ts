@@ -626,6 +626,38 @@ describe("planActions: body sync (N4)", () => {
     assert.deepEqual(counts(result), { scanned: 2, filtered: 2, unchanged: 0, capped: 0 });
   });
 
+  it("plans nothing on the next run once the bodies it wrote are on GitHub (no write loop)", () => {
+    // Arrange: descriptions that neutralising, closing blocks, CRLF and cutting all touch.
+    const issues = [
+      ytIssue(5, { description: "Ping @bob about #12\r\nand GH-3\r\n" }),
+      ytIssue(6, { description: "```js\nunclosed fence" }),
+      ytIssue(7, { description: "z".repeat(70_000) }),
+      ytIssue(8, { summary: "x".repeat(300) }),
+      ytIssue(9, { description: "   " }),
+    ];
+    const stale = mirrors(
+      ...issues.map((issue) => [issue.numberInProject, mirror(issue.numberInProject + 20, { body: "Old" })] as const),
+    );
+    const first = plan(issues, { mirrors: stale });
+
+    // Act: apply each update as GitHub stores it (verbatim), then plan again.
+    const written = new Map(first.actions.map((action) => [action.issue.numberInProject, action]));
+    const applied = mirrors(
+      ...issues.map((issue) => {
+        const action = written.get(issue.numberInProject);
+        const { title, body } = action?.kind === "update" ? action : {};
+        const fields = { ...(title === undefined ? {} : { title }), ...(body === undefined ? {} : { body }) };
+        return [issue.numberInProject, mirror(issue.numberInProject + 20, fields)] as const;
+      }),
+    );
+    const second = plan(issues, { mirrors: applied });
+
+    // Assert
+    assert.equal(first.actions.length, issues.length);
+    assert.deepEqual(second.actions, []);
+    assert.equal(second.unchanged, issues.length);
+  });
+
   it("plans nothing for a resolved issue without a mirror, whatever its description (R9)", () => {
     const result = plan([ytIssue(5, { ...RESOLVED, description: "Changed" })]);
 

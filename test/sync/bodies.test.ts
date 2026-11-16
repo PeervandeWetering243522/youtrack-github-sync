@@ -161,6 +161,25 @@ describe("runSync body sync (N4)", () => {
     assert.deepEqual(messages(lines), ["update milestone CUI-33 #7: set description", formatSummary(result, "ok")]);
   });
 
+  it("warns when GitHub's answer does not show a milestone's new title or description", async () => {
+    // Arrange
+    const stale = { ...ghMilestone(7, "[YT-33] [team] Epic 33"), description: "Old plan" };
+    const { deps, lines } = harness({
+      milestones: [stale],
+      youtrackRows: [EPIC_ROW],
+      override: (call) => (call.method === "PATCH" ? json(200, stale) : undefined),
+    });
+
+    // Act
+    const result = await runSync(config(), deps);
+
+    // Assert
+    assert.deepEqual(messages(lines, "warn"), [
+      "milestone CUI-33 #7: GitHub dropped the title, the description on update; the next run tries again",
+    ]);
+    assert.deepEqual(result, summary({ scanned: 1, updated: 1, fetches: 5 }));
+  });
+
   it("renames a milestone and updates its description in one PATCH, previewed with the new title", async () => {
     // Arrange
     const world = {

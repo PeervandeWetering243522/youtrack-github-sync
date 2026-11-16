@@ -53,12 +53,26 @@ export async function executeCreateMilestone(
   };
 }
 
-/** PATCH the title (N2) and/or description (N4) of an epic's milestone; counted as a sync write. */
-export function executeUpdateMilestone(action: UpdateMilestoneAction, context: WriteContext): Promise<Tally> {
+/**
+ * PATCH the title (N2) and/or description (N4) of an epic's milestone; counted as a sync write.
+ * A response that does not show the change is warned about, like an issue update's.
+ */
+export async function executeUpdateMilestone(action: UpdateMilestoneAction, context: WriteContext): Promise<Tally> {
+  const what = describeUpdateMilestone(action);
   const { title, description } = action;
   const patch = { ...(title === undefined ? {} : { title }), ...(description === undefined ? {} : { description }) };
-  const write = (): Promise<void> => context.writer.updateMilestone(action.milestone.milestoneNumber, patch);
-  return sendWrite(context, describeUpdateMilestone(action), write, "updated");
+  const outcome = await attemptWrite(() => context.writer.updateMilestone(action.milestone.milestoneNumber, patch));
+  if (outcome.kind !== "ok") return notWritten(context, what, outcome);
+  context.log.info(what);
+  const dropped = [
+    ...(title !== undefined && outcome.value.title !== title ? ["the title"] : []),
+    ...(description !== undefined && outcome.value.description !== description ? ["the description"] : []),
+  ];
+  if (dropped.length > 0) {
+    const label = `milestone ${mirrorName(action.issue)} #${String(action.milestone.milestoneNumber)}`;
+    context.log.warn(`${label}: GitHub dropped ${dropped.join(", ")} on update; the next run tries again`);
+  }
+  return done("updated");
 }
 
 /** PATCH the open milestone of a resolved epic to closed. */

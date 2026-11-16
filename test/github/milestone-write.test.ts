@@ -134,6 +134,8 @@ describe("createMilestone", () => {
 describe("updateMilestone", () => {
   const title = "[CUI-33] Data Structures";
   const description = "Epic text\n\n---\nMirrored from YouTrack: https://youtrack.example.test/issue/CUI-33";
+  /** A valid PATCH answer: updateMilestone parses it, so the caller can check what was applied. */
+  const ANSWER = { body: milestoneJson({ number: 6, title, description }) };
 
   it("PATCHes exactly the title with retry-once, like closeMilestone (N2)", async () => {
     // Arrange
@@ -153,7 +155,7 @@ describe("updateMilestone", () => {
   });
 
   it("PATCHes only the description, or title and description in one request (N4)", async () => {
-    const fake = createFakeHttp([{ body: null }, { body: null }]);
+    const fake = createFakeHttp([ANSWER, ANSWER]);
     await updateMilestone(fake.http, TARGET, 6, { description });
     await updateMilestone(fake.http, TARGET, 6, { title, description });
     assert.deepEqual(requestAt(fake.requests, 0).body, { description });
@@ -168,13 +170,13 @@ describe("updateMilestone", () => {
 
   it("sends the title and description exactly as given, without trimming or escaping them", async () => {
     const odd = ' [CUI-33] "quoted" <b>ü</b> 😀 @bob #3 … ';
-    const fake = createFakeHttp([{ body: null }]);
+    const fake = createFakeHttp([ANSWER]);
     await updateMilestone(fake.http, TARGET, 6, { title: odd, description: `${odd}\r\n` });
     assert.deepEqual(requestAt(fake.requests, 0).body, { title: odd, description: `${odd}\r\n` });
   });
 
   it("sends an empty description as an empty string", async () => {
-    const fake = createFakeHttp([{ body: null }]);
+    const fake = createFakeHttp([ANSWER]);
     await updateMilestone(fake.http, TARGET, 6, { description: "" });
     assert.deepEqual(requestAt(fake.requests, 0).body, { description: "" });
   });
@@ -188,11 +190,21 @@ describe("updateMilestone", () => {
     assert.equal(fake.requests.length, 0);
   });
 
-  it("does not validate the response body", async () => {
-    const fake = createFakeHttp([{ body: null }]);
-    await updateMilestone(fake.http, TARGET, 6, { title });
-    assert.equal(fake.requests.length, 1);
+  it("returns the milestone from the response, so the caller can see whether the change was applied", async () => {
+    const fake = createFakeHttp([{ body: milestoneJson({ number: 6, title: "As stored", description: "Stored" }) }]);
+    const updated = await updateMilestone(fake.http, TARGET, 6, { title, description });
+    assert.deepEqual(updated, { number: 6, title: "As stored", state: "open", description: "Stored" });
   });
+
+  for (const [kind, body] of [
+    ["null", null],
+    ["array", []],
+  ] as const) {
+    it(`throws GitHubSchemaError for a response body that is a JSON ${kind}`, async () => {
+      const fake = createFakeHttp([{ body }]);
+      await assert.rejects(updateMilestone(fake.http, TARGET, 6, { title }), schemaError(/milestone/));
+    });
+  }
 
   for (const milestoneNumber of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
     it(`refuses milestone number ${String(milestoneNumber)} before sending anything`, async () => {
@@ -206,7 +218,7 @@ describe("updateMilestone", () => {
   }
 
   it("percent-encodes owner and repo in the PATCH URL", async () => {
-    const fake = createFakeHttp([{ body: null }]);
+    const fake = createFakeHttp([ANSWER]);
     await updateMilestone(fake.http, { owner: "o w", repo: "r?x", token: TOKEN }, 2, { title });
     assert.equal(requestAt(fake.requests, 0).url, "https://api.github.com/repos/o%20w/r%3Fx/milestones/2");
   });
@@ -220,7 +232,7 @@ describe("updateMilestone", () => {
 
   it("does not mutate or alias the caller's patch", async () => {
     const patch = Object.freeze({ title, description });
-    const fake = createFakeHttp([{ body: null }]);
+    const fake = createFakeHttp([ANSWER]);
     await updateMilestone(fake.http, TARGET, 6, patch);
     assert.deepEqual(patch, { title, description });
     assert.notEqual(requestAt(fake.requests, 0).body, patch);
