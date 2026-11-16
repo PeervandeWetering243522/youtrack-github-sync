@@ -1,10 +1,12 @@
 /**
- * The "## Upgrading" section of a PR description (decision V5): what a group running the mirror
- * must do before updating to a release with a breaking change. A PR has one exactly when its
- * title has a `!` (pr-check.ts). The squash commit on main is the PR title only, so the section
- * reaches the release notes through notes.ts, which reads it from the merged PR. It never goes
- * through the commit parser, which would drop lines such as `Closes #12` and split the note at
- * any line starting with "breaking change".
+ * The "## Upgrading" section of a PR description (decisions V5, V6): what a group running the
+ * mirror must do or know before updating. A breaking PR (a `!` in its title) must have one; any
+ * other PR that makes a release may have one, for a change groups will notice that is not
+ * breaking; a PR that makes no release may not (pr-check.ts). The squash commit on main is the
+ * PR title only, so the section reaches the release notes through notes.ts, which reads it from
+ * the merged PR: a breaking PR's under "⚠ BREAKING CHANGES" (fillUpgrading), any other under
+ * "Before updating" (insertBeforeUpdating). It never goes through the commit parser, which would
+ * drop lines such as `Closes #12` and split the note at any line starting with "breaking change".
  */
 
 /** A conventional-commit header with a `!` before the colon (the preset's breakingHeaderPattern). */
@@ -124,6 +126,44 @@ export function fillUpgrading(notes: string, sections: ReadonlyMap<number, strin
     const text = sections.get(Number(index));
     return text === undefined ? token : indentLater(text);
   });
+}
+
+/** The Upgrading section of a commit that is not breaking, with the commit's message. */
+export type NoticeEntry = { readonly header: string; readonly section: string };
+
+const BEFORE_UPDATING = "### Before updating";
+/** The heading the conventionalcommits preset gives breaking-change notes; it stays first. */
+const BREAKING_HEADING = "### ⚠ BREAKING CHANGES";
+/** A conventional-commit header: type, optional scope, optional `!`, then the summary. */
+const CONVENTIONAL_HEADER = /^\w+(?:\(([^)]*)\))?!?: (.+)$/;
+
+/**
+ * Lists the Upgrading section of each commit that is not breaking under "### Before updating"
+ * (decision V6): a bullet with the commit's summary and PR number (`**scope:** summary (#16)`,
+ * as the type groups write the scope), then the section, indented to stay in the bullet. The
+ * block goes after the breaking changes and before the first type group, so groups read it
+ * before the list of changes. Without entries the notes are returned unchanged.
+ */
+export function insertBeforeUpdating(notes: string, entries: readonly NoticeEntry[]): string {
+  if (entries.length === 0) return notes;
+  const block = [BEFORE_UPDATING, "", ...entries.flatMap(noticeLines)];
+  const lines = notes.split("\n");
+  const at = lines.findIndex((line) => line.startsWith("### ") && line !== BREAKING_HEADING);
+  if (at === -1) return `${notes.trimEnd()}\n\n${block.join("\n")}`;
+  return [...lines.slice(0, at), ...block, ...lines.slice(at)].join("\n");
+}
+
+function noticeLines({ header, section }: NoticeEntry): readonly string[] {
+  return [`* ${noticeTitle(header)}`, "", ...section.split("\n").map((line) => (line === "" ? line : `  ${line}`)), ""];
+}
+
+/** "feat(sync): sync bodies (#16)" -> "**sync:** sync bodies (#16)"; any other first line as it is. */
+function noticeTitle(message: string): string {
+  const first = message.split("\n", 1)[0] ?? "";
+  const match = CONVENTIONAL_HEADER.exec(first);
+  if (match === null) return first;
+  const [, scope, summary = ""] = match;
+  return scope === undefined ? summary : `**${scope}:** ${summary}`;
 }
 
 function indentLater(text: string): string {

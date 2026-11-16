@@ -2,7 +2,7 @@
 
 Development commands and conventions are in the [README](README.md#development) and
 [CLAUDE.md](CLAUDE.md). This file covers how changes reach `main` and become releases
-(decisions V1-V5 in [docs/08-decisions.md](docs/08-decisions.md)).
+(decisions V1-V6 in [docs/08-decisions.md](docs/08-decisions.md)).
 
 ## Branches and pull requests
 
@@ -32,19 +32,32 @@ Development commands and conventions are in the [README](README.md#development) 
 | `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `style` | none                  |
 
 The summary after the colon is the PR's line in the release notes, so write it for the groups
-running the mirror. A breaking change is anything they would notice after updating: a renamed
-or removed input or setting, a changed title format, a new kind of write. It bumps the major
-version. Up to v0.1.1 a breaking change bumped only the minor version (a `releaseRules` entry in
-`.releaserc.json`); the assignee sync removed that rule and is released as v1.0.0 (decision U1).
+running the mirror. A breaking change is one a group has to act on when updating: a renamed or
+removed input or setting, a changed title format, a new kind of write that needs a new
+permission or setting. It bumps the major version. A change they will notice but need not act
+on, such as the mirror now keeping in sync something it used to leave alone, is not breaking:
+it gets an Upgrading section instead (below). Up to v0.1.1 a breaking change bumped only the
+minor version (a `releaseRules` entry in `.releaserc.json`); the assignee sync removed that rule
+and is released as v1.0.0 (decision U1).
 
 ### The Upgrading section
 
-A breaking PR (a `!` in the title) needs a `## Upgrading` section in its description: what a
-group must do before updating, written for them. The PR template has the heading. The release
-puts this section, as written, under "⚠ BREAKING CHANGES" in the notes (decision V5), so
-Markdown, code blocks and `#12` all come through unchanged. A PR without a `!` leaves the
-section empty. The **Conventional PR title** check fails when a `!` PR has no section or another
-PR has one. It runs again when you edit the title or description.
+The `## Upgrading` section of a PR description says what a group running the mirror must do or
+know before updating, written for them. The PR template has the heading. The release copies it
+as written, so Markdown, code blocks and `#12` all come through unchanged. Which PRs have one:
+
+- **A breaking PR** (a `!` in the title) must have one. The release puts it under
+  "⚠ BREAKING CHANGES" (decision V5).
+- **Any other PR that makes a release** (`feat`, `fix`, `perf`, `revert`) has one when groups
+  will notice the change after updating: something the mirror now writes, rewrites or stops
+  writing, or a visible change in its runs. The release lists it under "Before updating", after
+  the breaking changes and before the list of changes, as `* <summary> (#16)` followed by the
+  section (decision V6). A change nobody will notice leaves the section empty.
+- **A PR that makes no release** (`docs`, `ci`, `chore`, ...) leaves it empty: no release
+  notes would show it.
+
+The **Conventional PR title** check fails when a `!` PR has no section or a PR that makes no
+release has one. It runs again when you edit the title or description.
 
 The check's summary page (the job's **Summary**) previews the release: the bump the PR makes
 and its exact entry in the release notes. Locally:
@@ -56,8 +69,9 @@ Every push to `main` runs `.github/workflows/release.yml`. It checks the code ag
 runs [semantic-release](https://semantic-release.gitbook.io/), which reads the commits since the
 last `v*` tag. When one of them warrants a release, it pushes the next tag (`v1.1.0`) and
 creates a GitHub Release. Its notes have one line per PR title, grouped by type, the Upgrading
-section of each breaking PR first (`scripts/release/notes.ts` reads it from the merged PR), and
-at the end the release's commit SHA and a ready `uses:` line to pin it (`releaseBodyTemplate`).
+section of each breaking PR first, then "Before updating" with the section of every other PR
+that has one (`scripts/release/notes.ts` reads each released commit's merged PR), and at the
+end the release's commit SHA and a ready `uses:` line to pin it (`releaseBodyTemplate`).
 A breaking PR without a section gets its title as its note and a warning in the release log;
 release notes can still be edited afterwards. Nothing is committed back to `main`: the
 tag is the version (`package.json` stays at `0.0.0-development`), and the release notes are

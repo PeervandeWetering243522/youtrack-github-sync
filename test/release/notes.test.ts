@@ -1,6 +1,7 @@
 /**
- * Release notes (V5): the conventional-changelog notes, with each breaking PR's "## Upgrading"
- * section as its note. Runs the real notes generator; only the PR lookup is faked.
+ * Release notes (V5, V6): the conventional-changelog notes, with each breaking PR's
+ * "## Upgrading" section as its note and any other PR's section under "Before updating". Runs
+ * the real notes generator; only the PR lookup is faked.
  */
 
 import assert from "node:assert/strict";
@@ -55,7 +56,7 @@ describe("releaseNotes", () => {
     const looked: string[] = [];
     const notes = await releaseNotes(CONFIG, context, (commit) => {
       looked.push(commit.hash);
-      return Promise.resolve(section);
+      return Promise.resolve(commit.hash === SHA_A ? section : null);
     });
     assert.equal(
       body(notes),
@@ -82,8 +83,58 @@ describe("releaseNotes", () => {
         "",
       ].join("\n"),
     );
-    assert.deepEqual(looked, [SHA_A], "only breaking commits are looked up");
+    assert.deepEqual(looked, [SHA_A, SHA_B], "every commit is looked up");
     assert.deepEqual(warnings, []);
+  });
+
+  it("lists a non-breaking PR's Upgrading section under Before updating, after the breaking changes", async () => {
+    const { context, warnings } = contextWith([
+      { hash: SHA_A, message: "feat!: assign mirrors (#8)" },
+      { hash: SHA_B, message: "feat(sync): sync bodies (#16)" },
+      { hash: SHA_C, message: "fix: a fix (#17)" },
+    ]);
+    const sections = new Map([
+      [SHA_A, "Add `contents: read`."],
+      [SHA_B, "Bodies now follow YouTrack.\n\n- Edits on GitHub are reverted."],
+    ]);
+    const notes = await releaseNotes(CONFIG, context, (commit) => Promise.resolve(sections.get(commit.hash) ?? null));
+    assert.equal(
+      body(notes),
+      [
+        "",
+        "### ⚠ BREAKING CHANGES",
+        "",
+        "* Add `contents: read`.",
+        "",
+        "### Before updating",
+        "",
+        "* **sync:** sync bodies (#16)",
+        "",
+        "  Bodies now follow YouTrack.",
+        "",
+        "  - Edits on GitHub are reverted.",
+        "",
+        "### Features",
+        "",
+        `* assign mirrors ${pr(8)} ${link(SHA_A)}`,
+        `* **sync:** sync bodies ${pr(16)} ${link(SHA_B)}`,
+        "",
+        "### Bug Fixes",
+        "",
+        `* a fix ${pr(17)} ${link(SHA_C)}`,
+        "",
+      ].join("\n"),
+    );
+    assert.deepEqual(warnings, []);
+  });
+
+  it("puts Before updating first when nothing is breaking", async () => {
+    const { context } = contextWith([{ hash: SHA_B, message: "fix: a fix (#9)" }]);
+    const notes = await releaseNotes(CONFIG, context, () => Promise.resolve("Read this."));
+    assert.equal(
+      body(notes),
+      `\n### Before updating\n\n* a fix (#9)\n\n  Read this.\n\n### Bug Fixes\n\n* a fix ${pr(9)} ${link(SHA_B)}\n`,
+    );
   });
 
   it("keeps the title as the note and warns when a breaking PR has no section", async () => {
@@ -109,17 +160,14 @@ describe("releaseNotes", () => {
     assert.doesNotMatch(notes, /UPGRADING-NOTE/);
   });
 
-  it("leaves non-breaking commits and their bodies to the generator", async () => {
-    const { context } = contextWith([
+  it("leaves a non-breaking commit without a section, and its body, to the generator", async () => {
+    const { context, warnings } = contextWith([
       { hash: SHA_B, message: "feat: typed body (#3)\n\nBREAKING CHANGE: from the dialog" },
     ]);
-    let calls = 0;
-    const notes = await releaseNotes(CONFIG, context, () => {
-      calls += 1;
-      return Promise.resolve("never");
-    });
-    assert.equal(calls, 0);
+    const notes = await releaseNotes(CONFIG, context, () => Promise.resolve(null));
     assert.match(notes, /\* from the dialog\n/);
+    assert.doesNotMatch(notes, /Before updating/);
+    assert.deepEqual(warnings, []);
   });
 
   it("fails when a lookup fails, so the release can be rerun", async () => {
@@ -228,29 +276,38 @@ describe("generateNotes (the semantic-release plugin)", () => {
     mock.restoreAll();
   });
 
-  it("reads each breaking commit's PR from GitHub and uses its Upgrading section", async () => {
+  it("reads every commit's PR from GitHub and uses its Upgrading section", async () => {
     const urls: string[] = [];
+    const bodies = new Map([
+      [SHA_A, { number: 8, body: "Intro.\r\n\r\n## Upgrading\r\n\r\nSet `x`.\r\n" }],
+      [SHA_B, { number: 9, body: "## Upgrading\n\nRead this." }],
+      [SHA_C, { number: 10, body: null }],
+    ]);
     mock.method(globalThis, "fetch", (input: string) => {
       urls.push(input);
-      const prs = [{ number: 8, merge_commit_sha: SHA_A, body: "Intro.\r\n\r\n## Upgrading\r\n\r\nSet `x`.\r\n" }];
+      const sha = [...bodies.keys()].find((hash) => input.includes(hash));
+      const found = sha === undefined ? undefined : bodies.get(sha);
+      const prs = found === undefined ? [] : [{ ...found, merge_commit_sha: sha }];
       return Promise.resolve(new Response(JSON.stringify(prs), { status: 200 }));
     });
     const { context, warnings } = contextWith(
       [
         { hash: SHA_A, message: "feat!: assign mirrors (#8)" },
         { hash: SHA_B, message: "fix: a fix (#9)" },
+        { hash: SHA_C, message: "docs: a doc (#10)" },
       ],
       { GITHUB_REPOSITORY: "owner/repo", GITHUB_TOKEN: "t" },
     );
     const notes = await generateNotes(CONFIG, context);
     assert.match(notes, /### ⚠ BREAKING CHANGES\n\n\* Set `x`\.\n/);
-    assert.deepEqual(urls, [`https://api.github.com/repos/owner/repo/commits/${SHA_A}/pulls?per_page=100`]);
+    assert.match(notes, /### Before updating\n\n\* a fix \(#9\)\n\n {2}Read this\.\n/);
+    const url = (sha: string): string => `https://api.github.com/repos/owner/repo/commits/${sha}/pulls?per_page=100`;
+    assert.deepEqual(urls, [url(SHA_A), url(SHA_B), url(SHA_C)]);
     assert.deepEqual(warnings, []);
   });
 
-  it("needs no token when nothing is breaking", async () => {
+  it("fails without a token, which the release job always has", async () => {
     const { context } = contextWith([{ hash: SHA_B, message: "fix: a fix (#9)" }]);
-    const notes = await generateNotes(CONFIG, context);
-    assert.match(notes, /### Bug Fixes\n\n\* a fix/);
+    await assert.rejects(generateNotes(CONFIG, context), /GITHUB_REPOSITORY/);
   });
 });

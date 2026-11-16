@@ -1,6 +1,7 @@
 /**
- * The "## Upgrading" section of a PR description (V5): reading it, the `!` rule, and putting it
- * in place of its token in the generated notes.
+ * The "## Upgrading" section of a PR description (V5, V6): reading it, the `!` rule, putting a
+ * breaking PR's section in place of its token in the generated notes, and listing any other
+ * PR's section under "Before updating".
  */
 
 import assert from "node:assert/strict";
@@ -8,6 +9,7 @@ import { describe, it } from "node:test";
 
 import {
   fillUpgrading,
+  insertBeforeUpdating,
   isBreakingTitle,
   upgradingSection,
   withUpgradingToken,
@@ -153,5 +155,83 @@ describe("fillUpgrading", () => {
 
   it("leaves a token without a section as it is", () => {
     assert.equal(fillUpgrading("* UPGRADING-NOTE-2", new Map()), "* UPGRADING-NOTE-2");
+  });
+});
+
+describe("insertBeforeUpdating", () => {
+  const NOTES = "## 1.1.0\n\n### ⚠ BREAKING CHANGES\n\n* Do one.\n\n### Features\n\n* a feat\n";
+
+  it("returns the notes unchanged without sections", () => {
+    assert.equal(insertBeforeUpdating(NOTES, []), NOTES);
+  });
+
+  it("lists each section after the breaking changes and before the first type group", () => {
+    const entries = [
+      { header: "feat(sync): sync bodies (#16)", section: "First.\n\n- step\n\n```yaml\nx: 1\n```" },
+      { header: "fix: a fix (#17)", section: "Second." },
+    ];
+    assert.equal(
+      insertBeforeUpdating(NOTES, entries),
+      [
+        "## 1.1.0",
+        "",
+        "### ⚠ BREAKING CHANGES",
+        "",
+        "* Do one.",
+        "",
+        "### Before updating",
+        "",
+        "* **sync:** sync bodies (#16)",
+        "",
+        "  First.",
+        "",
+        "  - step",
+        "",
+        "  ```yaml",
+        "  x: 1",
+        "  ```",
+        "",
+        "* a fix (#17)",
+        "",
+        "  Second.",
+        "",
+        "### Features",
+        "",
+        "* a feat",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("goes right after the version header when nothing is breaking", () => {
+    const notes = "## 1.1.0\n\n### Features\n\n* a feat\n";
+    assert.equal(
+      insertBeforeUpdating(notes, [{ header: "feat: a feat (#3)", section: "Note." }]),
+      "## 1.1.0\n\n### Before updating\n\n* a feat (#3)\n\n  Note.\n\n### Features\n\n* a feat\n",
+    );
+  });
+
+  it("goes at the end when the notes have no type group", () => {
+    assert.equal(
+      insertBeforeUpdating("## 1.1.0\n", [{ header: "chore: x (#4)", section: "Note." }]),
+      "## 1.1.0\n\n### Before updating\n\n* x (#4)\n\n  Note.\n",
+    );
+  });
+
+  it("uses the whole first line of a header that is not conventional, and drops a `!`", () => {
+    const entries = [
+      { header: "Odd header\n\nbody", section: "A." },
+      { header: "feat(x)!: y (#5)", section: "B." },
+    ];
+    const notes = insertBeforeUpdating("## 1.1.0\n", entries);
+    assert.match(notes, /^\* Odd header\n\n {2}A\.$/m);
+    assert.match(notes, /^\* \*\*x:\*\* y \(#5\)\n\n {2}B\.$/m);
+  });
+
+  it("inserts `$` sequences literally", () => {
+    assert.match(
+      insertBeforeUpdating("## 1.1.0\n", [{ header: "fix: $& (#1)", section: "Use $1." }]),
+      /\* \$& \(#1\)\n\n {2}Use \$1\./,
+    );
   });
 });

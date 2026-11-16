@@ -412,8 +412,9 @@ updates:
 
 From v1.0.0 on, a major bump (1.x to 2.0) can contain breaking changes: its release notes start
 with "⚠ BREAKING CHANGES", which says what to do before merging it. Minor bumps (1.0 to 1.1) add features, and patch bumps (1.0.0 to 1.0.1) are
-fixes and updated pins of the actions it uses. Before v1.0.0, a minor bump could break things
-too.
+fixes and updated pins of the actions it uses. A minor or patch release that changes what the
+mirror does in a way your group will notice says so under "Before updating" at the top of its
+notes: read that before merging the bump. Before v1.0.0, a minor bump could break things too.
 
 ### Updating from v0.x to v1.0.0
 

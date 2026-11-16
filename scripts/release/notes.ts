@@ -1,7 +1,8 @@
 /**
- * semantic-release plugin for the generateNotes step (.releaserc.json, decision V5): the
- * conventional-changelog notes, with each breaking commit's note taken from the "## Upgrading"
- * section of the PR it was squash-merged from.
+ * semantic-release plugin for the generateNotes step (.releaserc.json, decisions V5, V6): the
+ * conventional-changelog notes, with the "## Upgrading" section of the PR each commit was
+ * squash-merged from: a breaking commit's as its note, any other's under "Before updating".
+ * Every released commit's PR is read, so the release job's token is always needed.
  */
 
 import { gitHubTarget, mergedPullRequest } from "./pull-request.ts";

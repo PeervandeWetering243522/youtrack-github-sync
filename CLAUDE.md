@@ -76,12 +76,15 @@ necessarily the project you are working with.
   `src/config.ts` (keys, defaults, dry run on).
 - `.github/`: CI (`npm run check`, zizmor), the PR check, the semantic-release workflow
   (`.releaserc.json`), the PR template and Dependabot. `CONTRIBUTING.md` has the branch,
-  PR-title and release rules (V1-V5); squash commits are the PR title only and pick the
-  version, and a `!` PR needs a `## Upgrading` section, which becomes its release note. `main`
-  is protected by a repo ruleset (PRs only, squash only, the three checks); never push to it
-  directly.
+  PR-title and release rules (V1-V6); squash commits are the PR title only and pick the
+  version, and a `!` PR needs a `## Upgrading` section, which becomes its release note. Any
+  feat/fix/perf/revert PR whose change groups will notice after updating (something the mirror
+  now writes, rewrites or stops writing) gets an Upgrading section too, even when it is not
+  breaking: the release lists it under "Before updating" (V6). Write one for every such PR; a PR
+  that makes no release (docs, ci, chore) may not have one. `main` is protected by a repo
+  ruleset (PRs only, squash only, the three checks); never push to it directly.
 - `scripts/release/`: release tooling, not part of the sync. `notes.ts` is the semantic-release
-  notes plugin (the stock notes plus each breaking PR's Upgrading section, read from GitHub),
+  notes plugin (the stock notes plus each released PR's Upgrading section, read from GitHub),
   `check-pr.ts` the PR check and release preview (`pr-check.ts`), `upgrading.ts` the section
   rules. Tests in `test/release/`.
 - `docs/`: research and design. Start at `docs/README.md`.
